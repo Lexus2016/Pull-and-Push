@@ -2,9 +2,16 @@ import pytest
 
 from tyani_tolkai.projects import (
     delete_project, export_project, import_project, list_projects,
-    project_dir, rename_project, reset_project,
+    project_dir, rename_project, reset_project, valid_name,
 )
 from tyani_tolkai.state import StateStore
+
+
+def test_valid_name_rejects_traversal():
+    for bad in ["../evil", "a/b", "..", "", ".hidden/y", "a\\b", "/abs"]:
+        with pytest.raises(ValueError):
+            valid_name(bad)
+    assert valid_name("ok-name_1.2") == "ok-name_1.2"
 
 
 @pytest.fixture

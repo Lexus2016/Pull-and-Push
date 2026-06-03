@@ -74,11 +74,13 @@ class RunManager:
         with self._lock:
             if self._runs.get(name, {}).get("status") == "running":
                 raise HTTPException(409, "run already in progress")
+            self._stop.discard(name)   # clear inside the lock so a racing /stop isn't lost
             self._runs[name] = {"status": "running", "summary": None, "outcomes": []}
-        self._stop.discard(name)
         threading.Thread(target=self._run, args=(name,), daemon=True).start()
 
     def _run(self, name: str) -> None:
+        state = None
+        run_id = None
         try:
             base = project_dir(name)
             cfg = load_config(base / "config.yaml")
@@ -105,11 +107,18 @@ class RunManager:
                 self._runs[name]["status"] = "stopped" if summary.reason == "stopped" else "finished"
                 self._runs[name]["summary"] = {"reason": summary.reason,
                     "best_score": summary.best_score, "iterations": summary.iterations}
-            state.close()
         except Exception as e:  # surface failures to the UI rather than dying silently
             with self._lock:
                 self._runs[name]["status"] = "error"
                 self._runs[name]["summary"] = {"error": str(e)}
+            if state is not None and run_id is not None:
+                try:
+                    state.set_status(run_id, "error")   # no zombie 'running' in the db
+                except Exception:
+                    pass
+        finally:
+            if state is not None:
+                state.close()                            # never leak the connection
 
 
 def _persisted_state(name: str) -> dict:
@@ -137,9 +146,17 @@ def create_app(token: str | None = None) -> FastAPI:
     app.state.token = token if token is not None else os.environ.get("TYANI_TOLKAI_WEB_PASSWORD")
     app.state.runs = RunManager()
 
+    @app.exception_handler(ValueError)
+    async def _value_error(request, exc):       # invalid project name etc → 400, not 500
+        return JSONResponse(status_code=400, content={"detail": str(exc)})
+
     def auth(t: str | None) -> None:
         if app.state.token and t != app.state.token:
             raise HTTPException(401, "bad or missing token")
+
+    def _not_while_running(name: str) -> None:
+        if app.state.runs.is_running(name):
+            raise HTTPException(409, "a run is in progress; stop it first")
 
     @app.get("/")
     def index():
@@ -173,6 +190,8 @@ def create_app(token: str | None = None) -> FastAPI:
     def api_command(name: str, text: str = Query(...), role: str = Query("executor"),
                     token: str | None = Query(None)):
         auth(token)
+        if role not in ("executor", "validator"):
+            raise HTTPException(400, "role must be executor or validator")
         ctx = project_dir(name) / "context"
         ctx.mkdir(parents=True, exist_ok=True)
         with (ctx / f"{role}.md").open("a", encoding="utf-8") as f:
@@ -251,6 +270,7 @@ def create_app(token: str | None = None) -> FastAPI:
     @app.put("/api/projects/{name}/config")
     def api_put_config(name: str, payload: dict = Body(...), token: str | None = Query(None)):
         auth(token)
+        _not_while_running(name)
         base = project_dir(name)
         if not (base / "config.yaml").exists():
             raise HTTPException(404, "no such project")
@@ -272,12 +292,14 @@ def create_app(token: str | None = None) -> FastAPI:
     @app.post("/api/projects/{name}/delete")
     def api_delete(name: str, token: str | None = Query(None)):
         auth(token)
+        _not_while_running(name)
         delete_project(name)
         return {"deleted": name}
 
     @app.post("/api/projects/{name}/rename")
     def api_rename(name: str, to: str = Query(...), token: str | None = Query(None)):
         auth(token)
+        _not_while_running(name)
         try:
             rename_project(name, to)
         except FileNotFoundError:
@@ -289,6 +311,7 @@ def create_app(token: str | None = None) -> FastAPI:
     @app.post("/api/projects/{name}/reset")
     def api_reset(name: str, token: str | None = Query(None)):
         auth(token)
+        _not_while_running(name)
         if not project_dir(name).exists():
             raise HTTPException(404, f"no such project: {name}")
         reset_project(name)
@@ -297,7 +320,7 @@ def create_app(token: str | None = None) -> FastAPI:
     @app.get("/api/projects/{name}/export")
     def api_export(name: str, token: str | None = Query(None)):
         auth(token)
-        dest = Path(tempfile.gettempdir()) / f"{name}.tar.gz"
+        dest = Path(tempfile.mkdtemp()) / f"{name}.tar.gz"   # unique dir per request
         export_project(name, dest)
         return FileResponse(dest, filename=f"{name}.tar.gz")
 

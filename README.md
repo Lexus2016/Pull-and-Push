@@ -107,6 +107,11 @@ tyani-tolkai projects delete renamed
 - **Checkpoints** currently surface as stop-points (target/plateau/max) visible in the UI;
   interactive mid-run continue/adjust is the next increment.
 - **Live updates** use polling (1s), not WebSocket — same live chart, simpler/robust.
+- **WebUI auth** is a token passed as a URL query param — fine for the intended
+  localhost single-user use. For remote exposure, front it with a TLS reverse proxy
+  (the token would otherwise appear in logs/history).
+- **Path safety:** project names are validated against traversal (`../`, `/`); only
+  `executor`/`validator` roles accepted for steering.
 
 ## Tests
 

@@ -8,6 +8,7 @@ relative, secrets excluded) so a run can continue on another machine.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tarfile
@@ -15,6 +16,15 @@ import tempfile
 from pathlib import Path
 
 from .state import StateStore
+
+_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,80}$")
+
+
+def valid_name(name: str) -> str:
+    """Reject anything that could escape the projects root (path traversal)."""
+    if not name or ".." in name or "/" in name or "\\" in name or not _NAME_RE.match(name):
+        raise ValueError(f"invalid project name: {name!r}")
+    return name
 
 
 def home_root() -> Path:
@@ -28,6 +38,7 @@ def projects_root() -> Path:
 
 
 def project_dir(name: str) -> Path:
+    valid_name(name)                       # centralized path-traversal guard
     return projects_root() / name
 
 

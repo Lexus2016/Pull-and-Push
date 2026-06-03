@@ -42,6 +42,16 @@ def test_build_prompt_includes_description_and_schema():
     assert "JSON" in p and "adapter" in p
 
 
+def test_extract_braces_inside_strings():
+    # braces inside JSON string values must not fool the parser
+    assert extract_json('{"task": "use { and } literally", "n": 5}')["n"] == 5
+
+
+def test_extract_skips_non_json_fence():
+    out = '```bash\necho hi\n```\nthen the config:\n```json\n{"ok": true}\n```'
+    assert extract_json(out)["ok"] is True
+
+
 def test_generate_with_injected_runner():
     out = '```json\n{"project": "p", "mode": "asymmetric"}\n```'
     cfg = generate_config("desc", runner=lambda prompt: out)

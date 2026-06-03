@@ -97,6 +97,24 @@ def test_rename_conflict_and_missing(client):
     assert client.post("/api/projects/zzz/reset").status_code == 404
 
 
+def test_path_traversal_rejected(client):
+    assert client.post("/api/projects/create", json=dict(_VALID, project="../evil")).status_code == 400
+    client.post("/api/projects/create", json=_VALID)
+    assert client.post("/api/projects/webtest/rename?to=../x").status_code == 400
+
+
+def test_command_role_validated(client):
+    client.post("/api/projects/create", json=_VALID)
+    assert client.post("/api/projects/webtest/command?role=../etc&text=hi").status_code == 400
+
+
+def test_lifecycle_blocked_while_running(client, monkeypatch):
+    client.post("/api/projects/create", json=dict(_VALID, project="busy"))
+    monkeypatch.setattr(client.app.state.runs, "is_running", lambda n: True)
+    assert client.post("/api/projects/busy/delete").status_code == 409
+    assert client.post("/api/projects/busy/reset").status_code == 409
+
+
 def test_lifecycle_endpoints(client):
     client.post("/api/projects/create", json=dict(_VALID, project="lc"))
     assert client.post("/api/projects/lc/stop").status_code == 200

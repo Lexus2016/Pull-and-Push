@@ -64,26 +64,31 @@ def build_configurator_prompt(description: str) -> str:
 def extract_json(text: str) -> dict:
     """Pull the JSON config object out of an agent's free-text output.
 
-    Handles plain JSON, fenced ```json blocks, and JSON surrounded by prose — including
-    NESTED objects (depth-tracked balanced braces, not a naive regex).
+    Uses ``JSONDecoder.raw_decode`` (string- and nesting-aware — braces inside JSON
+    strings won't fool it). Tries fenced ```json blocks first, then any fenced block,
+    then the whole text, decoding at each ``{`` until one parses to a dict.
     """
     if not text or not text.strip():
         raise ValueError("empty configurator output")
-    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
-    if fence:                              # strip the code fence, keep its contents
-        text = fence.group(1)
-    start = text.find("{")
-    if start == -1:
-        raise ValueError("no JSON object in configurator output")
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                return json.loads(text[start:i + 1])
-    raise ValueError("unbalanced JSON in configurator output")
+    dec = json.JSONDecoder()
+    blocks: list[str] = []
+    for m in re.finditer(r"```(?:json)?\s*(.*?)```", text, re.S):  # fenced first
+        blocks.append(m.group(1))
+    blocks.append(text)                                            # then the raw text
+    for block in blocks:
+        i = 0
+        while True:
+            s = block.find("{", i)
+            if s == -1:
+                break
+            try:
+                obj, _ = dec.raw_decode(block[s:])
+                if isinstance(obj, dict):
+                    return obj
+            except json.JSONDecodeError:
+                pass
+            i = s + 1
+    raise ValueError("no JSON object in configurator output")
 
 
 def generate_config(description: str, engine: str = "claude", model: str | None = None,
