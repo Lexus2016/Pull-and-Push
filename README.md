@@ -112,6 +112,13 @@ tyani-tolkai projects delete renamed
   (the token would otherwise appear in logs/history).
 - **Path safety:** project names are validated against traversal (`../`, `/`); only
   `executor`/`validator` roles accepted for steering.
+- **Executor engine compatibility (important):** the loop runs each agent with
+  `cwd = artifact/`. **`claude` and `codex` respect that** and edit the artifact
+  correctly. **`opencode`/`agy` currently do NOT** — they resolve their own project
+  root and may edit the enclosing repo instead, so every iteration reads as `no_op`.
+  **Use `claude` or `codex` as the Executor** until their working-dir handling is sorted.
+  A ready end-to-end example lives in `examples/trading-ma/` (real BTCUSDT 5m backtest;
+  proven: score climbed from baseline to 45.7 in one claude iteration).
 
 ## Tests
 
