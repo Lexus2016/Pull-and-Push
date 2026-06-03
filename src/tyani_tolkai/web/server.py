@@ -9,16 +9,22 @@ TYANI_TOLKAI_WEB_PASSWORD env) protects the API when set.
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 import threading
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Query
+import yaml
+from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
 
-from ..config import load_config
+from ..config import Config, load_config
 from ..metrics import get_metric_adapter
 from ..orchestrator import Orchestrator
-from ..projects import list_projects, project_dir
+from ..projects import (
+    delete_project, export_project, list_projects, project_dir,
+    rename_project, reset_project,
+)
 from ..registry import build_adapter
 from ..sandbox import get_backend
 from ..state import StateStore
@@ -31,7 +37,11 @@ class RunManager:
 
     def __init__(self):
         self._runs: dict[str, dict] = {}
+        self._stop: set[str] = set()
         self._lock = threading.Lock()
+
+    def stop(self, name: str) -> None:
+        self._stop.add(name)
 
     def snapshot(self, name: str) -> dict:
         with self._lock:
@@ -65,6 +75,7 @@ class RunManager:
             if self._runs.get(name, {}).get("status") == "running":
                 raise HTTPException(409, "run already in progress")
             self._runs[name] = {"status": "running", "summary": None, "outcomes": []}
+        self._stop.discard(name)
         threading.Thread(target=self._run, args=(name,), daemon=True).start()
 
     def _run(self, name: str) -> None:
@@ -88,9 +99,10 @@ class RunManager:
                     self._runs[name]["outcomes"].append(
                         {"n": o.n, "verdict": o.verdict, "score": o.score})
 
-            summary = orch.run_loop(on_iteration=on_iter)
+            summary = orch.run_loop(on_iteration=on_iter,
+                                    should_stop=lambda: name in self._stop)
             with self._lock:
-                self._runs[name]["status"] = "finished"
+                self._runs[name]["status"] = "stopped" if summary.reason == "stopped" else "finished"
                 self._runs[name]["summary"] = {"reason": summary.reason,
                     "best_score": summary.best_score, "iterations": summary.iterations}
             state.close()
@@ -171,5 +183,96 @@ def create_app(token: str | None = None) -> FastAPI:
     def api_demo(token: str | None = Query(None)):
         auth(token)
         return JSONResponse(app.state.runs.start_demo())
+
+    # ---- meta for the config form ----
+    @app.get("/api/meta")
+    def api_meta(token: str | None = Query(None)):
+        auth(token)
+        return {
+            "engines": ["claude", "codex", "opencode", "agy"],
+            "adapters": ["numeric", "command-exit", "pytest-pass"],
+            "seeds": ["empty", "copy", "generate"],
+            "modes": ["asymmetric"],
+            "dirs": ["higher", "lower"],
+        }
+
+    # ---- project create / configure ----
+    @app.post("/api/projects/create")
+    def api_create(payload: dict = Body(...), token: str | None = Query(None)):
+        auth(token)
+        name = payload.get("project")
+        if not name:
+            raise HTTPException(400, "project name required")
+        base = project_dir(name)
+        if (base / "config.yaml").exists():
+            raise HTTPException(409, f"project {name!r} already exists")
+        try:
+            cfg = Config(**payload)               # validate before creating anything
+        except Exception as e:
+            raise HTTPException(422, f"invalid config: {e}")
+        state = StateStore(base)
+        if cfg.seed.mode == "copy" and cfg.seed.path:
+            src = Path(cfg.seed.path).expanduser()
+            if src.exists():
+                shutil.copytree(src, state.artifact_dir, dirs_exist_ok=True)
+        state.git_init()
+        (base / "config.yaml").write_text(
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        state.close()
+        return {"created": name}
+
+    @app.get("/api/projects/{name}/config")
+    def api_get_config(name: str, token: str | None = Query(None)):
+        auth(token)
+        p = project_dir(name) / "config.yaml"
+        if not p.exists():
+            raise HTTPException(404, "no config for this project")
+        return yaml.safe_load(p.read_text(encoding="utf-8"))
+
+    @app.put("/api/projects/{name}/config")
+    def api_put_config(name: str, payload: dict = Body(...), token: str | None = Query(None)):
+        auth(token)
+        base = project_dir(name)
+        if not (base / "config.yaml").exists():
+            raise HTTPException(404, "no such project")
+        try:
+            Config(**payload)
+        except Exception as e:
+            raise HTTPException(422, f"invalid config: {e}")
+        (base / "config.yaml").write_text(
+            yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        return {"updated": name}
+
+    # ---- run control & lifecycle ----
+    @app.post("/api/projects/{name}/stop")
+    def api_stop(name: str, token: str | None = Query(None)):
+        auth(token)
+        app.state.runs.stop(name)
+        return {"stopping": name}
+
+    @app.post("/api/projects/{name}/delete")
+    def api_delete(name: str, token: str | None = Query(None)):
+        auth(token)
+        delete_project(name)
+        return {"deleted": name}
+
+    @app.post("/api/projects/{name}/rename")
+    def api_rename(name: str, to: str = Query(...), token: str | None = Query(None)):
+        auth(token)
+        rename_project(name, to)
+        return {"renamed": to}
+
+    @app.post("/api/projects/{name}/reset")
+    def api_reset(name: str, token: str | None = Query(None)):
+        auth(token)
+        reset_project(name)
+        return {"reset": name}
+
+    @app.get("/api/projects/{name}/export")
+    def api_export(name: str, token: str | None = Query(None)):
+        auth(token)
+        dest = Path(tempfile.gettempdir()) / f"{name}.tar.gz"
+        export_project(name, dest)
+        return FileResponse(dest, filename=f"{name}.tar.gz")
 
     return app

@@ -173,9 +173,13 @@ class Orchestrator:
 
     # ---- loop ----
 
-    def run_loop(self, on_iteration=None) -> LoopSummary:
+    def run_loop(self, on_iteration=None, should_stop=None) -> LoopSummary:
         cfg = self.cfg
         while True:
+            if should_stop and should_stop():
+                best = self.state.best_score(self.run_id)
+                self.state.set_status(self.run_id, "stopped")
+                return LoopSummary("stopped", best, self.n)
             outcome = self.run_iteration()
             if on_iteration:
                 on_iteration(outcome)

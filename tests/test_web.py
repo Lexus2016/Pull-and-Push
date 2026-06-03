@@ -3,6 +3,17 @@ from fastapi.testclient import TestClient
 
 from tyani_tolkai.web.server import create_app
 
+_VALID = {
+    "project": "webtest", "mode": "asymmetric",
+    "agents": {"executor": {"engine": "claude", "timeout": 600}},
+    "roles": {"executor": {"goal": "improve"}},
+    "evaluation": {"adapter": "numeric", "command": "true",
+                   "metrics": [{"name": "s", "dir": "higher", "weight": 1, "worst": 0, "target": 100}],
+                   "target_score": 100},
+    "limits": {"max_iterations": 2, "plateau_N": 6, "step_seconds": 600},
+    "sandbox": {"backend": "local"}, "seed": {"mode": "empty"},
+}
+
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
@@ -36,3 +47,39 @@ def test_auth_enforced(tmp_path, monkeypatch):
     c = TestClient(create_app(token="secret"))
     assert c.get("/api/projects").status_code == 401
     assert c.get("/api/projects?token=secret").status_code == 200
+
+
+def test_meta(client):
+    m = client.get("/api/meta").json()
+    assert "claude" in m["engines"] and "numeric" in m["adapters"]
+
+
+def test_create_get_update_config(client):
+    r = client.post("/api/projects/create", json=_VALID)
+    assert r.status_code == 200, r.text
+    assert "webtest" in client.get("/api/projects").json()["projects"]
+
+    cfg = client.get("/api/projects/webtest/config").json()
+    assert cfg["project"] == "webtest"
+    assert cfg["evaluation"]["target_score"] == 100
+
+    cfg["evaluation"]["target_score"] = 80
+    assert client.put("/api/projects/webtest/config", json=cfg).status_code == 200
+    assert client.get("/api/projects/webtest/config").json()["evaluation"]["target_score"] == 80
+
+
+def test_create_invalid_rejected(client):
+    bad = dict(_VALID, project="badp")
+    bad["evaluation"] = {"adapter": "numeric",  # no command → invalid
+                         "metrics": [{"name": "s", "dir": "higher", "weight": 1, "worst": 0, "target": 100}]}
+    assert client.post("/api/projects/create", json=bad).status_code == 422
+
+
+def test_lifecycle_endpoints(client):
+    client.post("/api/projects/create", json=dict(_VALID, project="lc"))
+    assert client.post("/api/projects/lc/stop").status_code == 200
+    assert client.post("/api/projects/lc/reset").status_code == 200
+    assert client.post("/api/projects/lc/rename?to=lc2").status_code == 200
+    assert "lc2" in client.get("/api/projects").json()["projects"]
+    assert client.post("/api/projects/lc2/delete").status_code == 200
+    assert "lc2" not in client.get("/api/projects").json()["projects"]

@@ -6,149 +6,325 @@
 <title>Тяни-Толкай</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
-  :root{
-    --bg:#0f1216; --panel:#171c23; --line:#262e39; --ink:#e8edf3; --mut:#9aa7b6;
-    --accent:#4ca3ff; --good:#46d39a; --bad:#ff6b6b; --warn:#ffc857;
-  }
+  :root{--bg:#0e1116;--panel:#161b22;--panel2:#1c232c;--line:#2a323d;--ink:#e9eef4;
+    --mut:#97a3b2;--accent:#5aa9ff;--accent2:#2f6db0;--good:#46d39a;--bad:#ff6b6b;
+    --warn:#ffc857;--field:#0c1117;--radius:13px;}
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);
-    font:18px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-  header{padding:20px 28px;border-bottom:1px solid var(--line);display:flex;
-    align-items:baseline;gap:16px}
-  header h1{margin:0;font-size:26px;letter-spacing:.3px}
-  header .sub{color:var(--mut);font-size:16px}
-  .wrap{display:grid;grid-template-columns:300px 1fr;gap:0;min-height:calc(100vh - 70px)}
-  aside{border-right:1px solid var(--line);padding:22px;background:var(--panel)}
-  aside h2{font-size:15px;text-transform:uppercase;letter-spacing:1px;color:var(--mut);margin:0 0 14px}
-  .btn{display:block;width:100%;padding:16px 18px;margin:0 0 14px;border:0;border-radius:12px;
-    background:var(--accent);color:#04101f;font-size:18px;font-weight:600;cursor:pointer}
-  .btn.secondary{background:#222b35;color:var(--ink);border:1px solid var(--line)}
-  .btn:hover{filter:brightness(1.08)}
+  body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:16px 26px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;
+    background:linear-gradient(180deg,#171d26,#11151b)}
+  header h1{margin:0;font-size:23px;letter-spacing:.3px}
+  header .sub{color:var(--mut);font-size:15px}
+  header .right{margin-left:auto;display:flex;gap:10px}
+  .wrap{display:grid;grid-template-columns:290px 1fr;min-height:calc(100vh - 62px)}
+  aside{border-right:1px solid var(--line);padding:20px;background:var(--panel)}
+  aside h2{font-size:12px;text-transform:uppercase;letter-spacing:1.2px;color:var(--mut);margin:20px 0 10px}
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:13px 16px;
+    margin-bottom:10px;border:0;border-radius:11px;background:var(--accent);color:#061626;font-size:16px;
+    font-weight:650;cursor:pointer;transition:filter .12s}
+  .btn.sec{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
+  .btn.danger{background:#3a1717;color:#ffb4b4;border:1px solid #5a2424}
+  .btn:hover{filter:brightness(1.1)} .btn:disabled{opacity:.38;cursor:not-allowed;filter:none}
   .plist{list-style:none;margin:0;padding:0}
-  .plist li{padding:14px 16px;border:1px solid var(--line);border-radius:10px;margin-bottom:10px;
-    cursor:pointer;font-size:17px}
-  .plist li.active{border-color:var(--accent);background:#0e2336}
-  main{padding:26px 30px}
-  .status{display:flex;gap:28px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
-  .score{font-size:64px;font-weight:800;line-height:1}
-  .tag{padding:6px 14px;border-radius:999px;font-size:16px;font-weight:600}
-  .tag.running{background:#13324a;color:var(--accent)}
-  .tag.finished{background:#10362a;color:var(--good)}
-  .tag.error{background:#3a1717;color:var(--bad)}
-  .tag.idle{background:#222b35;color:var(--mut)}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:20px}
-  .card h3{margin:0 0 14px;font-size:16px;color:var(--mut);text-transform:uppercase;letter-spacing:1px}
-  #log{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;max-height:280px;
-    overflow:auto;white-space:pre-wrap}
-  .row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
-  .v-keep{color:var(--good)} .v-discard{color:var(--warn)} .v-fail{color:var(--bad)} .v-no_op{color:var(--mut)}
-  .hint{color:var(--mut);font-size:15px}
+  .plist li{padding:12px 14px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;cursor:pointer;
+    display:flex;align-items:center;gap:9px;transition:border-color .12s,background .12s}
+  .plist li:hover{border-color:var(--accent2)} .plist li.active{border-color:var(--accent);background:#0f2740}
+  .plist li::before{content:"●";color:var(--mut);font-size:11px}
+  .plist li.active::before{color:var(--accent)}
+  .empty{color:var(--mut);font-size:14px;padding:10px;border:1px dashed var(--line);border-radius:10px;text-align:center}
+  main{padding:22px 28px;display:grid;gap:18px;align-content:start;max-width:1100px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
+  .card h3{margin:0 0 6px;font-size:14px;color:var(--mut);text-transform:uppercase;letter-spacing:1px}
+  .card .desc{color:var(--mut);font-size:14px;margin:0 0 16px}
+  .help{background:linear-gradient(135deg,#13243a,#161b22);border:1px solid #244563}
+  .help ol{margin:8px 0 0;padding-left:22px} .help li{margin:4px 0;color:var(--ink)}
+  .help b{color:var(--accent)}
+  fieldset{border:1px solid var(--line);border-radius:11px;padding:16px 16px 8px;margin:0 0 16px;background:var(--panel2)}
+  legend{padding:0 8px;color:var(--accent);font-size:14px;font-weight:650}
+  legend small{color:var(--mut);font-weight:400;margin-left:8px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px} .full{grid-column:1/-1}
+  .field{min-width:0}
+  label{display:block;font-size:13.5px;color:var(--ink);margin-bottom:5px;font-weight:600}
+  .hint{color:var(--mut);font-size:12.5px;margin-top:4px;line-height:1.4}
+  input,select,textarea{width:100%;padding:12px 13px;background:var(--field);border:1px solid var(--line);
+    border-radius:9px;color:var(--ink);font-size:16px;font-family:inherit;transition:border-color .12s}
+  input:focus,select:focus,textarea:focus{outline:0;border-color:var(--accent)}
+  textarea{min-height:58px;resize:vertical}
+  .mhead,.mrow{display:grid;grid-template-columns:2fr 1.2fr .9fr .9fr .9fr 40px;gap:8px;align-items:center}
+  .mhead{font-size:12px;color:var(--mut);margin:6px 0 4px;padding:0 2px}
+  .mrow{margin-bottom:8px}
+  .mrow button{padding:11px 0;border-radius:9px;border:1px solid #5a2424;background:#3a1717;color:#ffb4b4;cursor:pointer}
+  .controls{display:flex;flex-wrap:wrap;gap:10px}
+  .controls .btn{width:auto;margin:0;padding:12px 18px}
+  .save-bar{display:flex;gap:10px;align-items:center;margin-top:4px}
+  .status{display:flex;gap:22px;align-items:center;flex-wrap:wrap;margin:6px 0 14px}
+  .score{font-size:52px;font-weight:800;line-height:1;min-width:90px}
+  .tag{padding:6px 13px;border-radius:999px;font-size:14px;font-weight:650}
+  .tag.running{background:#10324c;color:var(--accent)}.tag.finished{background:#0f3a2c;color:var(--good)}
+  .tag.error{background:#3a1717;color:var(--bad)}.tag.idle{background:#222b35;color:var(--mut)}
+  .tag.stopped{background:#3a3017;color:var(--warn)}
+  #log{font-family:ui-monospace,Menlo,monospace;font-size:14px;max-height:240px;overflow:auto;
+    border:1px solid var(--line);border-radius:9px;padding:6px 12px;background:var(--field)}
+  .lrow{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line)}
+  .v-keep{color:var(--good)}.v-discard{color:var(--warn)}.v-fail{color:var(--bad)}.v-no_op{color:var(--mut)}
+  #toast{position:fixed;right:22px;bottom:22px;padding:14px 18px;border-radius:11px;font-size:15px;
+    max-width:380px;display:none;z-index:50;box-shadow:0 8px 30px rgba(0,0,0,.4)}
+  #toast.err{background:#3a1717;color:#ffd0d0;border:1px solid #5a2424;display:block}
+  #toast.ok{background:#0f3a2c;color:#bff5df;border:1px solid #1f5a45;display:block}
+  .hidden{display:none!important}
 </style>
 </head>
 <body>
 <header>
-  <h1>Тяни-Толкай</h1>
-  <span class="sub">adversarial co-evolution — push &amp; pull toward quality</span>
+  <h1>Тяни-Толкай</h1><span class="sub">керування агентами-суперниками</span>
+  <div class="right"><button class="btn sec" id="helpBtn" style="width:auto;margin:0">❔ Як це працює</button></div>
 </header>
 <div class="wrap">
   <aside>
-    <h2>Дії</h2>
-    <button class="btn" id="demoBtn">▶ Запустити demo</button>
-    <button class="btn secondary" id="runBtn">▶ Run проєкту</button>
-    <h2 style="margin-top:26px">Проєкти</h2>
+    <button class="btn" id="newBtn">➕ Новий проєкт</button>
+    <button class="btn sec" id="demoBtn" title="Швидкий показ циклу на вбудованому прикладі, без реальних агентів">▶ Demo</button>
+    <h2>Проєкти</h2>
     <ul class="plist" id="projects"></ul>
-    <p class="hint" id="phint">—</p>
+    <div class="empty" id="empty">Проєктів ще немає.<br>Натисни <b>Demo</b> або <b>Новий проєкт</b>.</div>
   </aside>
   <main>
-    <div class="status">
-      <div class="score" id="score">—</div>
-      <span class="tag idle" id="tag">idle</span>
-      <div class="hint" id="summary"></div>
+    <div class="card help" id="helpCard">
+      <h3>Що це</h3>
+      <p class="desc">Два агенти змагаються над одним проєктом: <b>Виконавець</b> покращує артефакт, а оцінка
+        (детермінований код + опційний <b>Валідатор</b>) каже, чи стало краще. Цикл тримає лише покращення (git hill-climbing).</p>
+      <ol>
+        <li>Спершу натисни <b>Demo</b> — побачиш, як крива якості повзе до 100.</li>
+        <li><b>Новий проєкт</b> → заповни форму (підказки під кожним полем) → <b>Створити</b>.</li>
+        <li><b>Run</b> запускає реальних агентів; графік і лог оновлюються наживо.</li>
+        <li><b>Команда наживо</b> керує агентом без зупинки; <b>Stop</b> зупиняє на межі ітерації.</li>
+      </ol>
     </div>
+
     <div class="card">
-      <h3>Еволюція якості</h3>
-      <canvas id="chart" height="110"></canvas>
+      <h3 id="cfgTitle">Новий проєкт</h3>
+      <p class="desc">Налаштуй пару агентів і як вимірювати якість. Усе валідовується перед збереженням.</p>
+
+      <fieldset><legend>Основне</legend>
+        <div class="grid">
+          <div class="field"><label>Назва проєкту</label><input id="f_project" placeholder="my-task">
+            <div class="hint">Унікальна назва. Стане текою проєкту; після створення не змінюється тут (є Rename).</div></div>
+          <div class="field"><label>Режим</label><select id="f_mode"></select>
+            <div class="hint">MVP: <b>asymmetric</b> — Виконавець ↔ Оцінювач. Симетричний (двобій) — згодом.</div></div>
+        </div>
+      </fieldset>
+
+      <fieldset><legend>Агенти <small>готові CLI — нічого писати не треба</small></legend>
+        <div class="grid">
+          <div class="field"><label>Виконавець — рушій</label><select id="f_ex_engine"></select>
+            <div class="hint">Який CLI-агент редагує артефакт. Має бути встановлений і залогінений у системі.</div></div>
+          <div class="field"><label>Виконавець — модель <small>(опц.)</small></label><input id="f_ex_model" placeholder="opus">
+            <div class="hint">Порожньо = модель за замовчуванням цього CLI.</div></div>
+          <div class="field"><label>Валідатор — рушій <small>(опц.)</small></label><select id="f_va_engine"></select>
+            <div class="hint">Дає текстовий фідбек. Бери <b>інший</b> провайдер, ніж Виконавець (захист від «змови»).</div></div>
+          <div class="field" id="va_model_wrap"><label>Валідатор — модель <small>(опц.)</small></label><input id="f_va_model" placeholder="gpt-5"></div>
+        </div>
+      </fieldset>
+
+      <fieldset><legend>Ролі <small>чого домагатись</small></legend>
+        <div class="grid">
+          <div class="field full"><label>Виконавець — мета</label><textarea id="f_ex_goal" placeholder="Напр. Максимізувати дохідність strategy.py"></textarea>
+            <div class="hint">Головна ціль, яку агент намагається досягти кожною ітерацією.</div></div>
+          <div class="field full"><label>Виконавець — завдання/обмеження</label><textarea id="f_ex_task" placeholder="Напр. Редагуй лише strategy.py, одна зміна за крок"></textarea>
+            <div class="hint">Звужує дії агента. Необов'язково, але дуже допомагає збіжності.</div></div>
+          <div class="field full" id="va_goal_wrap"><label>Валідатор — мета</label><textarea id="f_va_goal" placeholder="Поясни, чому бал змінився, і дай одну конкретну пораду"></textarea></div>
+        </div>
+      </fieldset>
+
+      <fieldset><legend>Оцінка <small>звідки береться бал (рахує код, не LLM)</small></legend>
+        <div class="grid">
+          <div class="field"><label>Adapter</label><select id="f_adapter"></select>
+            <div class="hint"><b>numeric</b>: команда друкує JSON чисел · <b>command-exit</b>: 0/1 за кодом виходу · <b>pytest-pass</b>: % тестів.</div></div>
+          <div class="field" id="command_wrap"><label>Команда</label><input id="f_command" placeholder="python backtest.py --json">
+            <div class="hint">Запускається в пісочниці всередині артефакту. Для numeric має друкувати JSON виду {"sharpe":1.8}.</div></div>
+          <div class="field" id="harness_wrap"><label>harness_dir</label><input id="f_harness" placeholder="metrics/">
+            <div class="hint">Тека з прихованими тестами — <b>поза</b> досяжністю Виконавця (щоб не «підкрутив» собі бал).</div></div>
+          <div class="field"><label>Цільовий бал</label><input id="f_target" type="number" value="100">
+            <div class="hint">Коли бал ≥ цього — цикл зупиняється з перемогою.</div></div>
+          <div class="field"><label>min_delta <small>(шум-смуга)</small></label><input id="f_mindelta" type="number" value="1">
+            <div class="hint">Тримати зміну лише якщо бал виріс більше, ніж на це. Захист від випадкового шуму.</div></div>
+        </div>
+        <label style="margin-top:14px">Метрики <span class="hint" style="display:inline">— нормалізуються worst→target у 0→100, потім зважуються</span></label>
+        <div class="mhead"><span>name</span><span>напрям</span><span>weight</span><span>worst</span><span>target</span><span></span></div>
+        <div id="metrics"></div>
+        <button class="btn sec" id="addMetric" style="width:auto;padding:9px 14px;margin-top:6px">+ метрика</button>
+      </fieldset>
+
+      <fieldset><legend>Seed · Ліміти · Sandbox</legend>
+        <div class="grid">
+          <div class="field"><label>Seed <small>(стартовий артефакт)</small></label><select id="f_seed"></select>
+            <div class="hint"><b>empty</b>: з нуля · <b>copy</b>: скопіювати наявний код · <b>generate</b>: агент згенерує старт.</div></div>
+          <div class="field" id="seedpath_wrap"><label>Seed path</label><input id="f_seedpath" placeholder="~/code/baseline">
+            <div class="hint">Тека, яку скопіювати в артефакт (оригінал недоторканий).</div></div>
+          <div class="field"><label>max_iterations</label><input id="f_maxiter" type="number" value="30">
+            <div class="hint">Жорсткий стоп за кількістю кроків.</div></div>
+          <div class="field"><label>plateau_N</label><input id="f_plateau" type="number" value="6">
+            <div class="hint">Стоп, якщо N змістовних кроків поспіль без покращення.</div></div>
+          <div class="field"><label>step_seconds</label><input id="f_step" type="number" value="600">
+            <div class="hint">Таймаут на один прогін агента.</div></div>
+          <div class="field"><label>Sandbox</label><select id="f_sandbox"><option value="local">local</option><option value="docker">docker</option></select>
+            <div class="hint"><b>docker</b>: ізольоване виконання коду (безпечніше) · <b>local</b>: швидше, без ізоляції.</div></div>
+        </div>
+      </fieldset>
+
+      <div class="save-bar"><button class="btn" id="saveBtn" style="width:auto">💾 Створити</button>
+        <span class="hint" id="saveHint">Заповни назву та хоча б одну метрику.</span></div>
     </div>
+
     <div class="card">
-      <h3>Хід ітерацій</h3>
-      <div id="log">Натисни «Запустити demo», щоб побачити цикл наживо.</div>
+      <h3>Керування та прогрес</h3>
+      <p class="desc">Запускай, зупиняй і скеровуй прогін. Графік — крива якості; лог — рішення keep/discard щокроку.</p>
+      <div class="controls" style="margin-bottom:16px">
+        <button class="btn" id="runBtn" disabled title="Запустити цикл з реальними агентами">▶ Run</button>
+        <button class="btn sec" id="stopBtn" disabled title="Зупинити на межі поточної ітерації">⏹ Stop</button>
+        <button class="btn sec" id="resetBtn" disabled title="Відкотити артефакт до seed і очистити історію">↺ Reset</button>
+        <button class="btn sec" id="renameBtn" disabled>✎ Rename</button>
+        <button class="btn sec" id="exportBtn" disabled title="Завантажити проєкт як .tar.gz (переносний)">⬇ Export</button>
+        <button class="btn danger" id="deleteBtn" disabled>🗑 Delete</button>
+      </div>
+      <div class="status">
+        <div class="score" id="score">—</div>
+        <span class="tag idle" id="tag">idle</span>
+        <div class="hint" id="summary"></div>
+      </div>
+      <canvas id="chart" height="88"></canvas>
+      <div style="margin-top:16px">
+        <label>Команда агенту наживо <small class="hint" style="display:inline">— додається в наступну ітерацію, без зупинки</small></label>
+        <textarea id="steerText" placeholder="напр. зосередься на зменшенні просадки"></textarea>
+        <div class="controls" style="margin-top:8px"><button class="btn sec" id="steerBtn" disabled style="width:auto">↗ Надіслати команду</button></div>
+      </div>
+      <h3 style="margin-top:20px">Хід ітерацій</h3>
+      <div id="log">—</div>
     </div>
   </main>
 </div>
+<div id="toast"></div>
 <script>
-const TOKEN = new URLSearchParams(location.search).get('token') || '';
-const q = t => t ? (location.search.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(t) : '';
-const api = p => p + (p.includes('?') ? (TOKEN?'&token='+TOKEN:'') : (TOKEN?'?token='+TOKEN:''));
-let active = null, poll = null, chart = null;
+const TOKEN=new URLSearchParams(location.search).get('token')||'';
+const api=p=>p+(p.includes('?')?(TOKEN?'&token='+TOKEN:''):(TOKEN?'?token='+TOKEN:''));
+const $=id=>document.getElementById(id);
+let META={},current=null,poll=null,chart=null;
+function toast(t,kind){const e=$('toast');e.textContent=t;e.className=kind||'';if(t)setTimeout(()=>e.className='',4200);}
+function opts(s,a,blank){s.innerHTML=(blank?'<option value="">— немає —</option>':'')+a.map(v=>`<option>${v}</option>`).join('');}
 
-function ensureChart(){
-  if(chart || !window.Chart) return chart;
-  chart = new Chart(document.getElementById('chart'), {
-    type:'line',
-    data:{labels:[],datasets:[{label:'score',data:[],borderColor:'#4ca3ff',
-      backgroundColor:'rgba(76,163,255,.15)',tension:.25,pointRadius:4,fill:true}]},
-    options:{scales:{y:{min:0,max:100,grid:{color:'#262e39'},ticks:{color:'#9aa7b6'}},
-      x:{grid:{color:'#1c232c'},ticks:{color:'#9aa7b6'}}},
-      plugins:{legend:{display:false}}}
-  });
-  return chart;
-}
-function plot(outcomes){
-  const c = ensureChart(); if(!c) return;
-  const pts = outcomes.filter(o=>o.score!=null);
-  c.data.labels = pts.map(o=>'#'+o.n);
-  c.data.datasets[0].data = pts.map(o=>o.score);
-  c.update();
-}
-function renderLog(outcomes){
-  document.getElementById('log').innerHTML = outcomes.map(o=>
-    `<div class="row"><span>iter #${o.n}</span>`+
-    `<span class="v-${o.verdict}">${o.verdict}</span>`+
-    `<span>${o.score==null?'—':(+o.score).toFixed(2)}</span></div>`).join('') || '—';
-}
-function setStatus(status, score, summary){
-  const tag=document.getElementById('tag'); tag.className='tag '+(status||'idle'); tag.textContent=status||'idle';
-  document.getElementById('score').textContent = score==null?'—':(+score).toFixed(1);
-  document.getElementById('summary').textContent = summary
-    ? (summary.error ? ('error: '+summary.error)
-       : `reason: ${summary.reason} · iters: ${summary.iterations}`) : '';
-}
-async function loadProjects(){
-  const r = await fetch(api('/api/projects')); const d = await r.json();
-  const ul=document.getElementById('projects'); ul.innerHTML='';
-  (d.projects||[]).forEach(n=>{
-    const li=document.createElement('li'); li.textContent=n;
-    if(n===active) li.classList.add('active');
-    li.onclick=()=>{active=n; document.getElementById('phint').textContent='вибрано: '+n; loadProjects(); loadState(n);};
-    ul.appendChild(li);
-  });
-  if(!d.projects || !d.projects.length) document.getElementById('phint').textContent='проєктів ще немає — створи через `tyani-tolkai run`';
-}
-async function loadState(name){
-  const r = await fetch(api('/api/projects/'+name)); const d = await r.json();
-  setStatus(d.status||'idle', d.best_score, null);
-  plot(d.iterations||[]); renderLog(d.iterations||[]);
-}
-function startPolling(name){
-  if(poll) clearInterval(poll);
-  poll=setInterval(async()=>{
-    const r=await fetch(api('/api/projects/'+name+'/live')); const d=await r.json();
-    setStatus(d.status, (d.outcomes||[]).reduce((m,o)=>o.score!=null&&o.score>m?o.score:m,0)||null, d.summary);
-    plot(d.outcomes||[]); renderLog(d.outcomes||[]);
-    if(d.status!=='running'){clearInterval(poll); poll=null;}
-  },1000);
-}
-document.getElementById('demoBtn').onclick=async()=>{
-  setStatus('running',null,null); document.getElementById('log').textContent='demo біжить…';
-  const r=await fetch(api('/api/demo'),{method:'POST'}); const d=await r.json();
-  setStatus('finished', d.summary.best_score, d.summary); plot(d.outcomes); renderLog(d.outcomes);
-};
-document.getElementById('runBtn').onclick=async()=>{
-  if(!active){alert('Спершу вибери проєкт зліва');return;}
-  await fetch(api('/api/projects/'+active+'/run'),{method:'POST'});
-  setStatus('running',null,null); startPolling(active);
-};
-loadProjects();
+async function loadMeta(){META=await(await fetch(api('/api/meta'))).json();
+  opts($('f_mode'),META.modes);opts($('f_ex_engine'),META.engines);
+  opts($('f_va_engine'),META.engines,true);opts($('f_adapter'),META.adapters);opts($('f_seed'),META.seeds);}
+
+function vis(){const ad=$('f_adapter').value;
+  $('command_wrap').classList.toggle('hidden',!(ad==='numeric'||ad==='command-exit'));
+  $('harness_wrap').classList.toggle('hidden',ad!=='pytest-pass');
+  $('seedpath_wrap').classList.toggle('hidden',$('f_seed').value!=='copy');
+  const hasVa=!!$('f_va_engine').value;
+  $('va_model_wrap').classList.toggle('hidden',!hasVa);
+  $('va_goal_wrap').classList.toggle('hidden',!hasVa);}
+
+function metricRow(m={}){const d=document.createElement('div');d.className='mrow';
+  d.innerHTML=`<input placeholder="sharpe" value="${m.name||''}">
+    <select>${META.dirs.map(x=>`<option ${m.dir===x?'selected':''}>${x}</option>`).join('')}</select>
+    <input type="number" step="any" value="${m.weight??1}">
+    <input type="number" step="any" value="${m.worst??0}">
+    <input type="number" step="any" value="${m.target??100}">
+    <button title="видалити метрику">✕</button>`;
+  d.querySelector('button').onclick=()=>d.remove();return d;}
+function getMetrics(){return[...$('metrics').children].map(r=>{const i=r.querySelectorAll('input'),s=r.querySelector('select');
+  return{name:i[0].value.trim(),dir:s.value,weight:+i[1].value,worst:+i[2].value,target:+i[3].value};}).filter(m=>m.name);}
+
+function blankForm(){current=null;$('cfgTitle').textContent='Новий проєкт';$('saveBtn').textContent='💾 Створити';
+  ['f_project','f_ex_model','f_va_model','f_ex_goal','f_ex_task','f_va_goal','f_command','f_harness','f_seedpath'].forEach(x=>$(x).value='');
+  $('f_va_engine').value='';$('f_target').value=100;$('f_mindelta').value=1;$('f_maxiter').value=30;
+  $('f_plateau').value=6;$('f_step').value=600;$('f_seed').value='empty';$('f_sandbox').value='local';$('f_adapter').value='pytest-pass';
+  $('metrics').innerHTML='';$('metrics').appendChild(metricRow({name:'pass_pct',dir:'higher',weight:1,worst:0,target:100}));
+  $('f_project').disabled=false;enableControls(false);vis();highlight();}
+function fillForm(name,cfg){current=name;$('cfgTitle').textContent='Проєкт: '+name;$('saveBtn').textContent='💾 Зберегти зміни';
+  $('f_project').value=name;$('f_project').disabled=true;$('f_mode').value=cfg.mode||'asymmetric';
+  const a=cfg.agents||{},r=cfg.roles||{},ev=cfg.evaluation||{},lim=cfg.limits||{},sd=cfg.seed||{},sb=cfg.sandbox||{};
+  $('f_ex_engine').value=(a.executor||{}).engine||'claude';$('f_ex_model').value=(a.executor||{}).model||'';
+  $('f_va_engine').value=(a.validator||{}).engine||'';$('f_va_model').value=(a.validator||{}).model||'';
+  $('f_ex_goal').value=(r.executor||{}).goal||'';$('f_ex_task').value=(r.executor||{}).task||'';$('f_va_goal').value=(r.validator||{}).goal||'';
+  $('f_adapter').value=ev.adapter||'numeric';$('f_command').value=ev.command||'';$('f_target').value=ev.target_score??100;
+  $('f_mindelta').value=ev.min_delta??1;$('f_harness').value=ev.harness_dir||'';
+  $('metrics').innerHTML='';(ev.metrics||[]).forEach(m=>$('metrics').appendChild(metricRow(m)));
+  if(!(ev.metrics||[]).length)$('metrics').appendChild(metricRow());
+  $('f_seed').value=typeof sd==='string'?sd:(sd.mode||'empty');$('f_seedpath').value=sd.path||'';
+  $('f_maxiter').value=lim.max_iterations??30;$('f_plateau').value=lim.plateau_N??6;$('f_step').value=lim.step_seconds??600;
+  $('f_sandbox').value=sb.backend||'local';enableControls(true);vis();}
+function buildConfig(){const c={project:$('f_project').value.trim(),mode:$('f_mode').value,
+  agents:{executor:{engine:$('f_ex_engine').value,timeout:600}},
+  roles:{executor:{goal:$('f_ex_goal').value||'Improve the artifact.'}},
+  evaluation:{adapter:$('f_adapter').value,metrics:getMetrics(),target_score:+$('f_target').value,min_delta:+$('f_mindelta').value},
+  limits:{max_iterations:+$('f_maxiter').value,plateau_N:+$('f_plateau').value,step_seconds:+$('f_step').value},
+  sandbox:{backend:$('f_sandbox').value},seed:{mode:$('f_seed').value}};
+  if($('f_ex_model').value)c.agents.executor.model=$('f_ex_model').value;
+  if($('f_ex_task').value)c.roles.executor.task=$('f_ex_task').value;
+  if($('f_va_engine').value){c.agents.validator={engine:$('f_va_engine').value,timeout:300};
+    if($('f_va_model').value)c.agents.validator.model=$('f_va_model').value;
+    c.roles.validator={goal:$('f_va_goal').value||'Diagnose the score and suggest one next step.'};}
+  if($('f_command').value)c.evaluation.command=$('f_command').value;
+  if($('f_harness').value)c.evaluation.harness_dir=$('f_harness').value;
+  if($('f_seed').value==='copy'&&$('f_seedpath').value)c.seed.path=$('f_seedpath').value;
+  return c;}
+function enableControls(on){['runBtn','stopBtn','resetBtn','renameBtn','exportBtn','deleteBtn','steerBtn'].forEach(b=>$(b).disabled=!on);}
+function highlight(){[...$('projects').children].forEach(li=>li.classList.toggle('active',li.textContent===current));}
+
+async function loadProjects(){const d=await(await fetch(api('/api/projects'))).json();const ul=$('projects');ul.innerHTML='';
+  (d.projects||[]).forEach(n=>{const li=document.createElement('li');li.textContent=n;li.onclick=()=>selectProject(n);ul.appendChild(li);});
+  $('empty').classList.toggle('hidden',(d.projects||[]).length>0);highlight();}
+async function selectProject(name){const cfg=await(await fetch(api('/api/projects/'+name+'/config'))).json().catch(()=>({}));
+  fillForm(name,cfg);highlight();loadState(name);}
+function ensureChart(){if(chart||!window.Chart)return chart;
+  chart=new Chart($('chart'),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#5aa9ff',
+    backgroundColor:'rgba(90,169,255,.15)',tension:.25,pointRadius:4,fill:true}]},
+    options:{scales:{y:{min:0,max:100,grid:{color:'#2a323d'},ticks:{color:'#97a3b2'}},
+      x:{grid:{color:'#1c232c'},ticks:{color:'#97a3b2'}}},plugins:{legend:{display:false}}}});return chart;}
+function plot(o){const c=ensureChart();if(!c)return;const p=o.filter(x=>x.score!=null);
+  c.data.labels=p.map(x=>'#'+x.n);c.data.datasets[0].data=p.map(x=>x.score);c.update();}
+function renderLog(o){$('log').innerHTML=o.map(x=>`<div class="lrow"><span>iter #${x.n}</span>
+  <span class="v-${x.verdict}">${x.verdict}</span><span>${x.score==null?'—':(+x.score).toFixed(2)}</span></div>`).join('')||'—';}
+function setStatus(s,score,sum){const t=$('tag');t.className='tag '+(s||'idle');t.textContent=s||'idle';
+  $('score').textContent=score==null?'—':(+score).toFixed(1);
+  $('summary').textContent=sum?(sum.error?('помилка: '+sum.error):`результат: ${sum.reason} · ітерацій: ${sum.iterations}`):'';}
+async function loadState(name){const d=await(await fetch(api('/api/projects/'+name))).json();
+  setStatus(d.status||'idle',d.best_score,null);plot(d.iterations||[]);renderLog(d.iterations||[]);}
+function startPolling(name){if(poll)clearInterval(poll);
+  poll=setInterval(async()=>{const d=await(await fetch(api('/api/projects/'+name+'/live'))).json();
+    const best=(d.outcomes||[]).reduce((m,o)=>o.score!=null&&o.score>m?o.score:m,0)||null;
+    setStatus(d.status,best,d.summary);plot(d.outcomes||[]);renderLog(d.outcomes||[]);
+    if(d.status!=='running'){clearInterval(poll);poll=null;loadProjects();}},1000);}
+
+$('helpBtn').onclick=()=>$('helpCard').classList.toggle('hidden');
+$('newBtn').onclick=blankForm;
+$('addMetric').onclick=()=>$('metrics').appendChild(metricRow());
+$('f_adapter').onchange=vis;$('f_seed').onchange=vis;$('f_va_engine').onchange=vis;
+$('saveBtn').onclick=async()=>{const cfg=buildConfig();
+  if(!cfg.project){toast('Вкажи назву проєкту','err');return;}
+  if(!cfg.evaluation.metrics.length){toast('Додай хоча б одну метрику','err');return;}
+  const url=current?('/api/projects/'+current+'/config'):'/api/projects/create',method=current?'PUT':'POST';
+  const r=await fetch(api(url),{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+  if(!r.ok){const e=await r.json().catch(()=>({}));toast('Помилка: '+(e.detail||r.status),'err');return;}
+  toast(current?'Збережено ✓':'Проєкт створено ✓','ok');await loadProjects();selectProject(cfg.project);};
+$('runBtn').onclick=async()=>{if(!current)return;const r=await fetch(api('/api/projects/'+current+'/run'),{method:'POST'});
+  if(!r.ok){const e=await r.json().catch(()=>({}));toast('Run: '+(e.detail||r.status),'err');return;}
+  setStatus('running',null,null);startPolling(current);toast('Запущено ▶','ok');};
+$('stopBtn').onclick=async()=>{if(current){await fetch(api('/api/projects/'+current+'/stop'),{method:'POST'});toast('Зупиняю на межі ітерації…','ok');}};
+$('resetBtn').onclick=async()=>{if(current&&confirm('Скинути прогрес до seed?')){await fetch(api('/api/projects/'+current+'/reset'),{method:'POST'});toast('Скинуто','ok');loadState(current);}};
+$('renameBtn').onclick=async()=>{const to=prompt('Нова назва:',current);if(!to||to===current)return;
+  const r=await fetch(api('/api/projects/'+current+'/rename?to='+encodeURIComponent(to)),{method:'POST'});
+  if(!r.ok){toast('Rename не вдалося','err');return;}toast('Перейменовано','ok');await loadProjects();selectProject(to);};
+$('exportBtn').onclick=()=>{if(current)location.href=api('/api/projects/'+current+'/export');};
+$('deleteBtn').onclick=async()=>{if(current&&confirm('Видалити проєкт '+current+'?')){await fetch(api('/api/projects/'+current+'/delete'),{method:'POST'});toast('Видалено','ok');blankForm();loadProjects();}};
+$('steerBtn').onclick=async()=>{const t=$('steerText').value.trim();if(!current||!t)return;
+  await fetch(api('/api/projects/'+current+'/command?role=executor&text='+encodeURIComponent(t)),{method:'POST'});
+  $('steerText').value='';toast('Команду додано — застосується на наступній ітерації','ok');};
+$('demoBtn').onclick=async()=>{setStatus('running',null,null);$('log').textContent='demo біжить…';
+  const d=await(await fetch(api('/api/demo'),{method:'POST'})).json();
+  setStatus('finished',d.summary.best_score,d.summary);plot(d.outcomes);renderLog(d.outcomes);toast('Demo завершено ✓','ok');};
+
+(async()=>{await loadMeta();await loadProjects();blankForm();})();
 </script>
 </body>
 </html>
