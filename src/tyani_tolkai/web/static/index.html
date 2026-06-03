@@ -33,6 +33,11 @@
   .plist li.active::before{color:var(--accent)}
   .empty{color:var(--mut);font-size:14px;padding:10px;border:1px dashed var(--line);border-radius:10px;text-align:center}
   main{padding:22px 28px;display:grid;gap:18px;align-content:start;max-width:1100px}
+  .tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);padding-bottom:2px}
+  .tab{padding:12px 22px;border:0;background:transparent;color:var(--mut);font-size:16px;font-weight:650;
+    cursor:pointer;border-bottom:3px solid transparent;border-radius:8px 8px 0 0}
+  .tab:hover{color:var(--ink);background:var(--panel2)}
+  .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
   .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
   .card h3{margin:0 0 6px;font-size:14px;color:var(--mut);text-transform:uppercase;letter-spacing:1px}
   .card .desc{color:var(--mut);font-size:14px;margin:0 0 16px}
@@ -100,6 +105,12 @@
       </ol>
     </div>
 
+    <div class="tabs">
+      <button class="tab active" id="tabConfig">⚙ Конфігурація</button>
+      <button class="tab" id="tabProgress">📊 Прогрес</button>
+    </div>
+
+    <div id="view-config">
     <div class="card">
       <h3 id="cfgTitle">Новий проєкт</h3>
       <p class="desc">Налаштуй пару агентів і як вимірювати якість. Усе валідовується перед збереженням.</p>
@@ -174,7 +185,9 @@
       <div class="save-bar"><button class="btn" id="saveBtn" style="width:auto">💾 Створити</button>
         <span class="hint" id="saveHint">Заповни назву та хоча б одну метрику.</span></div>
     </div>
+    </div><!-- /view-config -->
 
+    <div id="view-progress" class="hidden">
     <div class="card">
       <h3>Керування та прогрес</h3>
       <p class="desc">Запускай, зупиняй і скеровуй прогін. Графік — крива якості; лог — рішення keep/discard щокроку.</p>
@@ -200,6 +213,7 @@
       <h3 style="margin-top:20px">Хід ітерацій</h3>
       <div id="log">—</div>
     </div>
+    </div><!-- /view-progress -->
   </main>
 </div>
 <div id="toast"></div>
@@ -275,7 +289,7 @@ async function loadProjects(){const d=await(await fetch(api('/api/projects'))).j
   (d.projects||[]).forEach(n=>{const li=document.createElement('li');li.textContent=n;li.onclick=()=>selectProject(n);ul.appendChild(li);});
   $('empty').classList.toggle('hidden',(d.projects||[]).length>0);highlight();}
 async function selectProject(name){const cfg=await(await fetch(api('/api/projects/'+name+'/config'))).json().catch(()=>({}));
-  fillForm(name,cfg);highlight();loadState(name);}
+  fillForm(name,cfg);highlight();loadState(name);showView('progress');}
 function ensureChart(){if(chart||!window.Chart)return chart;
   chart=new Chart($('chart'),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#5aa9ff',
     backgroundColor:'rgba(90,169,255,.15)',tension:.25,pointRadius:4,fill:true}]},
@@ -297,7 +311,13 @@ function startPolling(name){if(poll)clearInterval(poll);
     if(d.status!=='running'){clearInterval(poll);poll=null;loadProjects();}},1000);}
 
 $('helpBtn').onclick=()=>$('helpCard').classList.toggle('hidden');
-$('newBtn').onclick=blankForm;
+function showView(v){$('view-config').classList.toggle('hidden',v!=='config');
+  $('view-progress').classList.toggle('hidden',v!=='progress');
+  $('tabConfig').classList.toggle('active',v==='config');
+  $('tabProgress').classList.toggle('active',v==='progress');}
+$('tabConfig').onclick=()=>showView('config');
+$('tabProgress').onclick=()=>showView('progress');
+$('newBtn').onclick=()=>{blankForm();showView('config');};
 $('addMetric').onclick=()=>$('metrics').appendChild(metricRow());
 $('f_adapter').onchange=vis;$('f_seed').onchange=vis;$('f_va_engine').onchange=vis;
 $('saveBtn').onclick=async()=>{const cfg=buildConfig();
@@ -320,7 +340,7 @@ $('deleteBtn').onclick=async()=>{if(current&&confirm('Видалити проє�
 $('steerBtn').onclick=async()=>{const t=$('steerText').value.trim();if(!current||!t)return;
   await fetch(api('/api/projects/'+current+'/command?role=executor&text='+encodeURIComponent(t)),{method:'POST'});
   $('steerText').value='';toast('Команду додано — застосується на наступній ітерації','ok');};
-$('demoBtn').onclick=async()=>{setStatus('running',null,null);$('log').textContent='demo біжить…';
+$('demoBtn').onclick=async()=>{showView('progress');setStatus('running',null,null);$('log').textContent='demo біжить…';
   const d=await(await fetch(api('/api/demo'),{method:'POST'})).json();
   setStatus('finished',d.summary.best_score,d.summary);plot(d.outcomes);renderLog(d.outcomes);toast('Demo завершено ✓','ok');};
 
