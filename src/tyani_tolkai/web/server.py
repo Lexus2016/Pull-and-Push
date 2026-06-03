@@ -99,7 +99,8 @@ class RunManager:
             def on_iter(o):
                 with self._lock:
                     self._runs[name]["outcomes"].append(
-                        {"n": o.n, "verdict": o.verdict, "score": o.score})
+                        {"n": o.n, "verdict": o.verdict, "score": o.score,
+                         "feedback": o.feedback, "change": o.change})
 
             summary = orch.run_loop(on_iteration=on_iter,
                                     should_stop=lambda: name in self._stop)
@@ -131,11 +132,13 @@ def _persisted_state(name: str) -> dict:
         if run is None:
             return {"iterations": [], "best_score": None}
         rows = state.conn.execute(
-            "SELECT n, score, verdict FROM iteration WHERE run_id=? ORDER BY n", (run["id"],),
+            "SELECT n, score, verdict, change_summary, feedback FROM iteration "
+            "WHERE run_id=? ORDER BY n", (run["id"],),
         ).fetchall()
         return {
             "status": run["status"], "best_score": run["best_score"],
-            "iterations": [{"n": r["n"], "score": r["score"], "verdict": r["verdict"]} for r in rows],
+            "iterations": [{"n": r["n"], "score": r["score"], "verdict": r["verdict"],
+                            "change": r["change_summary"], "feedback": r["feedback"]} for r in rows],
         }
     finally:
         state.close()
@@ -160,7 +163,9 @@ def create_app(token: str | None = None) -> FastAPI:
 
     @app.get("/")
     def index():
-        return FileResponse(STATIC / "index.html")
+        # never cache the SPA shell, so UI updates show up without a hard refresh
+        return FileResponse(STATIC / "index.html",
+                            headers={"Cache-Control": "no-store, max-age=0"})
 
     @app.get("/api/projects")
     def api_projects(token: str | None = Query(None)):

@@ -151,6 +151,14 @@
   canvas{background:var(--field);border:1px solid var(--line);border-radius:var(--radius);padding:8px}
   #log{font-family:var(--mono);font-size:13.5px;max-height:260px;overflow:auto;border:1px solid var(--line);
     border-radius:var(--radius);padding:8px 14px;background:var(--field)}
+  details{border:1px solid var(--line);border-radius:var(--radius);margin-bottom:6px;background:var(--field)}
+  summary{cursor:pointer;padding:8px 12px;font-family:var(--mono);font-size:13.5px;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"▸ ";color:var(--mut)} details[open] summary::before{content:"▾ ";color:var(--cold)}
+  .why{padding:7px 12px;color:var(--ink-dim);font-size:13.5px;border-top:1px solid var(--line)}
+  .why b{color:var(--warm)}
+  .diff{margin:0;padding:8px 12px;font-family:var(--mono);font-size:12.5px;white-space:pre-wrap;
+    max-height:260px;overflow:auto;border-top:1px solid var(--line);color:var(--mut)}
   .lrow{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
   .lrow span:first-child{color:var(--mut)}
   .v-keep{color:var(--good)}.v-discard{color:var(--warn)}.v-fail{color:var(--bad)}.v-no_op{color:var(--mut)}
@@ -323,6 +331,7 @@ const TOKEN=new URLSearchParams(location.search).get('token')||'';
 const api=p=>p+(p.includes('?')?(TOKEN?'&token='+TOKEN:''):(TOKEN?'?token='+TOKEN:''));
 const $=id=>document.getElementById(id);
 let META={},current=null,poll=null,chart=null;
+const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 function toast(t,kind){const e=$('toast');e.textContent=t;e.className=kind||'';if(t)setTimeout(()=>e.className='',4200);}
 function opts(s,a,blank){s.innerHTML=(blank?'<option value="">— немає —</option>':'')+a.map(v=>`<option>${v}</option>`).join('');}
 
@@ -351,7 +360,7 @@ function getMetrics(){return[...$('metrics').children].map(r=>{const i=r.querySe
   return{name:i[0].value.trim(),dir:s.value,weight:+i[1].value,worst:+i[2].value,target:+i[3].value};}).filter(m=>m.name);}
 
 function blankForm(){current=null;$('cfgTitle').textContent='Новий проєкт';$('saveBtn').textContent='💾 Створити';
-  ['f_project','f_ex_model','f_va_model','f_ex_goal','f_ex_task','f_va_goal','f_command','f_harness','f_seedpath'].forEach(x=>$(x).value='');
+  ['f_project','g_desc','f_ex_model','f_va_model','f_ex_goal','f_ex_task','f_va_goal','f_command','f_harness','f_seedpath'].forEach(x=>$(x).value='');
   $('f_va_engine').value='';$('f_target').value=100;$('f_mindelta').value=1;$('f_maxiter').value=30;
   $('f_plateau').value=6;$('f_step').value=600;$('f_seed').value='empty';$('f_sandbox').value='local';$('f_adapter').value='pytest-pass';
   $('metrics').innerHTML='';$('metrics').appendChild(metricRow({name:'pass_pct',dir:'higher',weight:1,worst:0,target:100}));
@@ -359,6 +368,7 @@ function blankForm(){current=null;$('cfgTitle').textContent='Новий проє
 function setFields(cfg){
   const a=cfg.agents||{},r=cfg.roles||{},ev=cfg.evaluation||{},lim=cfg.limits||{},sd=cfg.seed||{},sb=cfg.sandbox||{};
   if(cfg.project!==undefined)$('f_project').value=cfg.project||'';
+  $('g_desc').value=cfg.description||'';   // original task description, if saved
   $('f_mode').value=cfg.mode||'asymmetric';
   $('f_ex_engine').value=(a.executor||{}).engine||'claude';$('f_ex_model').value=(a.executor||{}).model||'';
   $('f_va_engine').value=(a.validator||{}).engine||'';$('f_va_model').value=(a.validator||{}).model||'';
@@ -388,6 +398,7 @@ function buildConfig(){const c={project:$('f_project').value.trim(),mode:$('f_mo
   if($('f_command').value)c.evaluation.command=$('f_command').value;
   if($('f_harness').value)c.evaluation.harness_dir=$('f_harness').value;
   if($('f_seed').value==='copy'&&$('f_seedpath').value)c.seed.path=$('f_seedpath').value;
+  if($('g_desc').value.trim())c.description=$('g_desc').value.trim();  // persist the task prompt
   return c;}
 function enableControls(on){['runBtn','stopBtn','resetBtn','renameBtn','exportBtn','deleteBtn','steerBtn'].forEach(b=>$(b).disabled=!on);}
 function highlight(){[...$('projects').children].forEach(li=>li.classList.toggle('active',li.textContent===current));}
@@ -396,7 +407,8 @@ async function loadProjects(){const d=await(await fetch(api('/api/projects'))).j
   (d.projects||[]).forEach(n=>{const li=document.createElement('li');li.textContent=n;li.onclick=()=>selectProject(n);ul.appendChild(li);});
   $('empty').classList.toggle('hidden',(d.projects||[]).length>0);highlight();}
 async function selectProject(name){const cfg=await(await fetch(api('/api/projects/'+name+'/config'))).json().catch(()=>({}));
-  fillForm(name,cfg);highlight();loadState(name);showView('progress');}
+  fillForm(name,cfg);highlight();loadState(name);showView('config');
+  try{localStorage.setItem('tt_current',name);}catch(e){}}
 function ensureChart(){if(chart||!window.Chart)return chart;
   chart=new Chart($('chart'),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#46e0d0',
     backgroundColor:'rgba(70,224,208,.14)',tension:.25,pointRadius:4,pointBackgroundColor:'#46e0d0',fill:true}]},
@@ -404,8 +416,17 @@ function ensureChart(){if(chart||!window.Chart)return chart;
       x:{grid:{color:'rgba(124,166,206,.06)'},ticks:{color:'#75899e'}}},plugins:{legend:{display:false}}}});return chart;}
 function plot(o){const c=ensureChart();if(!c)return;const p=o.filter(x=>x.score!=null);
   c.data.labels=p.map(x=>'#'+x.n);c.data.datasets[0].data=p.map(x=>x.score);c.update();}
-function renderLog(o){$('log').innerHTML=o.map(x=>`<div class="lrow"><span>iter #${x.n}</span>
-  <span class="v-${x.verdict}">${x.verdict}</span><span>${x.score==null?'—':(+x.score).toFixed(2)}</span></div>`).join('')||'—';}
+function renderLog(o){$('log').innerHTML=o.map(x=>{
+  const sc=x.score==null?'—':(+x.score).toFixed(2);
+  const head=`iter #${x.n} · <span class="v-${x.verdict}">${x.verdict}</span> · ${sc}`;
+  if(x.change||x.feedback){
+    return `<details><summary>${head}</summary>`+
+      (x.feedback?`<div class="why"><b>чому / далі:</b> ${esc(x.feedback)}</div>`:'')+
+      (x.change?`<div class="why" style="border-top:0"><b>що змінив:</b></div><pre class="diff">${esc(x.change)}</pre>`:'')+
+      `</details>`;
+  }
+  return `<div class="lrow"><span>iter #${x.n}</span><span class="v-${x.verdict}">${x.verdict}</span><span>${sc}</span></div>`;
+}).join('')||'—';}
 function setStatus(s,score,sum){const t=$('tag');t.className='tag '+(s||'idle');t.textContent=s||'idle';
   $('score').textContent=score==null?'—':(+score).toFixed(1);
   $('summary').textContent=sum?(sum.error?('помилка: '+sum.error):`результат: ${sum.reason} · ітерацій: ${sum.iterations}`):'';}
@@ -460,7 +481,17 @@ $('demoBtn').onclick=async()=>{showView('progress');setStatus('running',null,nul
   const d=await(await fetch(api('/api/demo'),{method:'POST'})).json();
   setStatus('finished',d.summary.best_score,d.summary);plot(d.outcomes);renderLog(d.outcomes);toast('Demo завершено ✓','ok');};
 
-(async()=>{await loadMeta();await loadProjects();blankForm();})();
+(async()=>{
+  await loadMeta(); await loadProjects(); blankForm();
+  // restore the last-open project after a browser refresh (history is persisted server-side)
+  let last=null; try{last=localStorage.getItem('tt_current');}catch(e){}
+  const exists=[...$('projects').children].some(li=>li.textContent===last);
+  if(last&&exists){
+    await selectProject(last);
+    const d=await(await fetch(api('/api/projects/'+last+'/live'))).json().catch(()=>({}));
+    if(d.status==='running'){showView('progress');startPolling(last);}  // resume live updates
+  }
+})();
 </script>
 </body>
 </html>

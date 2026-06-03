@@ -104,6 +104,22 @@ def test_validator_feedback_flows_into_next_brief(tmp_path):
     assert any("reduce leverage" in p for p in val.seen) or val.seen  # validator was consulted
 
 
+def test_iteration_records_change_and_feedback(tmp_path):
+    val = _FakeValidator("reduce leverage")
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    orch = Orchestrator(_cfg(), s, run_id, MockAdapter([_edit_val(80)]),
+                        FakeMetric(), LocalBackend(), validator=val)
+    o = orch.run_iteration()
+    assert o.verdict == "keep"
+    assert "val.txt" in o.change            # the diff (what changed) is on the outcome
+    assert o.feedback == "reduce leverage"  # the validator's why/next
+    row = s.last_iterations(run_id, 1)[0]
+    assert row.feedback == "reduce leverage"            # persisted for reload
+    assert row.change_summary and "val.txt" in row.change_summary
+
+
 def test_plateau_stops_the_loop(tmp_path):
     # first keeps 70, then meaningful-but-non-improving changes → plateau
     edits = [_edit_val(70, tag=i) for i in range(6)]

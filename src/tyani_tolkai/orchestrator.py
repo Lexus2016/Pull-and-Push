@@ -28,7 +28,8 @@ class IterationOutcome:
     n: int
     verdict: str          # keep | discard | no_op | fail
     score: float | None
-    feedback: str = ""
+    feedback: str = ""    # validator's "why / what next"
+    change: str = ""      # the diff of what the executor changed
 
 
 @dataclass
@@ -142,34 +143,38 @@ class Orchestrator:
         state.revert_uncommitted()            # drop metric side-effects (tree → candidate)
 
         if not mres.ok:
+            self._consult_validator({}, None, "fail", candidate_diff)  # advise before reset/record
+            fb = self.last_feedback
             state.reset_hard(parent)          # discard the candidate commit
             state.record_iteration(self.run_id, n=n, git_hash=None, score=None, verdict="fail",
-                                   metrics=[], change_summary=candidate_diff, agent_exit=result.status)
+                                   metrics=[], change_summary=candidate_diff, feedback=fb,
+                                   agent_exit=result.status)
             self.plateau_count += 1
             state.update_run(self.run_id, plateau_count=self.plateau_count, iter_count=n)
-            self._consult_validator({}, None, "fail", candidate_diff)
-            return IterationOutcome(n, "fail", None, self.last_feedback)
+            return IterationOutcome(n, "fail", None, fb, candidate_diff)
 
         values = {m["name"]: m["value"] for m in mres.metrics}
         new_score = score(values, cfg.evaluation.metrics)
         best = state.best_score(self.run_id)
         verdict = decide(new_score, best, cfg.evaluation.min_delta)
 
+        # Validator advises first (read-only) so its "why / what next" persists with the row.
+        self._consult_validator(values, new_score, verdict, candidate_diff)
+        fb = self.last_feedback
         if verdict == "keep":
             state.record_iteration(self.run_id, n=n, git_hash=cand_hash, score=new_score,
-                                   verdict="keep", metrics=mres.metrics, agent_exit=result.status)
+                                   verdict="keep", metrics=mres.metrics, change_summary=candidate_diff,
+                                   feedback=fb, agent_exit=result.status)
             self.plateau_count = 0
             state.update_run(self.run_id, best_score=new_score, plateau_count=0, iter_count=n)
         else:
             state.reset_hard(parent)          # discard the candidate commit
             state.record_iteration(self.run_id, n=n, git_hash=None, score=new_score,
                                    verdict="discard", metrics=mres.metrics,
-                                   change_summary=candidate_diff, agent_exit=result.status)
+                                   change_summary=candidate_diff, feedback=fb, agent_exit=result.status)
             self.plateau_count += 1
             state.update_run(self.run_id, plateau_count=self.plateau_count, iter_count=n)
-
-        self._consult_validator(values, new_score, verdict, candidate_diff)
-        return IterationOutcome(n, verdict, new_score, self.last_feedback)
+        return IterationOutcome(n, verdict, new_score, fb, candidate_diff)
 
     # ---- loop ----
 

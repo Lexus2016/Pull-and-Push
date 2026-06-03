@@ -93,6 +93,7 @@ class SeedCfg(BaseModel):
 
 class Config(BaseModel):
     project: str
+    description: str | None = None        # original plain-language task (from the generator)
     mode: Literal["asymmetric", "symmetric"] = "asymmetric"
     agents: dict[str, AgentCfg]
     roles: dict[str, RoleCfg]

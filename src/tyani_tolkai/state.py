@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS iteration (
     score REAL,
     verdict TEXT,
     change_summary TEXT,
+    feedback TEXT,
     cost REAL DEFAULT 0,
     duration REAL DEFAULT 0,
     agent_exit TEXT,
@@ -79,6 +80,7 @@ class IterationRow:
     verdict: str | None
     change_summary: str | None
     metrics: list[dict]
+    feedback: str | None = None
 
 
 class StateStore:
@@ -93,6 +95,10 @@ class StateStore:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")   # concurrent web read + run write
         self.conn.executescript(SCHEMA)
+        try:                                            # migrate older DBs in place
+            self.conn.execute("ALTER TABLE iteration ADD COLUMN feedback TEXT")
+        except sqlite3.OperationalError:
+            pass                                        # column already exists
         self.conn.commit()
 
     def close(self) -> None:
@@ -193,14 +199,15 @@ class StateStore:
         cost: float = 0.0,
         duration: float = 0.0,
         agent_exit: str | None = None,
+        feedback: str | None = None,
     ) -> int:
         """Write one iteration + its metric rows in a single transaction."""
         with self.conn:  # transaction
             cur = self.conn.execute(
                 "INSERT INTO iteration "
-                "(run_id, n, git_hash, score, verdict, change_summary, cost, duration, agent_exit, ts) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (run_id, n, git_hash, score, verdict, change_summary, cost, duration, agent_exit, _now()),
+                "(run_id, n, git_hash, score, verdict, change_summary, feedback, cost, duration, agent_exit, ts) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (run_id, n, git_hash, score, verdict, change_summary, feedback, cost, duration, agent_exit, _now()),
             )
             iid = int(cur.lastrowid)
             for m in metrics:
@@ -247,6 +254,7 @@ class StateStore:
                     verdict=r["verdict"],
                     change_summary=r["change_summary"],
                     metrics=[dict(m) for m in metrics],
+                    feedback=r["feedback"] if "feedback" in r.keys() else None,
                 )
             )
         return result
