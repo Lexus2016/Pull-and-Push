@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from .agents.base import AgentAdapter
 
-_PHASE2 = {"claude", "codex", "opencode", "agy"}
+_CLI_ENGINES = {"claude", "codex", "opencode", "agy"}
 
 
 class AdapterRegistry:
@@ -22,8 +22,12 @@ class AdapterRegistry:
     def get(self, name: str) -> AgentAdapter:
         if name in self._adapters:
             return self._adapters[name]
-        if name in _PHASE2:
-            raise NotImplementedError(
-                f"CLI adapter {name!r} arrives in Phase 2; register a mock for Phase 1 tests"
-            )
         raise KeyError(f"unknown engine: {name!r}")
+
+
+def build_adapter(engine: str, model: str | None, profile: str) -> AgentAdapter:
+    """Construct a CLI agent adapter for a real engine (spec §8)."""
+    if engine in _CLI_ENGINES:
+        from .agents.cli_agent import CLIAgentAdapter, build_cli_prefix
+        return CLIAgentAdapter(build_cli_prefix(engine, model, profile))
+    raise KeyError(f"unknown engine: {engine!r} (use mock for tests, or {_CLI_ENGINES})")

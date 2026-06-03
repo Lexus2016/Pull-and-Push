@@ -1,7 +1,8 @@
 import pytest
 
 from tyani_tolkai.agents import MockAdapter
-from tyani_tolkai.registry import AdapterRegistry
+from tyani_tolkai.agents.cli_agent import CLIAgentAdapter
+from tyani_tolkai.registry import AdapterRegistry, build_adapter
 
 
 def _write_x(val):
@@ -32,7 +33,12 @@ def test_registry_get_and_errors():
     mock = MockAdapter([])
     reg.register("mock", mock)
     assert reg.get("mock") is mock
-    with pytest.raises(NotImplementedError):
-        reg.get("claude")
     with pytest.raises(KeyError):
         reg.get("nope")
+
+
+def test_build_adapter_real_engines():
+    assert isinstance(build_adapter("claude", "opus", "writeable"), CLIAgentAdapter)
+    assert isinstance(build_adapter("codex", None, "read-only"), CLIAgentAdapter)
+    with pytest.raises(KeyError):
+        build_adapter("nope", None, "writeable")

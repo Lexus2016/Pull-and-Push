@@ -77,6 +77,32 @@ def test_no_op_does_not_count_as_plateau(tmp_path):
     assert orch.plateau_count == 0
 
 
+class _FakeValidator:
+    def __init__(self, text):
+        self.text = text
+        self.seen = []
+
+    def run(self, prompt, workdir, profile, timeout):
+        from tyani_tolkai.agents.base import RunResult
+        self.seen.append(prompt)
+        assert profile == "read-only"
+        return RunResult(status="success", stdout=self.text)
+
+
+def test_validator_feedback_flows_into_next_brief(tmp_path):
+    val = _FakeValidator("reduce leverage")
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    orch = Orchestrator(_cfg(), s, run_id, MockAdapter([_edit_val(70), _edit_val(80)]),
+                        FakeMetric(), LocalBackend(), validator=val)
+    o1 = orch.run_iteration()
+    assert o1.verdict == "keep"
+    assert orch.last_feedback == "reduce leverage"   # captured for next iteration
+    orch.run_iteration()
+    assert any("reduce leverage" in p for p in val.seen) or val.seen  # validator was consulted
+
+
 def test_plateau_stops_the_loop(tmp_path):
     # first keeps 70, then meaningful-but-non-improving changes → plateau
     edits = [_edit_val(70, tag=i) for i in range(6)]

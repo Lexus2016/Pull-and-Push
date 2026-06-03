@@ -128,6 +128,10 @@ class StateStore:
     def head(self) -> str:
         return self._git("rev-parse", "HEAD")
 
+    def has_changes(self) -> bool:
+        """True if the working tree has uncommitted changes (the agent edited files)."""
+        return bool(self._git("status", "--porcelain").strip())
+
     def commit(self, msg: str) -> str:
         """Stage everything and commit the candidate; return new HEAD hash."""
         self._git("add", "-A")

@@ -56,6 +56,29 @@ def _attempt_diff(state: StateStore, verdict: str | None, git_hash: str | None,
     return change_summary or "(reverted; diff not retained)"
 
 
+def build_validator_prompt(cfg: Config, candidate_diff: str, metrics_values: dict,
+                           new_score: float, verdict: str, prev_feedback: str = "") -> str:
+    """Prompt for the read-only Validator (spec §4): it sees the candidate diff, the
+    metrics, the verdict — and, when rejected, its own prior advice — then returns one
+    concrete next step. It never assigns the number."""
+    role = cfg.roles.get("validator")
+    goal = role.goal if role else "Diagnose why the score moved; give one concrete next step."
+    lines = [
+        "You are the read-only VALIDATOR. Do NOT edit files. Return only short, concrete advice.",
+        f"- Goal: {goal}",
+        f"- This candidate scored {new_score:.2f} → verdict: {verdict.upper()}",
+        f"- Metrics: " + (", ".join(f"{k}={v}" for k, v in metrics_values.items()) or "(none)"),
+    ]
+    if verdict in ("discard", "fail"):
+        lines.append("- This attempt was REJECTED (it did not clear the best score + noise band).")
+        if prev_feedback:
+            lines.append(f"- Your PREVIOUS advice was: {prev_feedback!r} — it did not work; change direction.")
+    lines.append("- Candidate diff:")
+    lines.append(_truncate(candidate_diff, 40))
+    lines.append("Give ONE concrete next change to raise the weighted score (<=3 sentences).")
+    return "\n".join(lines)
+
+
 def build_brief(state: StateStore, run_id: int, cfg: Config,
                 role: str = "executor", context_text: str = "",
                 validator_feedback: str = "") -> str:

@@ -8,13 +8,16 @@ adapters arrive in Phase 2 (until then it explains that clearly).
 from __future__ import annotations
 
 import argparse
+import shutil
 import sys
 import tempfile
 from pathlib import Path
 
-from .config import load_config
+from .config import Config, load_config
+from .metrics import get_metric_adapter
 from .orchestrator import Orchestrator
-from .registry import AdapterRegistry
+from .registry import build_adapter
+from .sandbox import get_backend
 from .state import StateStore
 
 
@@ -36,27 +39,58 @@ def cmd_demo(_args) -> int:
     return 0
 
 
+def _seed_artifact(state: StateStore, cfg: Config) -> None:
+    """Populate artifact/ per cfg.seed before the first commit."""
+    state.artifact_dir.mkdir(parents=True, exist_ok=True)
+    if cfg.seed.mode == "copy" and cfg.seed.path:
+        src = Path(cfg.seed.path).expanduser()
+        if src.exists():
+            shutil.copytree(src, state.artifact_dir, dirs_exist_ok=True)
+        else:
+            print(f"⚠ seed copy path not found: {src} (starting empty)")
+    # 'empty' and 'generate' start empty (generate would run an agent — Phase 3 nicety)
+
+
 def cmd_run(args) -> int:
     cfg = load_config(args.config)
     base = Path.home() / ".tyani-tolkai" / "projects" / cfg.project
     state = StateStore(base)
-    if not (state.artifact_dir / ".git").exists():
+    fresh = not (state.artifact_dir / ".git").exists()
+    if fresh:
+        _seed_artifact(state, cfg)
         state.git_init()
-    if args.resume:
-        removed = state.reconcile_all() if hasattr(state, "reconcile_all") else 0
-        print(f"resume: reconciled (removed {removed} phantom rows)")
 
-    engine = cfg.agents["executor"].engine
-    registry = AdapterRegistry()
-    try:
-        registry.get(engine)
-    except NotImplementedError:
-        print(f"✋ engine {engine!r} is a real CLI agent — wired in Phase 2.\n"
-              f"   For now, try:  tyani-tolkai demo  (runnable mock-driven loop)\n"
-              f"   Project state initialized at: {base}")
-        state.close()
-        return 2
-    print(f"loaded config for {cfg.project!r}; orchestrator wiring ready.")
+    if args.resume:
+        run_id = state.conn.execute(
+            "SELECT id FROM run ORDER BY id DESC LIMIT 1").fetchone()
+        if run_id is None:
+            print("nothing to resume; starting a new run")
+            run_id = state.create_run(cfg.mode)
+        else:
+            run_id = run_id["id"]
+            removed = state.reconcile(run_id)
+            state.set_status(run_id, "running")
+            print(f"resume run #{run_id} (reconciled {removed} phantom rows)")
+    else:
+        run_id = state.create_run(cfg.mode)
+
+    ex = cfg.agents["executor"]
+    executor = build_adapter(ex.engine, ex.model, "writeable")
+    validator = None
+    if "validator" in cfg.agents:
+        va = cfg.agents["validator"]
+        validator = build_adapter(va.engine, va.model, "read-only")
+
+    metric_adapter = get_metric_adapter(cfg.evaluation.adapter)
+    sandbox = get_backend(cfg.sandbox.backend)
+
+    orch = Orchestrator(cfg, state, run_id, executor, metric_adapter, sandbox, validator)
+    print(f"▶ run: project={cfg.project!r}  executor={ex.engine}  "
+          f"validator={cfg.agents.get('validator').engine if validator else 'none'}  "
+          f"target={cfg.evaluation.target_score}")
+    summary = orch.run_loop(on_iteration=_print_iter)
+    print(f"✔ finished: reason={summary.reason}  best_score={summary.best_score}  "
+          f"iterations={summary.iterations}")
     state.close()
     return 0
 
