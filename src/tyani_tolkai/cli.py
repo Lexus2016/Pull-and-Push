@@ -87,7 +87,7 @@ def cmd_run(args) -> int:
         validator = build_adapter(va.engine, va.model, "read-only")
 
     metric_adapter = get_metric_adapter(cfg.evaluation.adapter)
-    sandbox = get_backend(cfg.sandbox.backend)
+    sandbox = get_backend(cfg.sandbox.backend, cfg.sandbox)
 
     orch = Orchestrator(cfg, state, run_id, executor, metric_adapter, sandbox, validator)
     print(f"▶ run: project={cfg.project!r}  executor={ex.engine}  "

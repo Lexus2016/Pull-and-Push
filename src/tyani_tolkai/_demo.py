@@ -54,6 +54,6 @@ def build_demo(base_dir: str | Path):
     edits = [bump(v) for v in (55, 70, 85, 100)]
     orch = Orchestrator(
         cfg, state, run_id, MockAdapter(edits),
-        get_metric_adapter("numeric"), get_backend(cfg.sandbox.backend),
+        get_metric_adapter("numeric"), get_backend(cfg.sandbox.backend, cfg.sandbox),
     )
     return cfg, state, run_id, orch

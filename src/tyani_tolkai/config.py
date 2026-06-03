@@ -74,6 +74,7 @@ class CheckpointsCfg(BaseModel):
 
 class SandboxCfg(BaseModel):
     backend: Literal["local", "docker"] = "local"
+    image: str = "python:3.12-slim"
     memory: str | None = None
     cpus: float | None = None
     network: str = "none"

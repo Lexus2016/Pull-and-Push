@@ -53,18 +53,52 @@ class LocalBackend:
 
 
 class DockerBackend:
-    """Phase 2: isolated execution. Interface placeholder for now."""
+    """Isolated execution (spec §11). Mounts the PROJECT dir (artifact's parent) at
+    its identical absolute path, read-only, so absolute harness paths resolve inside
+    the container exactly as on the host. Network off, mem/cpu limited.
+
+    Caveat: metric commands must use the image's ``python`` (not a host interpreter
+    path). Validate on a Docker host — not exercised by the local test suite.
+    """
 
     name = "docker"
 
+    def __init__(self, image: str = "python:3.12-slim", network: str = "none",
+                 memory: str | None = None, cpus: float | None = None):
+        self.image = image
+        self.network = network
+        self.memory = memory
+        self.cpus = cpus
+
     def run(self, cmd: str, cwd: str | Path, timeout: int,
             env: dict | None = None) -> ExecResult:
-        raise NotImplementedError("DockerBackend arrives in Phase 2")
+        cwd = Path(cwd).resolve()
+        project = cwd.parent  # artifact's parent (project dir) holds metrics/ harness too
+        argv = ["docker", "run", "--rm", "--network", self.network,
+                "-v", f"{project}:{project}:ro", "-w", str(cwd),
+                "-e", "PYTHONDONTWRITEBYTECODE=1"]
+        for k, v in (env or {}).items():
+            argv += ["-e", f"{k}={v}"]
+        if self.memory:
+            argv += ["--memory", self.memory]
+        if self.cpus:
+            argv += ["--cpus", str(self.cpus)]
+        argv += [self.image, "sh", "-c", cmd]
+        try:
+            proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+            return ExecResult(proc.returncode, proc.stdout, proc.stderr)
+        except subprocess.TimeoutExpired as e:
+            return ExecResult(124, e.stdout or "", (e.stderr or "") + "\n[timeout]", timed_out=True)
 
 
-def get_backend(name: str) -> SandboxBackend:
+def get_backend(name: str, sandbox=None) -> SandboxBackend:
     if name == "local":
         return LocalBackend()
     if name == "docker":
-        return DockerBackend()
+        return DockerBackend(
+            image=getattr(sandbox, "image", "python:3.12-slim") if sandbox else "python:3.12-slim",
+            network=getattr(sandbox, "network", "none") if sandbox else "none",
+            memory=getattr(sandbox, "memory", None) if sandbox else None,
+            cpus=getattr(sandbox, "cpus", None) if sandbox else None,
+        )
     raise ValueError(f"unknown sandbox backend: {name!r}")
