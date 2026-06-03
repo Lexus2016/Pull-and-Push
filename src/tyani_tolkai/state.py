@@ -116,6 +116,10 @@ class StateStore:
             # local identity so commits work even without global git config
             self._git("config", "user.email", "orchestrator@tyani-tolkai.local")
             self._git("config", "user.name", "tyani-tolkai")
+            # keep transient bytecode out of artifact versions
+            gi = self.artifact_dir / ".gitignore"
+            if not gi.exists():
+                gi.write_text("__pycache__/\n*.pyc\n")
         self._git("add", "-A")
         # allow empty so an empty seed still yields a baseline commit
         self._git("commit", "-q", "--allow-empty", "-m", "seed")

@@ -35,7 +35,9 @@ class LocalBackend:
     def run(self, cmd: str, cwd: str | Path, timeout: int,
             env: dict | None = None) -> ExecResult:
         import os
-        full_env = {**os.environ, **(env or {})}
+        # never write .pyc — stale bytecode in the reused artifact dir would make
+        # the metric read an old version of the code (silent, nasty bug)
+        full_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", **(env or {})}
         try:
             proc = subprocess.run(
                 shlex.split(cmd),
