@@ -38,8 +38,17 @@ python3.12 -m venv .venv
 
 # 2) the dashboard (open the printed URL)
 .venv/bin/tyani-tolkai web
-#   click "Запустити demo" to see the evolution chart climb to 100
+#   • click "Demo" to see the evolution chart climb to 100
+#   • ⚙ Config tab → 🪄 "Згенерувати з опису": describe the task in plain language;
+#     the configurator agent drafts the whole project, you tweak it in the form, then Create.
+#   • tabs split Config / Progress so the long form never mixes with results
 ```
+
+### The configurator agent
+Instead of filling the form by hand, describe the task ("optimize strategy.py for Sharpe,
+metrics sharpe↑ and max_dd↓, target 90, edit only strategy.py"). A chosen CLI agent (with
+the fixed schema prompt in `configurator.py`) emits a valid config, which lands in the form
+for you to fine-tune. No bespoke agent — just an off-the-shelf CLI in read-only mode.
 
 ## Real run (your own task, real agents)
 

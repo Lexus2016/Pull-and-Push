@@ -75,6 +75,20 @@ def test_create_invalid_rejected(client):
     assert client.post("/api/projects/create", json=bad).status_code == 422
 
 
+def test_configure_endpoint(client, monkeypatch):
+    import tyani_tolkai.configurator as conf
+    monkeypatch.setattr(conf, "generate_config", lambda *a, **k: dict(_VALID))
+    r = client.post("/api/configure", json={"description": "do something useful"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["valid"] is True
+    assert body["config"]["project"] == "webtest"
+
+
+def test_configure_requires_description(client):
+    assert client.post("/api/configure", json={}).status_code == 400
+
+
 def test_lifecycle_endpoints(client):
     client.post("/api/projects/create", json=dict(_VALID, project="lc"))
     assert client.post("/api/projects/lc/stop").status_code == 200

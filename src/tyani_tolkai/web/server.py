@@ -196,6 +196,25 @@ def create_app(token: str | None = None) -> FastAPI:
             "dirs": ["higher", "lower"],
         }
 
+    # ---- configurator agent: description → draft config ----
+    @app.post("/api/configure")
+    def api_configure(payload: dict = Body(...), token: str | None = Query(None)):
+        auth(token)
+        desc = (payload.get("description") or "").strip()
+        if not desc:
+            raise HTTPException(400, "description required")
+        from ..configurator import generate_config
+        try:
+            cfg = generate_config(desc, payload.get("engine", "claude"), payload.get("model"))
+        except Exception as e:
+            raise HTTPException(502, f"configurator failed: {e}")
+        valid, err = True, None
+        try:
+            Config(**cfg)
+        except Exception as e:
+            valid, err = False, str(e)
+        return {"config": cfg, "valid": valid, "error": err}
+
     # ---- project create / configure ----
     @app.post("/api/projects/create")
     def api_create(payload: dict = Body(...), token: str | None = Query(None)):

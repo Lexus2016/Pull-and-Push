@@ -111,9 +111,22 @@
     </div>
 
     <div id="view-config">
+    <div class="card" style="border-color:#244563">
+      <h3>🪄 Згенерувати з опису</h3>
+      <p class="desc">Найпростіший шлях: опиши завдання словами — агент-налаштовувач сформує проєкт, а ти доведеш його у формі нижче.</p>
+      <div class="grid">
+        <div class="field full"><label>Опис завдання, метрик, мети, обмежень</label>
+          <textarea id="g_desc" style="min-height:96px" placeholder="Напр.: довести strategy.py до максимального Sharpe при просадці нижче 15%. Метрики: sharpe (вище — краще), max_dd (нижче — краще). Ціль 90. Обмеження: редагувати лише strategy.py, одна зміна за крок."></textarea>
+          <div class="hint">Природною мовою — що робимо, які метрики, яка мета, які обмеження.</div></div>
+        <div class="field"><label>Рушій налаштовувача</label><select id="g_engine"></select>
+          <div class="hint">Який CLI-агент згенерує конфіг (має бути встановлений і залогінений).</div></div>
+      </div>
+      <div class="save-bar"><button class="btn" id="genBtn" style="width:auto">🪄 Згенерувати проєкт</button>
+        <span class="hint">Заповнить форму нижче — перевір і натисни «Створити».</span></div>
+    </div>
     <div class="card">
       <h3 id="cfgTitle">Новий проєкт</h3>
-      <p class="desc">Налаштуй пару агентів і як вимірювати якість. Усе валідовується перед збереженням.</p>
+      <p class="desc">Або заповни вручну. Усе валідовується перед збереженням.</p>
 
       <fieldset><legend>Основне</legend>
         <div class="grid">
@@ -227,7 +240,8 @@ function opts(s,a,blank){s.innerHTML=(blank?'<option value="">— немає —
 
 async function loadMeta(){META=await(await fetch(api('/api/meta'))).json();
   opts($('f_mode'),META.modes);opts($('f_ex_engine'),META.engines);
-  opts($('f_va_engine'),META.engines,true);opts($('f_adapter'),META.adapters);opts($('f_seed'),META.seeds);}
+  opts($('f_va_engine'),META.engines,true);opts($('f_adapter'),META.adapters);opts($('f_seed'),META.seeds);
+  opts($('g_engine'),META.engines);}
 
 function vis(){const ad=$('f_adapter').value;
   $('command_wrap').classList.toggle('hidden',!(ad==='numeric'||ad==='command-exit'));
@@ -254,9 +268,10 @@ function blankForm(){current=null;$('cfgTitle').textContent='Новий проє
   $('f_plateau').value=6;$('f_step').value=600;$('f_seed').value='empty';$('f_sandbox').value='local';$('f_adapter').value='pytest-pass';
   $('metrics').innerHTML='';$('metrics').appendChild(metricRow({name:'pass_pct',dir:'higher',weight:1,worst:0,target:100}));
   $('f_project').disabled=false;enableControls(false);vis();highlight();}
-function fillForm(name,cfg){current=name;$('cfgTitle').textContent='Проєкт: '+name;$('saveBtn').textContent='💾 Зберегти зміни';
-  $('f_project').value=name;$('f_project').disabled=true;$('f_mode').value=cfg.mode||'asymmetric';
+function setFields(cfg){
   const a=cfg.agents||{},r=cfg.roles||{},ev=cfg.evaluation||{},lim=cfg.limits||{},sd=cfg.seed||{},sb=cfg.sandbox||{};
+  if(cfg.project!==undefined)$('f_project').value=cfg.project||'';
+  $('f_mode').value=cfg.mode||'asymmetric';
   $('f_ex_engine').value=(a.executor||{}).engine||'claude';$('f_ex_model').value=(a.executor||{}).model||'';
   $('f_va_engine').value=(a.validator||{}).engine||'';$('f_va_model').value=(a.validator||{}).model||'';
   $('f_ex_goal').value=(r.executor||{}).goal||'';$('f_ex_task').value=(r.executor||{}).task||'';$('f_va_goal').value=(r.validator||{}).goal||'';
@@ -266,7 +281,11 @@ function fillForm(name,cfg){current=name;$('cfgTitle').textContent='Проєкт
   if(!(ev.metrics||[]).length)$('metrics').appendChild(metricRow());
   $('f_seed').value=typeof sd==='string'?sd:(sd.mode||'empty');$('f_seedpath').value=sd.path||'';
   $('f_maxiter').value=lim.max_iterations??30;$('f_plateau').value=lim.plateau_N??6;$('f_step').value=lim.step_seconds??600;
-  $('f_sandbox').value=sb.backend||'local';enableControls(true);vis();}
+  $('f_sandbox').value=sb.backend||'local';vis();}
+function fillForm(name,cfg){current=name;$('cfgTitle').textContent='Проєкт: '+name;$('saveBtn').textContent='💾 Зберегти зміни';
+  setFields({...cfg,project:name});$('f_project').disabled=true;enableControls(true);}
+function applyGenerated(cfg){blankForm();setFields(cfg);$('f_project').disabled=false;current=null;
+  $('cfgTitle').textContent='Новий проєкт (згенеровано) — перевір і натисни «Створити»';$('saveBtn').textContent='💾 Створити';}
 function buildConfig(){const c={project:$('f_project').value.trim(),mode:$('f_mode').value,
   agents:{executor:{engine:$('f_ex_engine').value,timeout:600}},
   roles:{executor:{goal:$('f_ex_goal').value||'Improve the artifact.'}},
@@ -320,6 +339,15 @@ $('tabProgress').onclick=()=>showView('progress');
 $('newBtn').onclick=()=>{blankForm();showView('config');};
 $('addMetric').onclick=()=>$('metrics').appendChild(metricRow());
 $('f_adapter').onchange=vis;$('f_seed').onchange=vis;$('f_va_engine').onchange=vis;
+$('genBtn').onclick=async()=>{const desc=$('g_desc').value.trim();if(!desc){toast('Опиши завдання','err');return;}
+  const b=$('genBtn');b.disabled=true;b.textContent='⏳ Генерую…';
+  try{const r=await fetch(api('/api/configure'),{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({description:desc,engine:$('g_engine').value})});
+    const d=await r.json();
+    if(!r.ok){toast('Налаштовувач: '+(d.detail||r.status),'err');return;}
+    applyGenerated(d.config||{});showView('config');
+    toast(d.valid?'Згенеровано ✓ — перевір і натисни «Створити»':'Згенеровано, але є зауваження: '+(d.error||''),d.valid?'ok':'err');
+  }catch(e){toast('Помилка: '+e,'err');}finally{b.disabled=false;b.textContent='🪄 Згенерувати проєкт';}};
 $('saveBtn').onclick=async()=>{const cfg=buildConfig();
   if(!cfg.project){toast('Вкажи назву проєкту','err');return;}
   if(!cfg.evaluation.metrics.length){toast('Додай хоча б одну метрику','err');return;}
