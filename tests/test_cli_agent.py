@@ -29,44 +29,24 @@ def test_cli_adapter_missing_binary(tmp_path):
     assert "not installed" in res.stdout
 
 
-def test_cli_adapter_adds_dir_flags(tmp_path):
-    from unittest.mock import patch
+def test_cli_adapter_dir_handling(tmp_path):
+    """Prompt must be the final positional arg; cwd carries the working dir.
+    claude/agy must NOT get a greedy --add-dir (it swallows the prompt). codex gets -C."""
     import subprocess
+    from unittest.mock import patch
 
-    # Test claude adds --add-dir
-    adapter = CLIAgentAdapter(["claude", "-p"], engine="claude")
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="done")
-        adapter.run("hello-prompt", tmp_path, "writeable", 10)
-        mock_run.assert_called_once()
-        args, kwargs = mock_run.call_args
-        argv = args[0]
-        assert argv == ["claude", "-p", "--add-dir", str(tmp_path), "hello-prompt"]
-        assert kwargs["cwd"] == str(tmp_path)
+    def argv_for(engine, prefix):
+        a = CLIAgentAdapter(prefix, engine=engine)
+        with patch("subprocess.run") as m:
+            m.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="ok")
+            a.run("PROMPT", tmp_path, "writeable", 10)
+            return m.call_args[0][0], m.call_args[1]["cwd"]
 
-    # Test agy adds --add-dir
-    adapter_agy = CLIAgentAdapter(["agy", "-p"], engine="agy")
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="done")
-        adapter_agy.run("hello-prompt", tmp_path, "writeable", 10)
-        mock_run.assert_called_once()
-        argv = mock_run.call_args[0][0]
-        assert argv == ["agy", "-p", "--add-dir", str(tmp_path), "hello-prompt"]
-
-    # Test codex adds -C
-    adapter_codex = CLIAgentAdapter(["codex", "exec"], engine="codex")
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="done")
-        adapter_codex.run("hello-prompt", tmp_path, "writeable", 10)
-        mock_run.assert_called_once()
-        argv = mock_run.call_args[0][0]
-        assert argv == ["codex", "exec", "-C", str(tmp_path), "hello-prompt"]
-
-    # Test opencode does not add dir flags
-    adapter_opencode = CLIAgentAdapter(["opencode", "run"], engine="opencode")
-    with patch("subprocess.run") as mock_run:
-        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="done")
-        adapter_opencode.run("hello-prompt", tmp_path, "writeable", 10)
-        mock_run.assert_called_once()
-        argv = mock_run.call_args[0][0]
-        assert argv == ["opencode", "run", "hello-prompt"]
+    av, cwd = argv_for("claude", ["claude", "-p"])
+    assert av == ["claude", "-p", "PROMPT"] and cwd == str(tmp_path)   # no --add-dir
+    av, _ = argv_for("agy", ["agy", "-p"])
+    assert av == ["agy", "-p", "PROMPT"]
+    av, _ = argv_for("codex", ["codex", "exec"])
+    assert av == ["codex", "exec", "-C", str(tmp_path), "PROMPT"]      # single-path flag
+    av, _ = argv_for("opencode", ["opencode", "run"])
+    assert av == ["opencode", "run", "PROMPT"]

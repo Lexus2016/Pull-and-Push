@@ -46,11 +46,12 @@ class CLIAgentAdapter:
 
     def run(self, brief: str, workdir: str | Path, profile: str, timeout: int) -> RunResult:
         cmd = list(self.prefix)
-        if self.engine == "claude":
-            cmd += ["--add-dir", str(workdir)]
-        elif self.engine == "agy":
-            cmd += ["--add-dir", str(workdir)]
-        elif self.engine == "codex":
+        # The subprocess runs with cwd=workdir, so the agent already has the working
+        # directory. Only codex needs it stated explicitly via -C (a single-path flag).
+        # claude/agy use --add-dir, which is GREEDY (variadic) and swallows the prompt
+        # argument that follows it — breaking the call ("prompt not provided"). So we do
+        # NOT pass --add-dir; cwd is sufficient.
+        if self.engine == "codex":
             cmd += ["-C", str(workdir)]
 
         argv = [*cmd, brief]
