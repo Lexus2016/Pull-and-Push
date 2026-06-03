@@ -16,6 +16,10 @@ from pathlib import Path
 from .config import Config, load_config
 from .metrics import get_metric_adapter
 from .orchestrator import Orchestrator
+from .projects import (
+    delete_project, export_project, import_project, list_projects,
+    project_dir, rename_project, reset_project,
+)
 from .registry import build_adapter
 from .sandbox import get_backend
 from .state import StateStore
@@ -53,12 +57,13 @@ def _seed_artifact(state: StateStore, cfg: Config) -> None:
 
 def cmd_run(args) -> int:
     cfg = load_config(args.config)
-    base = Path.home() / ".tyani-tolkai" / "projects" / cfg.project
+    base = project_dir(cfg.project)
     state = StateStore(base)
     fresh = not (state.artifact_dir / ".git").exists()
     if fresh:
         _seed_artifact(state, cfg)
         state.git_init()
+        shutil.copy2(args.config, base / "config.yaml")  # self-contained project
 
     if args.resume:
         run_id = state.conn.execute(
@@ -95,6 +100,29 @@ def cmd_run(args) -> int:
     return 0
 
 
+def cmd_projects(args) -> int:
+    action = args.action
+    if action == "list":
+        names = list_projects()
+        print("\n".join(names) if names else "(no projects)")
+    elif action == "delete":
+        delete_project(args.name)
+        print(f"deleted {args.name!r}")
+    elif action == "rename":
+        rename_project(args.name, args.to)
+        print(f"renamed {args.name!r} → {args.to!r}")
+    elif action == "reset":
+        reset_project(args.name)
+        print(f"reset {args.name!r} to its seed")
+    elif action == "export":
+        dest = export_project(args.name, args.to)
+        print(f"exported {args.name!r} → {dest}")
+    elif action == "import":
+        new = import_project(args.name, args.to)   # name = tar path, --to = new name
+        print(f"imported → project {new!r}")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="tyani-tolkai",
                                 description="Adversarial co-evolution agent orchestrator")
@@ -107,6 +135,12 @@ def main(argv=None) -> int:
 
     pd = sub.add_parser("demo", help="run the built-in mock-driven demo loop")
     pd.set_defaults(func=cmd_demo)
+
+    pp = sub.add_parser("projects", help="manage projects")
+    pp.add_argument("action", choices=["list", "delete", "rename", "reset", "export", "import"])
+    pp.add_argument("name", nargs="?", help="project name (or tar path for import)")
+    pp.add_argument("--to", help="new name (rename), dest tar (export), or new name (import)")
+    pp.set_defaults(func=cmd_projects)
 
     args = p.parse_args(argv)
     return args.func(args)
