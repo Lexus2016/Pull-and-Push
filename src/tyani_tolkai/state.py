@@ -133,6 +133,14 @@ class StateStore:
         """True if the working tree has uncommitted changes (the agent edited files)."""
         return bool(self._git("status", "--porcelain").strip())
 
+    def tracked_files(self) -> list[str]:
+        """Committed files, excluding the housekeeping .gitignore."""
+        return [f for f in self._git("ls-files").splitlines() if f and f != ".gitignore"]
+
+    def is_artifact_empty(self) -> bool:
+        """True when the artifact has no real content yet (only seed/.gitignore)."""
+        return not self.tracked_files()
+
     def commit(self, msg: str) -> str:
         """Stage everything and commit the candidate; return new HEAD hash."""
         self._git("add", "-A")

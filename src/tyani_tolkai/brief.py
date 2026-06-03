@@ -119,6 +119,11 @@ def build_brief(state: StateStore, run_id: int, cfg: Config,
 
     lines.append(f"- Oscillation flag: {'YES' if detect_oscillation(diffs) else 'no'}")
     lines.append(f"- Live operator instructions: {context_text.strip() or '(none)'}")
-    lines.append("- Your task: make ONE focused change to improve the weighted score. "
-                 "Edit files in place.")
+    if state.is_artifact_empty():
+        lines.append("- The artifact is EMPTY. CREATE the initial working implementation NOW: "
+                     "write the actual files the goal and the evaluation command need (real, "
+                     "runnable code — not a plan, not a description). Then they get scored.")
+    else:
+        lines.append("- Your task: make ONE focused change to improve the weighted score. "
+                     "Edit files in place.")
     return "\n".join(lines)

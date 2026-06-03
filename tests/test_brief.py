@@ -52,6 +52,19 @@ def test_build_brief_with_history(tmp_path):
     assert "Oscillation flag:" in brief
 
 
+def test_brief_empty_artifact_says_create_else_focused_change(tmp_path):
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    # empty artifact → must instruct to CREATE the initial implementation
+    b_empty = build_brief(s, run_id, _cfg())
+    assert "EMPTY" in b_empty and "CREATE" in b_empty
+    # once there is real content → switch to "one focused change"
+    (s.artifact_dir / "code.py").write_text("x = 1\n")
+    s.commit("seed code")
+    assert "ONE focused change" in build_brief(s, run_id, _cfg())
+
+
 def test_history_depth_respected(tmp_path):
     s = StateStore(tmp_path / "proj")
     s.git_init()
