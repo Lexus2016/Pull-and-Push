@@ -8,6 +8,7 @@ adapters arrive in Phase 2 (until then it explains that clearly).
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import sys
 import tempfile
@@ -123,6 +124,20 @@ def cmd_projects(args) -> int:
     return 0
 
 
+def cmd_web(args) -> int:
+    from .web.server import create_app
+    import uvicorn
+
+    token = args.password or os.environ.get("TYANI_TOLKAI_WEB_PASSWORD")
+    app = create_app(token)
+    url = f"http://{args.host}:{args.port}/" + (f"?token={token}" if token else "")
+    print(f"▶ WebUI ready: {url}")
+    if not token:
+        print("  (no password set — open locally; set TYANI_TOLKAI_WEB_PASSWORD to protect)")
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="tyani-tolkai",
                                 description="Adversarial co-evolution agent orchestrator")
@@ -141,6 +156,12 @@ def main(argv=None) -> int:
     pp.add_argument("name", nargs="?", help="project name (or tar path for import)")
     pp.add_argument("--to", help="new name (rename), dest tar (export), or new name (import)")
     pp.set_defaults(func=cmd_projects)
+
+    pw = sub.add_parser("web", help="launch the WebUI dashboard")
+    pw.add_argument("--host", default="127.0.0.1")
+    pw.add_argument("--port", type=int, default=8765)
+    pw.add_argument("--password", default=None, help="protect the UI (else open locally)")
+    pw.set_defaults(func=cmd_web)
 
     args = p.parse_args(argv)
     return args.func(args)

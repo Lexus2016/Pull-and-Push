@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Тяни-Толкай</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root{
+    --bg:#0f1216; --panel:#171c23; --line:#262e39; --ink:#e8edf3; --mut:#9aa7b6;
+    --accent:#4ca3ff; --good:#46d39a; --bad:#ff6b6b; --warn:#ffc857;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:18px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:20px 28px;border-bottom:1px solid var(--line);display:flex;
+    align-items:baseline;gap:16px}
+  header h1{margin:0;font-size:26px;letter-spacing:.3px}
+  header .sub{color:var(--mut);font-size:16px}
+  .wrap{display:grid;grid-template-columns:300px 1fr;gap:0;min-height:calc(100vh - 70px)}
+  aside{border-right:1px solid var(--line);padding:22px;background:var(--panel)}
+  aside h2{font-size:15px;text-transform:uppercase;letter-spacing:1px;color:var(--mut);margin:0 0 14px}
+  .btn{display:block;width:100%;padding:16px 18px;margin:0 0 14px;border:0;border-radius:12px;
+    background:var(--accent);color:#04101f;font-size:18px;font-weight:600;cursor:pointer}
+  .btn.secondary{background:#222b35;color:var(--ink);border:1px solid var(--line)}
+  .btn:hover{filter:brightness(1.08)}
+  .plist{list-style:none;margin:0;padding:0}
+  .plist li{padding:14px 16px;border:1px solid var(--line);border-radius:10px;margin-bottom:10px;
+    cursor:pointer;font-size:17px}
+  .plist li.active{border-color:var(--accent);background:#0e2336}
+  main{padding:26px 30px}
+  .status{display:flex;gap:28px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
+  .score{font-size:64px;font-weight:800;line-height:1}
+  .tag{padding:6px 14px;border-radius:999px;font-size:16px;font-weight:600}
+  .tag.running{background:#13324a;color:var(--accent)}
+  .tag.finished{background:#10362a;color:var(--good)}
+  .tag.error{background:#3a1717;color:var(--bad)}
+  .tag.idle{background:#222b35;color:var(--mut)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px;margin-bottom:20px}
+  .card h3{margin:0 0 14px;font-size:16px;color:var(--mut);text-transform:uppercase;letter-spacing:1px}
+  #log{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;max-height:280px;
+    overflow:auto;white-space:pre-wrap}
+  .row{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
+  .v-keep{color:var(--good)} .v-discard{color:var(--warn)} .v-fail{color:var(--bad)} .v-no_op{color:var(--mut)}
+  .hint{color:var(--mut);font-size:15px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Тяни-Толкай</h1>
+  <span class="sub">adversarial co-evolution — push &amp; pull toward quality</span>
+</header>
+<div class="wrap">
+  <aside>
+    <h2>Дії</h2>
+    <button class="btn" id="demoBtn">▶ Запустити demo</button>
+    <button class="btn secondary" id="runBtn">▶ Run проєкту</button>
+    <h2 style="margin-top:26px">Проєкти</h2>
+    <ul class="plist" id="projects"></ul>
+    <p class="hint" id="phint">—</p>
+  </aside>
+  <main>
+    <div class="status">
+      <div class="score" id="score">—</div>
+      <span class="tag idle" id="tag">idle</span>
+      <div class="hint" id="summary"></div>
+    </div>
+    <div class="card">
+      <h3>Еволюція якості</h3>
+      <canvas id="chart" height="110"></canvas>
+    </div>
+    <div class="card">
+      <h3>Хід ітерацій</h3>
+      <div id="log">Натисни «Запустити demo», щоб побачити цикл наживо.</div>
+    </div>
+  </main>
+</div>
+<script>
+const TOKEN = new URLSearchParams(location.search).get('token') || '';
+const q = t => t ? (location.search.includes('?') ? '&' : '?') + 'token=' + encodeURIComponent(t) : '';
+const api = p => p + (p.includes('?') ? (TOKEN?'&token='+TOKEN:'') : (TOKEN?'?token='+TOKEN:''));
+let active = null, poll = null, chart = null;
+
+function ensureChart(){
+  if(chart || !window.Chart) return chart;
+  chart = new Chart(document.getElementById('chart'), {
+    type:'line',
+    data:{labels:[],datasets:[{label:'score',data:[],borderColor:'#4ca3ff',
+      backgroundColor:'rgba(76,163,255,.15)',tension:.25,pointRadius:4,fill:true}]},
+    options:{scales:{y:{min:0,max:100,grid:{color:'#262e39'},ticks:{color:'#9aa7b6'}},
+      x:{grid:{color:'#1c232c'},ticks:{color:'#9aa7b6'}}},
+      plugins:{legend:{display:false}}}
+  });
+  return chart;
+}
+function plot(outcomes){
+  const c = ensureChart(); if(!c) return;
+  const pts = outcomes.filter(o=>o.score!=null);
+  c.data.labels = pts.map(o=>'#'+o.n);
+  c.data.datasets[0].data = pts.map(o=>o.score);
+  c.update();
+}
+function renderLog(outcomes){
+  document.getElementById('log').innerHTML = outcomes.map(o=>
+    `<div class="row"><span>iter #${o.n}</span>`+
+    `<span class="v-${o.verdict}">${o.verdict}</span>`+
+    `<span>${o.score==null?'—':(+o.score).toFixed(2)}</span></div>`).join('') || '—';
+}
+function setStatus(status, score, summary){
+  const tag=document.getElementById('tag'); tag.className='tag '+(status||'idle'); tag.textContent=status||'idle';
+  document.getElementById('score').textContent = score==null?'—':(+score).toFixed(1);
+  document.getElementById('summary').textContent = summary
+    ? (summary.error ? ('error: '+summary.error)
+       : `reason: ${summary.reason} · iters: ${summary.iterations}`) : '';
+}
+async function loadProjects(){
+  const r = await fetch(api('/api/projects')); const d = await r.json();
+  const ul=document.getElementById('projects'); ul.innerHTML='';
+  (d.projects||[]).forEach(n=>{
+    const li=document.createElement('li'); li.textContent=n;
+    if(n===active) li.classList.add('active');
+    li.onclick=()=>{active=n; document.getElementById('phint').textContent='вибрано: '+n; loadProjects(); loadState(n);};
+    ul.appendChild(li);
+  });
+  if(!d.projects || !d.projects.length) document.getElementById('phint').textContent='проєктів ще немає — створи через `tyani-tolkai run`';
+}
+async function loadState(name){
+  const r = await fetch(api('/api/projects/'+name)); const d = await r.json();
+  setStatus(d.status||'idle', d.best_score, null);
+  plot(d.iterations||[]); renderLog(d.iterations||[]);
+}
+function startPolling(name){
+  if(poll) clearInterval(poll);
+  poll=setInterval(async()=>{
+    const r=await fetch(api('/api/projects/'+name+'/live')); const d=await r.json();
+    setStatus(d.status, (d.outcomes||[]).reduce((m,o)=>o.score!=null&&o.score>m?o.score:m,0)||null, d.summary);
+    plot(d.outcomes||[]); renderLog(d.outcomes||[]);
+    if(d.status!=='running'){clearInterval(poll); poll=null;}
+  },1000);
+}
+document.getElementById('demoBtn').onclick=async()=>{
+  setStatus('running',null,null); document.getElementById('log').textContent='demo біжить…';
+  const r=await fetch(api('/api/demo'),{method:'POST'}); const d=await r.json();
+  setStatus('finished', d.summary.best_score, d.summary); plot(d.outcomes); renderLog(d.outcomes);
+};
+document.getElementById('runBtn').onclick=async()=>{
+  if(!active){alert('Спершу вибери проєкт зліва');return;}
+  await fetch(api('/api/projects/'+active+'/run'),{method:'POST'});
+  setStatus('running',null,null); startPolling(active);
+};
+loadProjects();
+</script>
+</body>
+</html>

@@ -89,8 +89,9 @@ class StateStore:
         self.artifact_dir = self.project_dir / "artifact"
         self.db_path = self.project_dir / "state.db"
         self.project_dir.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(self.db_path)
+        self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
+        self.conn.execute("PRAGMA journal_mode=WAL")   # concurrent web read + run write
         self.conn.executescript(SCHEMA)
         self.conn.commit()
 

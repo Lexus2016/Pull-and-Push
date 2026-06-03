@@ -13,8 +13,15 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+web = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+]
 dev = [
     "pytest>=7",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "httpx>=0.27",
 ]
 
 [project.scripts]
@@ -22,6 +29,9 @@ tyani-tolkai = "tyani_tolkai.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"tyani_tolkai.web" = ["static/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
