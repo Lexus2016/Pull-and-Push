@@ -23,6 +23,7 @@ def test_get_backend_docker_configures():
                                               "memory": "1g", "cpus": 2})())
     assert isinstance(be, DockerBackend)
     assert be.image == "img:1" and be.memory == "1g"
+    assert be.python == "python"   # uses the image interpreter, not a host path
 
 
 @docker

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import shlex
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -31,6 +32,7 @@ class LocalBackend:
     """Run the command on the host with a timeout. No isolation — Phase 1 only."""
 
     name = "local"
+    python = sys.executable        # interpreter metric adapters should invoke (host venv)
 
     def run(self, cmd: str, cwd: str | Path, timeout: int,
             env: dict | None = None) -> ExecResult:
@@ -62,6 +64,7 @@ class DockerBackend:
     """
 
     name = "docker"
+    python = "python"              # the image's interpreter (host paths don't exist inside)
 
     def __init__(self, image: str = "python:3.12-slim", network: str = "none",
                  memory: str | None = None, cpus: float | None = None):

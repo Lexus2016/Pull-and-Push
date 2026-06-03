@@ -91,8 +91,10 @@ tyani-tolkai projects delete renamed
 **Known boundaries (honest):**
 - **Symmetric mode** (Rival↔Rival + Arena + champion archive) — designed, not yet built.
 - **Docker backend** is implemented but validated only by design here (no Docker daemon in
-  the dev box); the `local` backend is fully tested. Metric commands in Docker must use the
-  image's `python`.
+  the dev box); the `local` backend is fully tested. The interpreter for `pytest-pass` is
+  taken from the backend automatically (`python` inside Docker, the host venv locally).
+- **Command semantics differ by backend:** `local` runs metric `command`s via argv (shlex),
+  Docker via `sh -c`. Keep commands simple (avoid shell pipes) for cross-backend parity.
 - **Checkpoints** currently surface as stop-points (target/plateau/max) visible in the UI;
   interactive mid-run continue/adjust is the next increment.
 - **Live updates** use polling (1s), not WebSocket — same live chart, simpler/robust.

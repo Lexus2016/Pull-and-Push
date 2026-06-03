@@ -20,3 +20,7 @@ def test_local_timeout(tmp_path):
 
 def test_get_backend():
     assert get_backend("local").name == "local"
+
+
+def test_local_backend_python_is_host_interpreter():
+    assert LocalBackend.python == sys.executable

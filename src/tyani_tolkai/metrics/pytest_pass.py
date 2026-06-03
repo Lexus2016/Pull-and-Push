@@ -31,7 +31,8 @@ class PytestPassAdapter:
         if not harness_path.is_absolute():
             # harness lives beside the artifact (project_dir/metrics), not inside it
             harness_path = (artifact_dir.parent / harness).resolve()
-        cmd = f"{sys.executable} -m pytest {harness_path} -q -p no:cacheprovider"
+        py = getattr(sandbox, "python", sys.executable)   # backend picks the interpreter
+        cmd = f"{py} -m pytest {harness_path} -q -p no:cacheprovider"
         res = sandbox.run(
             cmd, cwd=artifact_dir, timeout=timeout,
             env={"PYTHONPATH": str(Path(artifact_dir).resolve())},
