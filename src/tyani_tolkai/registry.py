@@ -29,5 +29,5 @@ def build_adapter(engine: str, model: str | None, profile: str) -> AgentAdapter:
     """Construct a CLI agent adapter for a real engine (spec §8)."""
     if engine in _CLI_ENGINES:
         from .agents.cli_agent import CLIAgentAdapter, build_cli_prefix
-        return CLIAgentAdapter(build_cli_prefix(engine, model, profile))
+        return CLIAgentAdapter(build_cli_prefix(engine, model, profile), engine=engine)
     raise KeyError(f"unknown engine: {engine!r} (use mock for tests, or {_CLI_ENGINES})")

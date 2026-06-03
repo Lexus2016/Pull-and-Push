@@ -27,3 +27,46 @@ def test_cli_adapter_missing_binary(tmp_path):
     res = adapter.run("brief", tmp_path, "writeable", 10)
     assert res.status == "crashed"
     assert "not installed" in res.stdout
+
+
+def test_cli_adapter_adds_dir_flags(tmp_path):
+    from unittest.mock import patch
+    import subprocess
+
+    # Test claude adds --add-dir
+    adapter = CLIAgentAdapter(["claude", "-p"], engine="claude")
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="done")
+        adapter.run("hello-prompt", tmp_path, "writeable", 10)
+        mock_run.assert_called_once()
+        args, kwargs = mock_run.call_args
+        argv = args[0]
+        assert argv == ["claude", "-p", "--add-dir", str(tmp_path), "hello-prompt"]
+        assert kwargs["cwd"] == str(tmp_path)
+
+    # Test agy adds --add-dir
+    adapter_agy = CLIAgentAdapter(["agy", "-p"], engine="agy")
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="done")
+        adapter_agy.run("hello-prompt", tmp_path, "writeable", 10)
+        mock_run.assert_called_once()
+        argv = mock_run.call_args[0][0]
+        assert argv == ["agy", "-p", "--add-dir", str(tmp_path), "hello-prompt"]
+
+    # Test codex adds -C
+    adapter_codex = CLIAgentAdapter(["codex", "exec"], engine="codex")
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="done")
+        adapter_codex.run("hello-prompt", tmp_path, "writeable", 10)
+        mock_run.assert_called_once()
+        argv = mock_run.call_args[0][0]
+        assert argv == ["codex", "exec", "-C", str(tmp_path), "hello-prompt"]
+
+    # Test opencode does not add dir flags
+    adapter_opencode = CLIAgentAdapter(["opencode", "run"], engine="opencode")
+    with patch("subprocess.run") as mock_run:
+        mock_run.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="done")
+        adapter_opencode.run("hello-prompt", tmp_path, "writeable", 10)
+        mock_run.assert_called_once()
+        argv = mock_run.call_args[0][0]
+        assert argv == ["opencode", "run", "hello-prompt"]

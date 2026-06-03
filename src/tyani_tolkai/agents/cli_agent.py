@@ -40,11 +40,20 @@ def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
 class CLIAgentAdapter:
     """Run a CLI agent: argv = prefix + [brief], executed in the working dir."""
 
-    def __init__(self, prefix: list[str]):
+    def __init__(self, prefix: list[str], engine: str | None = None):
         self.prefix = prefix
+        self.engine = engine
 
     def run(self, brief: str, workdir: str | Path, profile: str, timeout: int) -> RunResult:
-        argv = [*self.prefix, brief]
+        cmd = list(self.prefix)
+        if self.engine == "claude":
+            cmd += ["--add-dir", str(workdir)]
+        elif self.engine == "agy":
+            cmd += ["--add-dir", str(workdir)]
+        elif self.engine == "codex":
+            cmd += ["-C", str(workdir)]
+
+        argv = [*cmd, brief]
         try:
             proc = subprocess.run(
                 argv, cwd=str(workdir), capture_output=True, text=True, timeout=timeout,
