@@ -162,6 +162,7 @@
   .lrow{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
   .lrow span:first-child{color:var(--mut)}
   .v-keep{color:var(--good)}.v-discard{color:var(--warn)}.v-fail{color:var(--bad)}.v-no_op{color:var(--mut)}
+  .mets{color:var(--cold);font-family:var(--mono);font-size:12px}
 
   /* ───────── toast ───────── */
   #toast{position:fixed;right:24px;bottom:24px;padding:14px 20px;border-radius:var(--radius);font-family:var(--mono);
@@ -416,16 +417,19 @@ function ensureChart(){if(chart||!window.Chart)return chart;
       x:{grid:{color:'rgba(124,166,206,.06)'},ticks:{color:'#75899e'}}},plugins:{legend:{display:false}}}});return chart;}
 function plot(o){const c=ensureChart();if(!c)return;const p=o.filter(x=>x.score!=null);
   c.data.labels=p.map(x=>'#'+x.n);c.data.datasets[0].data=p.map(x=>x.score);c.update();}
-function renderLog(o){$('log').innerHTML=o.map(x=>{
+function renderLog(o){const fmt=v=>{v=+v;return Math.abs(v)>=10?v.toFixed(2):v.toFixed(4);};
+  $('log').innerHTML=o.map(x=>{
   const sc=x.score==null?'—':(+x.score).toFixed(2);
-  const head=`iter #${x.n} · <span class="v-${x.verdict}">${x.verdict}</span> · ${sc}`;
+  const mets=(x.metrics&&x.metrics.length)?x.metrics.map(m=>`${m.name} ${fmt(m.value)}`).join('  ·  '):'';
+  const metsHtml=mets?` <span class="mets">${esc(mets)}</span>`:'';
+  const head=`iter #${x.n} · <span class="v-${x.verdict}">${x.verdict}</span> · score ${sc}${metsHtml}`;
   if(x.change||x.feedback){
     return `<details><summary>${head}</summary>`+
       (x.feedback?`<div class="why"><b>чому / далі:</b> ${esc(x.feedback)}</div>`:'')+
       (x.change?`<div class="why" style="border-top:0"><b>що змінив:</b></div><pre class="diff">${esc(x.change)}</pre>`:'')+
       `</details>`;
   }
-  return `<div class="lrow"><span>iter #${x.n}</span><span class="v-${x.verdict}">${x.verdict}</span><span>${sc}</span></div>`;
+  return `<div class="lrow"><span>iter #${x.n}${metsHtml}</span><span class="v-${x.verdict}">${x.verdict}</span><span>${sc}</span></div>`;
 }).join('')||'—';}
 function setStatus(s,score,sum){const t=$('tag');t.className='tag '+(s||'idle');t.textContent=s||'idle';
   $('score').textContent=score==null?'—':(+score).toFixed(1);

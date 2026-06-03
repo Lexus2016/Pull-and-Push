@@ -100,7 +100,8 @@ class RunManager:
                 with self._lock:
                     self._runs[name]["outcomes"].append(
                         {"n": o.n, "verdict": o.verdict, "score": o.score,
-                         "feedback": o.feedback, "change": o.change})
+                         "feedback": o.feedback, "change": o.change,
+                         "metrics": [{"name": m["name"], "value": m["value"]} for m in (o.metrics or [])]})
 
             summary = orch.run_loop(on_iteration=on_iter,
                                     should_stop=lambda: name in self._stop)
@@ -136,14 +137,13 @@ def _persisted_state(name: str) -> dict:
             run = state.conn.execute("SELECT * FROM run ORDER BY id DESC LIMIT 1").fetchone()
         if run is None:
             return {"iterations": [], "best_score": None}
-        rows = state.conn.execute(
-            "SELECT n, score, verdict, change_summary, feedback FROM iteration "
-            "WHERE run_id=? ORDER BY n", (run["id"],),
-        ).fetchall()
+        iters = state.last_iterations(run["id"], 100000)   # oldest-first, with metrics
         return {
             "status": run["status"], "best_score": run["best_score"],
-            "iterations": [{"n": r["n"], "score": r["score"], "verdict": r["verdict"],
-                            "change": r["change_summary"], "feedback": r["feedback"]} for r in rows],
+            "iterations": [{"n": it.n, "score": it.score, "verdict": it.verdict,
+                            "change": it.change_summary, "feedback": it.feedback,
+                            "metrics": [{"name": m["name"], "value": m["value"]} for m in it.metrics]}
+                           for it in iters],
         }
     finally:
         state.close()

@@ -13,7 +13,7 @@ Phase 2 is synchronous; Phase 3 adds async streaming behind the same shape.
 from __future__ import annotations
 
 import statistics
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from .brief import build_brief, build_validator_prompt
 from .config import Config
@@ -30,6 +30,7 @@ class IterationOutcome:
     score: float | None
     feedback: str = ""    # validator's "why / what next"
     change: str = ""      # the diff of what the executor changed
+    metrics: list = field(default_factory=list)  # raw objective metrics this iteration
 
 
 @dataclass
@@ -174,7 +175,7 @@ class Orchestrator:
                                    change_summary=candidate_diff, feedback=fb, agent_exit=result.status)
             self.plateau_count += 1
             state.update_run(self.run_id, plateau_count=self.plateau_count, iter_count=n)
-        return IterationOutcome(n, verdict, new_score, fb, candidate_diff)
+        return IterationOutcome(n, verdict, new_score, fb, candidate_diff, mres.metrics)
 
     # ---- loop ----
 
