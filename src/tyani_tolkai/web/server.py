@@ -128,7 +128,12 @@ def _persisted_state(name: str) -> dict:
         return {"iterations": [], "best_score": None}
     state = StateStore(base)
     try:
-        run = state.conn.execute("SELECT * FROM run ORDER BY id DESC LIMIT 1").fetchone()
+        # prefer the latest run that actually has history (skip empty/zombie runs)
+        run = state.conn.execute(
+            "SELECT * FROM run WHERE id IN (SELECT DISTINCT run_id FROM iteration) "
+            "ORDER BY id DESC LIMIT 1").fetchone()
+        if run is None:
+            run = state.conn.execute("SELECT * FROM run ORDER BY id DESC LIMIT 1").fetchone()
         if run is None:
             return {"iterations": [], "best_score": None}
         rows = state.conn.execute(
@@ -148,6 +153,19 @@ def create_app(token: str | None = None) -> FastAPI:
     app = FastAPI(title="Тяни-Толкай")
     app.state.token = token if token is not None else os.environ.get("TYANI_TOLKAI_WEB_PASSWORD")
     app.state.runs = RunManager()
+
+    # On startup, no background run can be alive yet — any DB run still marked 'running'
+    # is an orphan from a previous process (e.g. the server was restarted mid-run). Heal it
+    # so the UI doesn't show a zombie 'running' with no history.
+    for _name in list_projects():
+        _b = project_dir(_name)
+        if (_b / "state.db").exists():
+            _st = StateStore(_b)
+            try:
+                _st.conn.execute("UPDATE run SET status='stopped' WHERE status='running'")
+                _st.conn.commit()
+            finally:
+                _st.close()
 
     @app.exception_handler(ValueError)
     async def _value_error(request, exc):       # invalid project name etc → 400, not 500
