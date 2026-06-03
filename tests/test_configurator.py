@@ -15,6 +15,17 @@ def test_extract_prose_surrounded():
     assert extract_json('blah blah {"x": {"y": 3}} trailing')["x"]["y"] == 3
 
 
+def test_extract_nested_fenced_config():
+    # the realistic case: a deeply nested config inside a ```json fence
+    out = ('Here is your config:\n```json\n'
+           '{"project":"p","agents":{"executor":{"engine":"claude"},'
+           '"validator":{"engine":"codex"}},"evaluation":{"metrics":[{"name":"s"}]}}\n'
+           '```\nDone.')
+    cfg = extract_json(out)
+    assert cfg["agents"]["validator"]["engine"] == "codex"
+    assert cfg["evaluation"]["metrics"][0]["name"] == "s"
+
+
 def test_extract_empty_raises():
     with pytest.raises(ValueError):
         extract_json("   ")

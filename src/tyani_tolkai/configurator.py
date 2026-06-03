@@ -62,12 +62,16 @@ def build_configurator_prompt(description: str) -> str:
 
 
 def extract_json(text: str) -> dict:
-    """Pull the JSON config object out of an agent's free-text output."""
+    """Pull the JSON config object out of an agent's free-text output.
+
+    Handles plain JSON, fenced ```json blocks, and JSON surrounded by prose — including
+    NESTED objects (depth-tracked balanced braces, not a naive regex).
+    """
     if not text or not text.strip():
         raise ValueError("empty configurator output")
-    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.S)
-    if fenced:
-        return json.loads(fenced.group(1))
+    fence = re.search(r"```(?:json)?\s*(.*?)```", text, re.S)
+    if fence:                              # strip the code fence, keep its contents
+        text = fence.group(1)
     start = text.find("{")
     if start == -1:
         raise ValueError("no JSON object in configurator output")

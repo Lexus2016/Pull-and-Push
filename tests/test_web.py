@@ -89,6 +89,14 @@ def test_configure_requires_description(client):
     assert client.post("/api/configure", json={}).status_code == 400
 
 
+def test_rename_conflict_and_missing(client):
+    client.post("/api/projects/create", json=dict(_VALID, project="a"))
+    client.post("/api/projects/create", json=dict(_VALID, project="b"))
+    assert client.post("/api/projects/a/rename?to=b").status_code == 409   # target exists
+    assert client.post("/api/projects/zzz/rename?to=q").status_code == 404  # source missing
+    assert client.post("/api/projects/zzz/reset").status_code == 404
+
+
 def test_lifecycle_endpoints(client):
     client.post("/api/projects/create", json=dict(_VALID, project="lc"))
     assert client.post("/api/projects/lc/stop").status_code == 200

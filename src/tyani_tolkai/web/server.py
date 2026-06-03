@@ -278,12 +278,19 @@ def create_app(token: str | None = None) -> FastAPI:
     @app.post("/api/projects/{name}/rename")
     def api_rename(name: str, to: str = Query(...), token: str | None = Query(None)):
         auth(token)
-        rename_project(name, to)
+        try:
+            rename_project(name, to)
+        except FileNotFoundError:
+            raise HTTPException(404, f"no such project: {name}")
+        except FileExistsError:
+            raise HTTPException(409, f"target name already exists: {to}")
         return {"renamed": to}
 
     @app.post("/api/projects/{name}/reset")
     def api_reset(name: str, token: str | None = Query(None)):
         auth(token)
+        if not project_dir(name).exists():
+            raise HTTPException(404, f"no such project: {name}")
         reset_project(name)
         return {"reset": name}
 
