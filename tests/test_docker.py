@@ -1,10 +1,21 @@
 import shutil
+import subprocess
 
 import pytest
 
 from tyani_tolkai.sandbox import DockerBackend, get_backend
 
-docker = pytest.mark.skipif(shutil.which("docker") is None, reason="docker not installed")
+
+def _docker_up() -> bool:
+    if shutil.which("docker") is None:
+        return False
+    try:
+        return subprocess.run(["docker", "info"], capture_output=True, timeout=10).returncode == 0
+    except Exception:
+        return False
+
+
+docker = pytest.mark.skipif(not _docker_up(), reason="docker daemon not available")
 
 
 def test_get_backend_docker_configures():
