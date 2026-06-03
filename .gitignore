@@ -6,3 +6,5 @@ __pycache__/
 node_modules/
 ~/.tyani-tolkai/
 *.tqv
+.playwright-mcp/
+*.png

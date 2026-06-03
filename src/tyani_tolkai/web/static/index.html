@@ -4,104 +4,195 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Тяни-Толкай</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <style>
-  :root{--bg:#0e1116;--panel:#161b22;--panel2:#1c232c;--line:#2a323d;--ink:#e9eef4;
-    --mut:#97a3b2;--accent:#5aa9ff;--accent2:#2f6db0;--good:#46d39a;--bad:#ff6b6b;
-    --warn:#ffc857;--field:#0c1117;--radius:13px;}
+  /* ───────── Тяни-Толкай · blueprint arena ─────────
+     Two opposing forces: COLD (cyan) = Executor/push · WARM (amber) = Evaluator/pull */
+  :root{
+    --bg:#080d14; --panel:#0c131c; --panel-2:#0e1620;
+    --line:rgba(124,166,206,.14); --line-2:rgba(124,166,206,.30);
+    --ink:#dde8f2; --ink-dim:#aebdce; --mut:#75899e;
+    --cold:#46e0d0; --cold-dim:#2aa89c;
+    --warm:#ffb14e; --warm-dim:#c8843a;
+    --good:#46e0a0; --bad:#ff6b6b; --warn:#ffd166;
+    --field:#0a1019; --radius:4px;
+    --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+    --ui:'Chakra Petch',system-ui,sans-serif;
+  }
   *{box-sizing:border-box}
-  body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
-  header{padding:16px 26px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;
-    background:linear-gradient(180deg,#171d26,#11151b)}
-  header h1{margin:0;font-size:23px;letter-spacing:.3px}
-  header .sub{color:var(--mut);font-size:15px}
-  header .right{margin-left:auto;display:flex;gap:10px}
-  .wrap{display:grid;grid-template-columns:290px 1fr;min-height:calc(100vh - 62px)}
-  aside{border-right:1px solid var(--line);padding:20px;background:var(--panel)}
-  aside h2{font-size:12px;text-transform:uppercase;letter-spacing:1.2px;color:var(--mut);margin:20px 0 10px}
-  .btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;width:100%;padding:13px 16px;
-    margin-bottom:10px;border:0;border-radius:11px;background:var(--accent);color:#061626;font-size:16px;
-    font-weight:650;cursor:pointer;transition:filter .12s}
-  .btn.sec{background:var(--panel2);color:var(--ink);border:1px solid var(--line)}
-  .btn.danger{background:#3a1717;color:#ffb4b4;border:1px solid #5a2424}
-  .btn:hover{filter:brightness(1.1)} .btn:disabled{opacity:.38;cursor:not-allowed;filter:none}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;color:var(--ink);font-family:var(--ui);font-weight:400;font-size:16px;line-height:1.55;
+    background-color:var(--bg);
+    background-image:
+      linear-gradient(rgba(124,166,206,.045) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(124,166,206,.045) 1px,transparent 1px),
+      radial-gradient(1100px 520px at 78% -12%,rgba(70,224,208,.07),transparent 60%),
+      radial-gradient(900px 480px at -5% 112%,rgba(255,177,78,.06),transparent 60%);
+    background-size:38px 38px,38px 38px,100% 100%,100% 100%;
+    position:relative;min-height:100vh;
+  }
+  /* grain + scanline atmosphere */
+  body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.04'/%3E%3C/svg%3E"),
+      repeating-linear-gradient(0deg,rgba(255,255,255,.012) 0 1px,transparent 1px 3px);}
+  .wrap,header{position:relative;z-index:1}
+
+  /* ───────── header ───────── */
+  header{display:flex;align-items:center;gap:18px;padding:18px 30px;
+    border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(14,22,32,.9),rgba(8,13,20,.6));
+    backdrop-filter:blur(6px);animation:rise .5s both}
+  .brand{display:flex;align-items:baseline;gap:10px}
+  header h1{margin:0;font-weight:700;font-size:26px;letter-spacing:2px;text-transform:uppercase;
+    background:linear-gradient(90deg,var(--cold),#bfe9ff 40%,var(--warm));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .pp{font-family:var(--mono);color:var(--mut);font-size:20px}
+  header .sub{font-family:var(--mono);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--mut)}
+  header .right{margin-left:auto}
+  .coord{font-family:var(--mono);font-size:11px;color:var(--cold-dim);letter-spacing:1px;opacity:.8}
+
+  /* ───────── layout ───────── */
+  .wrap{display:grid;grid-template-columns:300px 1fr;min-height:calc(100vh - 66px)}
+  aside{border-right:1px solid var(--line);padding:22px;background:linear-gradient(180deg,rgba(12,19,28,.7),rgba(8,13,20,.4));
+    animation:rise .5s .06s both}
+  aside h2{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:2.5px;color:var(--mut);
+    margin:22px 0 12px;display:flex;align-items:center;gap:8px}
+  aside h2::before{content:"";width:10px;height:1px;background:var(--cold)}
+  main{padding:24px 30px;display:grid;gap:18px;align-content:start;max-width:1120px}
+
+  /* ───────── buttons ───────── */
+  .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px 16px;
+    margin-bottom:10px;border:1px solid var(--cold);border-radius:var(--radius);
+    background:linear-gradient(180deg,rgba(70,224,208,.18),rgba(70,224,208,.06));color:#d7fff9;
+    font-family:var(--ui);font-size:15px;font-weight:600;letter-spacing:.6px;cursor:pointer;
+    transition:background .15s,box-shadow .15s,transform .05s;text-transform:uppercase}
+  .btn:hover{background:linear-gradient(180deg,rgba(70,224,208,.32),rgba(70,224,208,.12));
+    box-shadow:0 0 0 1px var(--cold),0 6px 22px rgba(70,224,208,.16)}
+  .btn:active{transform:translateY(1px)}
+  .btn.sec{border-color:var(--line-2);background:rgba(124,166,206,.05);color:var(--ink-dim)}
+  .btn.sec:hover{border-color:var(--cold);color:#d7fff9;background:rgba(70,224,208,.08);box-shadow:none}
+  .btn.danger{border-color:#5a2a2a;background:rgba(255,107,107,.08);color:#ffb4b4}
+  .btn.danger:hover{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad)}
+  .btn:disabled{opacity:.32;cursor:not-allowed;box-shadow:none;transform:none}
+
+  /* ───────── project list ───────── */
   .plist{list-style:none;margin:0;padding:0}
-  .plist li{padding:12px 14px;border:1px solid var(--line);border-radius:10px;margin-bottom:8px;cursor:pointer;
-    display:flex;align-items:center;gap:9px;transition:border-color .12s,background .12s}
-  .plist li:hover{border-color:var(--accent2)} .plist li.active{border-color:var(--accent);background:#0f2740}
-  .plist li::before{content:"●";color:var(--mut);font-size:11px}
-  .plist li.active::before{color:var(--accent)}
-  .empty{color:var(--mut);font-size:14px;padding:10px;border:1px dashed var(--line);border-radius:10px;text-align:center}
-  main{padding:22px 28px;display:grid;gap:18px;align-content:start;max-width:1100px}
-  .tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);padding-bottom:2px}
-  .tab{padding:12px 22px;border:0;background:transparent;color:var(--mut);font-size:16px;font-weight:650;
-    cursor:pointer;border-bottom:3px solid transparent;border-radius:8px 8px 0 0}
-  .tab:hover{color:var(--ink);background:var(--panel2)}
-  .tab.active{color:var(--accent);border-bottom-color:var(--accent)}
-  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:22px}
-  .card h3{margin:0 0 6px;font-size:14px;color:var(--mut);text-transform:uppercase;letter-spacing:1px}
-  .card .desc{color:var(--mut);font-size:14px;margin:0 0 16px}
-  .help{background:linear-gradient(135deg,#13243a,#161b22);border:1px solid #244563}
-  .help ol{margin:8px 0 0;padding-left:22px} .help li{margin:4px 0;color:var(--ink)}
-  .help b{color:var(--accent)}
-  fieldset{border:1px solid var(--line);border-radius:11px;padding:16px 16px 8px;margin:0 0 16px;background:var(--panel2)}
-  legend{padding:0 8px;color:var(--accent);font-size:14px;font-weight:650}
-  legend small{color:var(--mut);font-weight:400;margin-left:8px}
-  .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px} .full{grid-column:1/-1}
-  .field{min-width:0}
-  label{display:block;font-size:13.5px;color:var(--ink);margin-bottom:5px;font-weight:600}
-  .hint{color:var(--mut);font-size:12.5px;margin-top:4px;line-height:1.4}
-  input,select,textarea{width:100%;padding:12px 13px;background:var(--field);border:1px solid var(--line);
-    border-radius:9px;color:var(--ink);font-size:16px;font-family:inherit;transition:border-color .12s}
-  input:focus,select:focus,textarea:focus{outline:0;border-color:var(--accent)}
-  textarea{min-height:58px;resize:vertical}
+  .plist li{font-family:var(--mono);font-size:14px;padding:11px 13px;border:1px solid var(--line);
+    border-left:2px solid var(--line-2);border-radius:0 var(--radius) var(--radius) 0;margin-bottom:8px;cursor:pointer;
+    display:flex;align-items:center;gap:9px;transition:border-color .15s,background .15s,color .15s;color:var(--ink-dim)}
+  .plist li:hover{border-left-color:var(--cold);background:rgba(70,224,208,.05);color:var(--ink)}
+  .plist li.active{border-color:var(--cold);border-left-width:2px;background:rgba(70,224,208,.1);color:#d7fff9}
+  .plist li::before{content:"▸";color:var(--mut);font-size:11px}
+  .plist li.active::before{content:"▾";color:var(--cold)}
+  .empty{font-family:var(--mono);color:var(--mut);font-size:13px;padding:14px;border:1px dashed var(--line-2);
+    border-radius:var(--radius);text-align:center;line-height:1.7}
+
+  /* ───────── cards with technical corner brackets ───────── */
+  .card{position:relative;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+    padding:24px;animation:rise .5s both}
+  .card::before,.card::after{content:"";position:absolute;width:13px;height:13px;pointer-events:none}
+  .card::before{top:7px;left:7px;border-top:2px solid var(--cold);border-left:2px solid var(--cold);opacity:.55}
+  .card::after{bottom:7px;right:7px;border-bottom:2px solid var(--warm);border-right:2px solid var(--warm);opacity:.55}
+  #view-config .card:nth-of-type(1){animation-delay:.12s}
+  #view-config .card:nth-of-type(2){animation-delay:.18s}
+  .card h3{margin:0 0 6px;font-family:var(--mono);font-size:12px;color:var(--cold);text-transform:uppercase;letter-spacing:2px}
+  .card .desc{color:var(--mut);font-size:14px;margin:0 0 18px;max-width:70ch}
+  .console{border-left:3px solid var(--cold);background:linear-gradient(90deg,rgba(70,224,208,.05),var(--panel) 40%)}
+  .help{border-left:3px solid var(--warm);background:linear-gradient(90deg,rgba(255,177,78,.05),var(--panel) 40%)}
+  .help ol{margin:8px 0 0;padding-left:20px}.help li{margin:5px 0;color:var(--ink-dim);font-size:14px}
+  .help b{color:var(--cold)}
+
+  /* ───────── tabs ───────── */
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);animation:rise .5s .1s both}
+  .tab{font-family:var(--mono);padding:12px 24px;border:1px solid transparent;border-bottom:none;background:transparent;
+    color:var(--mut);font-size:13px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;
+    border-radius:var(--radius) var(--radius) 0 0;transition:color .15s,background .15s}
+  .tab:hover{color:var(--ink)}
+  .tab.active{color:var(--cold);background:var(--panel);border-color:var(--line);
+    box-shadow:0 2px 0 0 var(--panel),inset 0 2px 0 0 var(--cold)}
+
+  /* ───────── forms ───────── */
+  fieldset{border:1px solid var(--line);border-radius:var(--radius);padding:18px 16px 8px;margin:0 0 16px;
+    background:var(--panel-2)}
+  legend{padding:0 10px;font-family:var(--mono);color:var(--warm);font-size:12px;font-weight:600;
+    letter-spacing:1.5px;text-transform:uppercase}
+  legend small{color:var(--mut);font-weight:400;letter-spacing:0;text-transform:none;margin-left:8px;font-family:var(--ui)}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:15px 18px}.full{grid-column:1/-1}.field{min-width:0}
+  label{display:block;font-size:13.5px;color:var(--ink);margin-bottom:6px;font-weight:500}
+  label small{color:var(--mut);font-weight:400}
+  .hint{color:var(--mut);font-size:12.5px;margin-top:5px;line-height:1.45}
+  input,select,textarea{width:100%;padding:12px 13px;background:var(--field);border:1px solid var(--line-2);
+    border-radius:var(--radius);color:var(--ink);font-size:15.5px;font-family:var(--ui);transition:border-color .15s,box-shadow .15s}
+  input[type=number],.mrow input{font-family:var(--mono)}
+  input:focus,select:focus,textarea:focus{outline:0;border-color:var(--cold);box-shadow:0 0 0 1px var(--cold),0 0 16px rgba(70,224,208,.12)}
+  textarea{min-height:60px;resize:vertical}
   .mhead,.mrow{display:grid;grid-template-columns:2fr 1.2fr .9fr .9fr .9fr 40px;gap:8px;align-items:center}
-  .mhead{font-size:12px;color:var(--mut);margin:6px 0 4px;padding:0 2px}
+  .mhead{font-family:var(--mono);font-size:11px;color:var(--mut);letter-spacing:1px;text-transform:uppercase;margin:8px 0 5px;padding:0 2px}
   .mrow{margin-bottom:8px}
-  .mrow button{padding:11px 0;border-radius:9px;border:1px solid #5a2424;background:#3a1717;color:#ffb4b4;cursor:pointer}
-  .controls{display:flex;flex-wrap:wrap;gap:10px}
-  .controls .btn{width:auto;margin:0;padding:12px 18px}
-  .save-bar{display:flex;gap:10px;align-items:center;margin-top:4px}
-  .status{display:flex;gap:22px;align-items:center;flex-wrap:wrap;margin:6px 0 14px}
-  .score{font-size:52px;font-weight:800;line-height:1;min-width:90px}
-  .tag{padding:6px 13px;border-radius:999px;font-size:14px;font-weight:650}
-  .tag.running{background:#10324c;color:var(--accent)}.tag.finished{background:#0f3a2c;color:var(--good)}
-  .tag.error{background:#3a1717;color:var(--bad)}.tag.idle{background:#222b35;color:var(--mut)}
-  .tag.stopped{background:#3a3017;color:var(--warn)}
-  #log{font-family:ui-monospace,Menlo,monospace;font-size:14px;max-height:240px;overflow:auto;
-    border:1px solid var(--line);border-radius:9px;padding:6px 12px;background:var(--field)}
-  .lrow{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--line)}
+  .mrow button{padding:11px 0;border-radius:var(--radius);border:1px solid #5a2a2a;background:rgba(255,107,107,.08);
+    color:#ffb4b4;cursor:pointer;font-family:var(--mono)}
+  .mrow button:hover{border-color:var(--bad)}
+  .controls{display:flex;flex-wrap:wrap;gap:10px}.controls .btn{width:auto;margin:0;padding:12px 18px}
+  .save-bar{display:flex;gap:12px;align-items:center;margin-top:6px;flex-wrap:wrap}
+
+  /* ───────── progress ───────── */
+  .status{display:flex;gap:26px;align-items:center;flex-wrap:wrap;margin:8px 0 18px}
+  .score{font-family:var(--mono);font-size:60px;font-weight:600;line-height:1;min-width:120px;font-variant-numeric:tabular-nums;
+    color:var(--cold);text-shadow:0 0 30px rgba(70,224,208,.28)}
+  .tag{font-family:var(--mono);padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;letter-spacing:1px;
+    text-transform:uppercase;border:1px solid transparent}
+  .tag.running{background:rgba(70,224,208,.12);color:var(--cold);border-color:var(--cold-dim);animation:blink 1.4s ease-in-out infinite}
+  .tag.finished{background:rgba(70,224,160,.12);color:var(--good);border-color:#2c7a58}
+  .tag.error{background:rgba(255,107,107,.12);color:var(--bad);border-color:#5a2a2a}
+  .tag.stopped{background:rgba(255,209,102,.12);color:var(--warn);border-color:#7a6a2c}
+  .tag.idle{background:rgba(124,166,206,.08);color:var(--mut);border-color:var(--line-2)}
+  canvas{background:var(--field);border:1px solid var(--line);border-radius:var(--radius);padding:8px}
+  #log{font-family:var(--mono);font-size:13.5px;max-height:260px;overflow:auto;border:1px solid var(--line);
+    border-radius:var(--radius);padding:8px 14px;background:var(--field)}
+  .lrow{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
+  .lrow span:first-child{color:var(--mut)}
   .v-keep{color:var(--good)}.v-discard{color:var(--warn)}.v-fail{color:var(--bad)}.v-no_op{color:var(--mut)}
-  #toast{position:fixed;right:22px;bottom:22px;padding:14px 18px;border-radius:11px;font-size:15px;
-    max-width:380px;display:none;z-index:50;box-shadow:0 8px 30px rgba(0,0,0,.4)}
-  #toast.err{background:#3a1717;color:#ffd0d0;border:1px solid #5a2424;display:block}
-  #toast.ok{background:#0f3a2c;color:#bff5df;border:1px solid #1f5a45;display:block}
+
+  /* ───────── toast ───────── */
+  #toast{position:fixed;right:24px;bottom:24px;padding:14px 20px;border-radius:var(--radius);font-family:var(--mono);
+    font-size:14px;max-width:400px;display:none;z-index:60;border:1px solid;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+  #toast.err{background:#1a0e0e;color:#ffd0d0;border-color:#5a2a2a;display:block}
+  #toast.ok{background:#0a1a14;color:#bff5df;border-color:#2c7a58;display:block}
   .hidden{display:none!important}
+  @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.45}}
+  ::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
 </style>
 </head>
 <body>
 <header>
-  <h1>Тяни-Толкай</h1><span class="sub">керування агентами-суперниками</span>
+  <div class="brand">
+    <h1>Тяни-Толкай</h1><span class="pp">[ push ⇄ pull ]</span>
+  </div>
+  <span class="sub">adversarial co-evolution engine</span>
   <div class="right"><button class="btn sec" id="helpBtn" style="width:auto;margin:0">❔ Як це працює</button></div>
 </header>
 <div class="wrap">
   <aside>
-    <button class="btn" id="newBtn">➕ Новий проєкт</button>
-    <button class="btn sec" id="demoBtn" title="Швидкий показ циклу на вбудованому прикладі, без реальних агентів">▶ Demo</button>
+    <button class="btn" id="newBtn">＋ Новий проєкт</button>
+    <button class="btn sec" id="demoBtn" title="Швидкий показ циклу на вбудованому прикладі, без реальних агентів">▷ Demo</button>
     <h2>Проєкти</h2>
     <ul class="plist" id="projects"></ul>
     <div class="empty" id="empty">Проєктів ще немає.<br>Натисни <b>Demo</b> або <b>Новий проєкт</b>.</div>
+    <p class="coord" style="margin-top:24px">// COLD = Виконавець · WARM = Оцінювач</p>
   </aside>
   <main>
     <div class="card help" id="helpCard">
       <h3>Що це</h3>
       <p class="desc">Два агенти змагаються над одним проєктом: <b>Виконавець</b> покращує артефакт, а оцінка
-        (детермінований код + опційний <b>Валідатор</b>) каже, чи стало краще. Цикл тримає лише покращення (git hill-climbing).</p>
+        (детермінований код + опційний <b>Валідатор</b>) каже, чи стало краще. Цикл тримає лише покращення.</p>
       <ol>
-        <li>Спершу натисни <b>Demo</b> — побачиш, як крива якості повзе до 100.</li>
-        <li><b>Новий проєкт</b> → заповни форму (підказки під кожним полем) → <b>Створити</b>.</li>
+        <li>Натисни <b>Demo</b> — побачиш, як крива якості повзе до 100.</li>
+        <li><b>Новий проєкт</b> → опиши завдання й 🪄 згенеруй, або заповни форму → <b>Створити</b>.</li>
         <li><b>Run</b> запускає реальних агентів; графік і лог оновлюються наживо.</li>
-        <li><b>Команда наживо</b> керує агентом без зупинки; <b>Stop</b> зупиняє на межі ітерації.</li>
+        <li><b>Команда наживо</b> керує агентом без зупинки; <b>Stop</b> — на межі ітерації.</li>
       </ol>
     </div>
 
@@ -111,12 +202,12 @@
     </div>
 
     <div id="view-config">
-    <div class="card" style="border-color:#244563">
+    <div class="card console">
       <h3>🪄 Згенерувати з опису</h3>
       <p class="desc">Найпростіший шлях: опиши завдання словами — агент-налаштовувач сформує проєкт, а ти доведеш його у формі нижче.</p>
       <div class="grid">
         <div class="field full"><label>Опис завдання, метрик, мети, обмежень</label>
-          <textarea id="g_desc" style="min-height:96px" placeholder="Напр.: довести strategy.py до максимального Sharpe при просадці нижче 15%. Метрики: sharpe (вище — краще), max_dd (нижче — краще). Ціль 90. Обмеження: редагувати лише strategy.py, одна зміна за крок."></textarea>
+          <textarea id="g_desc" style="min-height:100px" placeholder="Напр.: довести strategy.py до максимального Sharpe при просадці нижче 15%. Метрики: sharpe (вище — краще), max_dd (нижче — краще). Ціль 90. Обмеження: редагувати лише strategy.py, одна зміна за крок."></textarea>
           <div class="hint">Природною мовою — що робимо, які метрики, яка мета, які обмеження.</div></div>
         <div class="field"><label>Рушій налаштовувача</label><select id="g_engine"></select>
           <div class="hint">Який CLI-агент згенерує конфіг (має бути встановлений і залогінений).</div></div>
@@ -131,20 +222,20 @@
       <fieldset><legend>Основне</legend>
         <div class="grid">
           <div class="field"><label>Назва проєкту</label><input id="f_project" placeholder="my-task">
-            <div class="hint">Унікальна назва. Стане текою проєкту; після створення не змінюється тут (є Rename).</div></div>
+            <div class="hint">Унікальна назва (літери/цифри/._-). Стане текою; пізніше — через Rename.</div></div>
           <div class="field"><label>Режим</label><select id="f_mode"></select>
-            <div class="hint">MVP: <b>asymmetric</b> — Виконавець ↔ Оцінювач. Симетричний (двобій) — згодом.</div></div>
+            <div class="hint">MVP: <b>asymmetric</b> — Виконавець ↔ Оцінювач.</div></div>
         </div>
       </fieldset>
 
       <fieldset><legend>Агенти <small>готові CLI — нічого писати не треба</small></legend>
         <div class="grid">
           <div class="field"><label>Виконавець — рушій</label><select id="f_ex_engine"></select>
-            <div class="hint">Який CLI-агент редагує артефакт. Має бути встановлений і залогінений у системі.</div></div>
+            <div class="hint">Який CLI редагує артефакт (встановлений і залогінений).</div></div>
           <div class="field"><label>Виконавець — модель <small>(опц.)</small></label><input id="f_ex_model" placeholder="opus">
-            <div class="hint">Порожньо = модель за замовчуванням цього CLI.</div></div>
+            <div class="hint">Порожньо = модель за замовчуванням CLI.</div></div>
           <div class="field"><label>Валідатор — рушій <small>(опц.)</small></label><select id="f_va_engine"></select>
-            <div class="hint">Дає текстовий фідбек. Бери <b>інший</b> провайдер, ніж Виконавець (захист від «змови»).</div></div>
+            <div class="hint">Текстовий фідбек. Бери <b>інший</b> провайдер (захист від «змови»).</div></div>
           <div class="field" id="va_model_wrap"><label>Валідатор — модель <small>(опц.)</small></label><input id="f_va_model" placeholder="gpt-5"></div>
         </div>
       </fieldset>
@@ -152,46 +243,43 @@
       <fieldset><legend>Ролі <small>чого домагатись</small></legend>
         <div class="grid">
           <div class="field full"><label>Виконавець — мета</label><textarea id="f_ex_goal" placeholder="Напр. Максимізувати дохідність strategy.py"></textarea>
-            <div class="hint">Головна ціль, яку агент намагається досягти кожною ітерацією.</div></div>
+            <div class="hint">Головна ціль кожної ітерації.</div></div>
           <div class="field full"><label>Виконавець — завдання/обмеження</label><textarea id="f_ex_task" placeholder="Напр. Редагуй лише strategy.py, одна зміна за крок"></textarea>
-            <div class="hint">Звужує дії агента. Необов'язково, але дуже допомагає збіжності.</div></div>
+            <div class="hint">Звужує дії агента — допомагає збіжності.</div></div>
           <div class="field full" id="va_goal_wrap"><label>Валідатор — мета</label><textarea id="f_va_goal" placeholder="Поясни, чому бал змінився, і дай одну конкретну пораду"></textarea></div>
         </div>
       </fieldset>
 
-      <fieldset><legend>Оцінка <small>звідки береться бал (рахує код, не LLM)</small></legend>
+      <fieldset><legend>Оцінка <small>бал рахує код, не LLM</small></legend>
         <div class="grid">
           <div class="field"><label>Adapter</label><select id="f_adapter"></select>
-            <div class="hint"><b>numeric</b>: команда друкує JSON чисел · <b>command-exit</b>: 0/1 за кодом виходу · <b>pytest-pass</b>: % тестів.</div></div>
+            <div class="hint"><b>numeric</b>: команда друкує JSON · <b>command-exit</b>: 0/1 за кодом · <b>pytest-pass</b>: % тестів.</div></div>
           <div class="field" id="command_wrap"><label>Команда</label><input id="f_command" placeholder="python backtest.py --json">
-            <div class="hint">Запускається в пісочниці всередині артефакту. Для numeric має друкувати JSON виду {"sharpe":1.8}.</div></div>
+            <div class="hint">Запускається в пісочниці. Для numeric друкує JSON виду {"sharpe":1.8}.</div></div>
           <div class="field" id="harness_wrap"><label>harness_dir</label><input id="f_harness" placeholder="metrics/">
-            <div class="hint">Тека з прихованими тестами — <b>поза</b> досяжністю Виконавця (щоб не «підкрутив» собі бал).</div></div>
+            <div class="hint">Тека з прихованими тестами — <b>поза</b> досяжністю Виконавця.</div></div>
           <div class="field"><label>Цільовий бал</label><input id="f_target" type="number" value="100">
-            <div class="hint">Коли бал ≥ цього — цикл зупиняється з перемогою.</div></div>
+            <div class="hint">Бал ≥ цього → перемога, зупинка.</div></div>
           <div class="field"><label>min_delta <small>(шум-смуга)</small></label><input id="f_mindelta" type="number" value="1">
-            <div class="hint">Тримати зміну лише якщо бал виріс більше, ніж на це. Захист від випадкового шуму.</div></div>
+            <div class="hint">Тримати зміну, лише якщо бал виріс більше за це.</div></div>
         </div>
-        <label style="margin-top:14px">Метрики <span class="hint" style="display:inline">— нормалізуються worst→target у 0→100, потім зважуються</span></label>
+        <label style="margin-top:14px">Метрики <span class="hint" style="display:inline">— worst→target нормалізується у 0→100, потім зважується</span></label>
         <div class="mhead"><span>name</span><span>напрям</span><span>weight</span><span>worst</span><span>target</span><span></span></div>
         <div id="metrics"></div>
-        <button class="btn sec" id="addMetric" style="width:auto;padding:9px 14px;margin-top:6px">+ метрика</button>
+        <button class="btn sec" id="addMetric" style="width:auto;padding:9px 14px;margin-top:6px">＋ метрика</button>
       </fieldset>
 
       <fieldset><legend>Seed · Ліміти · Sandbox</legend>
         <div class="grid">
           <div class="field"><label>Seed <small>(стартовий артефакт)</small></label><select id="f_seed"></select>
-            <div class="hint"><b>empty</b>: з нуля · <b>copy</b>: скопіювати наявний код · <b>generate</b>: агент згенерує старт.</div></div>
+            <div class="hint"><b>empty</b>: з нуля · <b>copy</b>: наявний код · <b>generate</b>: агент згенерує.</div></div>
           <div class="field" id="seedpath_wrap"><label>Seed path</label><input id="f_seedpath" placeholder="~/code/baseline">
-            <div class="hint">Тека, яку скопіювати в артефакт (оригінал недоторканий).</div></div>
-          <div class="field"><label>max_iterations</label><input id="f_maxiter" type="number" value="30">
-            <div class="hint">Жорсткий стоп за кількістю кроків.</div></div>
-          <div class="field"><label>plateau_N</label><input id="f_plateau" type="number" value="6">
-            <div class="hint">Стоп, якщо N змістовних кроків поспіль без покращення.</div></div>
-          <div class="field"><label>step_seconds</label><input id="f_step" type="number" value="600">
-            <div class="hint">Таймаут на один прогін агента.</div></div>
+            <div class="hint">Тека для копіювання (оригінал недоторканий).</div></div>
+          <div class="field"><label>max_iterations</label><input id="f_maxiter" type="number" value="30"></div>
+          <div class="field"><label>plateau_N</label><input id="f_plateau" type="number" value="6"></div>
+          <div class="field"><label>step_seconds</label><input id="f_step" type="number" value="600"></div>
           <div class="field"><label>Sandbox</label><select id="f_sandbox"><option value="local">local</option><option value="docker">docker</option></select>
-            <div class="hint"><b>docker</b>: ізольоване виконання коду (безпечніше) · <b>local</b>: швидше, без ізоляції.</div></div>
+            <div class="hint"><b>docker</b>: ізоляція · <b>local</b>: швидше.</div></div>
         </div>
       </fieldset>
 
@@ -204,12 +292,12 @@
     <div class="card">
       <h3>Керування та прогрес</h3>
       <p class="desc">Запускай, зупиняй і скеровуй прогін. Графік — крива якості; лог — рішення keep/discard щокроку.</p>
-      <div class="controls" style="margin-bottom:16px">
+      <div class="controls" style="margin-bottom:18px">
         <button class="btn" id="runBtn" disabled title="Запустити цикл з реальними агентами">▶ Run</button>
         <button class="btn sec" id="stopBtn" disabled title="Зупинити на межі поточної ітерації">⏹ Stop</button>
-        <button class="btn sec" id="resetBtn" disabled title="Відкотити артефакт до seed і очистити історію">↺ Reset</button>
+        <button class="btn sec" id="resetBtn" disabled title="Відкотити артефакт до seed">↺ Reset</button>
         <button class="btn sec" id="renameBtn" disabled>✎ Rename</button>
-        <button class="btn sec" id="exportBtn" disabled title="Завантажити проєкт як .tar.gz (переносний)">⬇ Export</button>
+        <button class="btn sec" id="exportBtn" disabled title="Завантажити як .tar.gz">⬇ Export</button>
         <button class="btn danger" id="deleteBtn" disabled>🗑 Delete</button>
       </div>
       <div class="status">
@@ -217,13 +305,13 @@
         <span class="tag idle" id="tag">idle</span>
         <div class="hint" id="summary"></div>
       </div>
-      <canvas id="chart" height="88"></canvas>
-      <div style="margin-top:16px">
+      <canvas id="chart" height="90"></canvas>
+      <div style="margin-top:18px">
         <label>Команда агенту наживо <small class="hint" style="display:inline">— додається в наступну ітерацію, без зупинки</small></label>
         <textarea id="steerText" placeholder="напр. зосередься на зменшенні просадки"></textarea>
         <div class="controls" style="margin-top:8px"><button class="btn sec" id="steerBtn" disabled style="width:auto">↗ Надіслати команду</button></div>
       </div>
-      <h3 style="margin-top:20px">Хід ітерацій</h3>
+      <h3 style="margin-top:22px">Хід ітерацій</h3>
       <div id="log">—</div>
     </div>
     </div><!-- /view-progress -->
@@ -310,10 +398,10 @@ async function loadProjects(){const d=await(await fetch(api('/api/projects'))).j
 async function selectProject(name){const cfg=await(await fetch(api('/api/projects/'+name+'/config'))).json().catch(()=>({}));
   fillForm(name,cfg);highlight();loadState(name);showView('progress');}
 function ensureChart(){if(chart||!window.Chart)return chart;
-  chart=new Chart($('chart'),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#5aa9ff',
-    backgroundColor:'rgba(90,169,255,.15)',tension:.25,pointRadius:4,fill:true}]},
-    options:{scales:{y:{min:0,max:100,grid:{color:'#2a323d'},ticks:{color:'#97a3b2'}},
-      x:{grid:{color:'#1c232c'},ticks:{color:'#97a3b2'}}},plugins:{legend:{display:false}}}});return chart;}
+  chart=new Chart($('chart'),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#46e0d0',
+    backgroundColor:'rgba(70,224,208,.14)',tension:.25,pointRadius:4,pointBackgroundColor:'#46e0d0',fill:true}]},
+    options:{scales:{y:{min:0,max:100,grid:{color:'rgba(124,166,206,.12)'},ticks:{color:'#75899e'}},
+      x:{grid:{color:'rgba(124,166,206,.06)'},ticks:{color:'#75899e'}}},plugins:{legend:{display:false}}}});return chart;}
 function plot(o){const c=ensureChart();if(!c)return;const p=o.filter(x=>x.score!=null);
   c.data.labels=p.map(x=>'#'+x.n);c.data.datasets[0].data=p.map(x=>x.score);c.update();}
 function renderLog(o){$('log').innerHTML=o.map(x=>`<div class="lrow"><span>iter #${x.n}</span>
