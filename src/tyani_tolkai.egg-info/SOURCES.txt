@@ -1,0 +1,8 @@
+pyproject.toml
+src/tyani_tolkai/__init__.py
+src/tyani_tolkai.egg-info/PKG-INFO
+src/tyani_tolkai.egg-info/SOURCES.txt
+src/tyani_tolkai.egg-info/dependency_links.txt
+src/tyani_tolkai.egg-info/entry_points.txt
+src/tyani_tolkai.egg-info/requires.txt
+src/tyani_tolkai.egg-info/top_level.txt
