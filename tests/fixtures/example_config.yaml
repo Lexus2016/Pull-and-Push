@@ -1,0 +1,31 @@
+project: trading-bot-sharpe
+mode: asymmetric
+
+agents:
+  executor:  { engine: claude, model: opus,  timeout: 600 }
+  validator: { engine: codex,  model: gpt-5, timeout: 300 }
+
+roles:
+  executor:
+    goal: "Maximize risk-adjusted return of strategy.py."
+    task: "Edit strategy.py only. One focused change per iteration."
+  validator:
+    goal: "Diagnose why the weighted score moved; give one concrete next step."
+
+seed: { copy: ~/strategies/baseline }
+
+evaluation:
+  adapter: numeric
+  command: "python backtest.py --json"
+  metrics:
+    - { name: sharpe, dir: higher, weight: 0.6, worst: 0.0, target: 2.5 }
+    - { name: max_dd, dir: lower,  weight: 0.4, worst: 0.5, target: 0.05 }
+  target_score: 95
+  runs: 3
+  min_delta: 1.0
+  harness_dir: metrics/
+
+limits:    { max_iterations: 40, plateau_N: 8, budget_usd: 25, step_seconds: 600 }
+history:   { depth_k: 6 }
+checkpoints: { on_plateau: true, on_target: true, every_n: 10 }
+sandbox:   { backend: docker, memory: 2g, cpus: 2, network: none }
