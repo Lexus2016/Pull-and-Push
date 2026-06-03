@@ -26,6 +26,7 @@ def _cfg(target=100, plateau_N=3, max_iterations=20, min_delta=1.0):
         roles={"executor": {"goal": "raise s"}},
         evaluation={
             "adapter": "numeric",
+            "command": "true",   # label only; FakeMetric replaces the real runner
             "metrics": [{"name": "s", "dir": "higher", "weight": 1, "worst": 0, "target": 100}],
             "target_score": target,
             "min_delta": min_delta,
@@ -110,3 +111,53 @@ def test_plateau_stops_the_loop(tmp_path):
     summary = orch.run_loop()
     assert summary.reason == "plateau"
     assert summary.best_score == 70.0
+
+
+class _SideEffectMetric(FakeMetric):
+    """Like FakeMetric but also writes a junk file, simulating a metric side-effect."""
+
+    def run(self, artifact_dir, sandbox, evaluation, timeout):
+        (Path(artifact_dir) / "sideeffect.txt").write_text("junk")
+        return super().run(artifact_dir, sandbox, evaluation, timeout)
+
+
+def test_metric_side_effects_not_committed(tmp_path):
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    orch = Orchestrator(_cfg(), s, run_id, MockAdapter([_edit_val(80)]),
+                        _SideEffectMetric(), LocalBackend())
+    o = orch.run_iteration()
+    assert o.verdict == "keep"
+    tracked = s._git("ls-files")
+    assert "val.txt" in tracked              # the agent's change is committed
+    assert "sideeffect.txt" not in tracked   # the metric's side-effect is NOT
+    assert not (s.artifact_dir / "sideeffect.txt").exists()   # and cleaned from disk
+
+
+def test_validator_edits_are_reverted(tmp_path):
+    class EditingValidator:
+        def run(self, prompt, workdir, profile, timeout):
+            from tyani_tolkai.agents.base import RunResult
+            (Path(workdir) / "vedit.txt").write_text("validator wrote this")
+            return RunResult(status="success", stdout="advice")
+
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    orch = Orchestrator(_cfg(), s, run_id, MockAdapter([_edit_val(80)]),
+                        FakeMetric(), LocalBackend(), validator=EditingValidator())
+    orch.run_iteration()
+    assert not (s.artifact_dir / "vedit.txt").exists()   # validator change discarded
+    assert "vedit.txt" not in s._git("ls-files")
+
+
+def test_resume_restores_counters(tmp_path):
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    s.update_run(run_id, plateau_count=2, no_op_count=1, iter_count=5)
+    orch = Orchestrator(_cfg(), s, run_id, MockAdapter([]), FakeMetric(), LocalBackend())
+    assert orch.plateau_count == 2
+    assert orch.no_op_count == 1
+    assert orch.n == 5

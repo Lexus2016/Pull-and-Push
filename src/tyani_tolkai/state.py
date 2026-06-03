@@ -144,6 +144,11 @@ class StateStore:
         self._git("reset", "-q", "--hard", "HEAD")
         self._git("clean", "-fdq")
 
+    def reset_hard(self, ref: str) -> None:
+        """Hard-reset the working tree and HEAD to a ref (drops later commits)."""
+        self._git("reset", "-q", "--hard", ref)
+        self._git("clean", "-fdq")
+
     def diff(self, ref_a: str, ref_b: str = "HEAD") -> str:
         return self._git("diff", ref_a, ref_b)
 
@@ -253,5 +258,18 @@ class StateStore:
                 self.conn.execute("DELETE FROM metric WHERE iteration_id = ?", (r["id"],))
                 self.conn.execute("DELETE FROM iteration WHERE id = ?", (r["id"],))
                 removed += 1
+        if removed:
+            # recompute run aggregates so best_score/counters reflect surviving rows
+            best = self.conn.execute(
+                "SELECT MAX(score) AS b FROM iteration WHERE run_id=? AND verdict='keep'",
+                (run_id,)).fetchone()["b"]
+            maxn = self.conn.execute(
+                "SELECT MAX(n) AS m FROM iteration WHERE run_id=?", (run_id,)).fetchone()["m"] or 0
+            noop = self.conn.execute(
+                "SELECT COUNT(*) AS c FROM iteration WHERE run_id=? AND verdict='no_op'",
+                (run_id,)).fetchone()["c"]
+            self.conn.execute(
+                "UPDATE run SET best_score=?, iter_count=?, plateau_count=0, no_op_count=? WHERE id=?",
+                (best, maxn, noop, run_id))
         self.conn.commit()
         return removed

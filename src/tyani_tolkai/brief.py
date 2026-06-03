@@ -57,16 +57,17 @@ def _attempt_diff(state: StateStore, verdict: str | None, git_hash: str | None,
 
 
 def build_validator_prompt(cfg: Config, candidate_diff: str, metrics_values: dict,
-                           new_score: float, verdict: str, prev_feedback: str = "") -> str:
+                           new_score: float | None, verdict: str, prev_feedback: str = "") -> str:
     """Prompt for the read-only Validator (spec §4): it sees the candidate diff, the
     metrics, the verdict — and, when rejected, its own prior advice — then returns one
     concrete next step. It never assigns the number."""
     role = cfg.roles.get("validator")
     goal = role.goal if role else "Diagnose why the score moved; give one concrete next step."
+    score_txt = "n/a (did not run)" if new_score is None else f"{new_score:.2f}"
     lines = [
         "You are the read-only VALIDATOR. Do NOT edit files. Return only short, concrete advice.",
         f"- Goal: {goal}",
-        f"- This candidate scored {new_score:.2f} → verdict: {verdict.upper()}",
+        f"- This candidate scored {score_txt} → verdict: {verdict.upper()}",
         f"- Metrics: " + (", ".join(f"{k}={v}" for k, v in metrics_values.items()) or "(none)"),
     ]
     if verdict in ("discard", "fail"):

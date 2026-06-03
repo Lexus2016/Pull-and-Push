@@ -44,7 +44,13 @@ def test_score_missing_metric_raises():
 
 def test_decide_noise_band():
     assert decide(73.0, None, 1.0) == "keep"      # first iteration
-    assert decide(74.5, 73.0, 1.0) == "keep"      # +1.5 >= 1.0
+    assert decide(74.5, 73.0, 1.0) == "keep"      # +1.5 > 1.0
     assert decide(73.5, 73.0, 1.0) == "discard"   # +0.5 < 1.0 (noise)
     assert decide(73.0, 73.0, 1.0) == "discard"   # equal
     assert decide(70.0, 73.0, 1.0) == "discard"   # regression
+
+
+def test_decide_strict_improvement_zero_delta():
+    # with no noise band, a tie must NOT be kept (else plateau never triggers)
+    assert decide(73.0, 73.0, 0.0) == "discard"
+    assert decide(73.0001, 73.0, 0.0) == "keep"

@@ -48,10 +48,12 @@ class Orchestrator:
         self.metric_adapter = metric_adapter
         self.sandbox = sandbox
         self.validator = validator
+        run = state.get_run(run_id)
         existing = state.last_iterations(run_id, 1)
-        self.n = existing[-1].n if existing else 0
-        self.plateau_count = 0
-        self.no_op_count = 0
+        self.n = existing[-1].n if existing else (run["iter_count"] if run else 0)
+        # restore counters on resume so stop conditions survive a restart
+        self.plateau_count = run["plateau_count"] if run else 0
+        self.no_op_count = run["no_op_count"] if run else 0
         self.last_feedback = ""
 
     # ---- metric runner with noise median ----
@@ -86,6 +88,20 @@ class Orchestrator:
 
     # ---- one iteration ----
 
+    def _consult_validator(self, values: dict, new_score, verdict: str, candidate_diff: str) -> None:
+        """Run the read-only Validator for feedback; guarantee read-only by reverting
+        any edits it makes (not every CLI honors a read-only flag)."""
+        if self.validator is None:
+            return
+        cfg, state = self.cfg, self.state
+        vprompt = build_validator_prompt(cfg, candidate_diff, values, new_score, verdict,
+                                         self.last_feedback)
+        vtimeout = cfg.agents["validator"].timeout if "validator" in cfg.agents else 300
+        vres = self.validator.run(vprompt, state.artifact_dir, "read-only", vtimeout)
+        if state.has_changes():               # enforce read-only regardless of engine
+            state.revert_uncommitted()
+        self.last_feedback = (vres.stdout or "").strip()[:1000]
+
     def run_iteration(self, context_text: str = "") -> IterationOutcome:
         self.n += 1
         n = self.n
@@ -115,17 +131,24 @@ class Orchestrator:
             state.update_run(self.run_id, no_op_count=self.no_op_count, iter_count=n)
             return IterationOutcome(n, "no_op", state.best_score(self.run_id))
 
-        candidate_diff = state.diff_uncommitted()[:_DIFF_KEEP_CHARS]
+        # Commit the candidate NOW so a kept commit contains ONLY the agent's changes.
+        # Metric side-effects produced afterwards stay uncommitted and are cleaned,
+        # never polluting the artifact's history.
+        parent = state.head()
+        cand_hash = state.commit(f"candidate {n}")
+        candidate_diff = state.diff(parent, cand_hash)[:_DIFF_KEEP_CHARS]
+
         mres = self._run_metrics()
+        state.revert_uncommitted()            # drop metric side-effects (tree → candidate)
 
         if not mres.ok:
-            state.revert_uncommitted()
-            state.record_iteration(self.run_id, n=n, git_hash=None, score=None,
-                                   verdict="fail", metrics=[], change_summary=candidate_diff,
-                                   agent_exit=result.status)
+            state.reset_hard(parent)          # discard the candidate commit
+            state.record_iteration(self.run_id, n=n, git_hash=None, score=None, verdict="fail",
+                                   metrics=[], change_summary=candidate_diff, agent_exit=result.status)
             self.plateau_count += 1
             state.update_run(self.run_id, plateau_count=self.plateau_count, iter_count=n)
-            return IterationOutcome(n, "fail", None)
+            self._consult_validator({}, None, "fail", candidate_diff)
+            return IterationOutcome(n, "fail", None, self.last_feedback)
 
         values = {m["name"]: m["value"] for m in mres.metrics}
         new_score = score(values, cfg.evaluation.metrics)
@@ -133,27 +156,19 @@ class Orchestrator:
         verdict = decide(new_score, best, cfg.evaluation.min_delta)
 
         if verdict == "keep":
-            h = state.commit(f"iter {n}: score {new_score:.2f}")
-            state.record_iteration(self.run_id, n=n, git_hash=h, score=new_score,
+            state.record_iteration(self.run_id, n=n, git_hash=cand_hash, score=new_score,
                                    verdict="keep", metrics=mres.metrics, agent_exit=result.status)
             self.plateau_count = 0
             state.update_run(self.run_id, best_score=new_score, plateau_count=0, iter_count=n)
         else:
+            state.reset_hard(parent)          # discard the candidate commit
             state.record_iteration(self.run_id, n=n, git_hash=None, score=new_score,
                                    verdict="discard", metrics=mres.metrics,
                                    change_summary=candidate_diff, agent_exit=result.status)
-            state.revert_uncommitted()
             self.plateau_count += 1
             state.update_run(self.run_id, plateau_count=self.plateau_count, iter_count=n)
 
-        # Validator feedback for the NEXT iteration (read-only; never scores)
-        if self.validator is not None:
-            vprompt = build_validator_prompt(cfg, candidate_diff, values, new_score, verdict,
-                                             self.last_feedback)
-            vtimeout = cfg.agents.get("validator").timeout if "validator" in cfg.agents else 300
-            vres = self.validator.run(vprompt, state.artifact_dir, "read-only", vtimeout)
-            self.last_feedback = (vres.stdout or "").strip()[:1000]
-
+        self._consult_validator(values, new_score, verdict, candidate_diff)
         return IterationOutcome(n, verdict, new_score, self.last_feedback)
 
     # ---- loop ----

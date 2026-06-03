@@ -10,6 +10,7 @@ def _cfg(depth_k=6):
         roles={"executor": {"goal": "Improve the score", "task": "edit code.py"}},
         evaluation={
             "adapter": "numeric",
+            "command": "true",
             "metrics": [{"name": "s", "dir": "higher", "weight": 1, "worst": 0, "target": 100}],
             "target_score": 100,
         },

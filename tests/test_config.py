@@ -65,6 +65,20 @@ def test_warns_identical_engines():
             roles={"executor": {"goal": "g"}, "validator": {"goal": "g"}},
             evaluation={
                 "adapter": "numeric",
+                "command": "true",
+                "metrics": [{"name": "x", "dir": "higher", "weight": 1, "worst": 0, "target": 1}],
+            },
+        )
+
+
+def test_requires_command_for_numeric():
+    with pytest.raises(ValidationError):
+        Config(
+            project="p",
+            agents={"executor": {"engine": "mock"}},
+            roles={"executor": {"goal": "g"}},
+            evaluation={
+                "adapter": "numeric",  # no command → must fail
                 "metrics": [{"name": "x", "dir": "higher", "weight": 1, "worst": 0, "target": 1}],
             },
         )

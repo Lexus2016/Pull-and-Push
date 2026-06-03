@@ -50,8 +50,14 @@ class EvaluationCfg(BaseModel):
     metrics: list[MetricCfg] = Field(min_length=1)
     target_score: float = 100.0
     runs: int = 1
-    min_delta: float = 0.0           # keep only if score gain >= this (noise band)
+    min_delta: float = 0.0           # keep only if score gain exceeds this (noise band)
     harness_dir: str | None = None
+
+    @model_validator(mode="after")
+    def _require_command(self) -> "EvaluationCfg":
+        if self.adapter in ("numeric", "command-exit") and not self.command:
+            raise ValueError(f"adapter {self.adapter!r} requires a 'command'")
+        return self
 
 
 class LimitsCfg(BaseModel):

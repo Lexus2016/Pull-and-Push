@@ -49,4 +49,6 @@ def decide(new_score: float, best_score: float | None, min_delta: float = 0.0) -
     """
     if best_score is None:
         return "keep"
-    return "keep" if (new_score - best_score) >= min_delta else "discard"
+    # strict: a candidate must IMPROVE beyond the noise band, not merely tie it —
+    # otherwise a changed-but-not-better candidate gets committed and resets plateau.
+    return "keep" if (new_score - best_score) > min_delta else "discard"

@@ -75,6 +75,8 @@ def cmd_run(args) -> int:
         else:
             run_id = run_id["id"]
             removed = state.reconcile(run_id)
+            if state.has_changes():            # discard a candidate left dirty by a crash
+                state.revert_uncommitted()
             state.set_status(run_id, "running")
             print(f"resume run #{run_id} (reconciled {removed} phantom rows)")
     else:
