@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "tyani-tolkai"
+name = "pull-and-push"
 version = "0.1.0"
-description = "Adversarial co-evolution agent orchestrator (asymmetric MVP)"
+description = "Pull-and-Push — adversarial co-evolution agent orchestrator (asymmetric MVP)"
 requires-python = ">=3.10"
 dependencies = [
     "pydantic>=2",
@@ -25,7 +25,8 @@ dev = [
 ]
 
 [project.scripts]
-tyani-tolkai = "tyani_tolkai.cli:main"
+pull-and-push = "tyani_tolkai.cli:main"
+tyani-tolkai = "tyani_tolkai.cli:main"   # back-compat alias (internal package stays tyani_tolkai)
 
 [tool.setuptools.packages.find]
 where = ["src"]

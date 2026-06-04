@@ -24,7 +24,7 @@ def client(tmp_path, monkeypatch):
 def test_index_served(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "Тяни-Толкай" in r.text
+    assert "Pull-and-Push" in r.text
 
 
 def test_projects_empty(client):

@@ -1,4 +1,4 @@
-"""FastAPI backend for the Тяни-Толкай dashboard.
+"""FastAPI backend for the Pull-and-Push dashboard.
 
 Live updates use polling (GET /live), not WebSocket — simpler and robust across the
 run thread boundary while giving the same live evolution chart. A background thread
@@ -161,7 +161,7 @@ def _persisted_state(name: str) -> dict:
 
 
 def create_app(token: str | None = None) -> FastAPI:
-    app = FastAPI(title="Тяни-Толкай")
+    app = FastAPI(title="Pull-and-Push")
     app.state.token = token if token is not None else os.environ.get("TYANI_TOLKAI_WEB_PASSWORD")
     app.state.runs = RunManager()
 

@@ -1,4 +1,4 @@
-"""Configuration models and loader for a Тяни-Толкай run.
+"""Configuration models and loader for a Pull-and-Push run.
 
 A run is described by a single ``config.yaml`` (see spec §15). Everything the
 orchestrator needs — which agents play which role, how the artifact is scored,

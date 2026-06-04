@@ -125,8 +125,8 @@ def cmd_web(args) -> int:
 
 
 def main(argv=None) -> int:
-    p = argparse.ArgumentParser(prog="tyani-tolkai",
-                                description="Adversarial co-evolution agent orchestrator")
+    p = argparse.ArgumentParser(prog="pull-and-push",
+                                description="Pull-and-Push — adversarial co-evolution agent orchestrator")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pr = sub.add_parser("run", help="run a config (real agents — Phase 2)")

@@ -122,7 +122,7 @@ def _build_docs(d: Path, name: str) -> tuple[str, str]:
 
 {desc}
 
-_Produced by Тяни-Толкай — an adversarial co-evolution orchestrator: one agent improves the
+_Produced by Pull-and-Push — an adversarial co-evolution orchestrator: one agent improves the
 artifact, a deterministic scorer (+ optional validator agent) judges it, and the best version
 is kept._
 

@@ -1,4 +1,4 @@
-# Тяни-Толкай (Push-Pull)
+# Pull-and-Push
 
 An **adversarial co-evolution orchestrator**: it runs two off-the-shelf agent CLIs in
 opposition to drive a project to maximum quality. One agent improves an artifact; the
@@ -26,14 +26,14 @@ Inspired by GANs, Karpathy's `autoresearch`, and the `consilium` adapter pattern
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install -e ".[dev]"      # add web deps too (fastapi/uvicorn/httpx)
-.venv/bin/pytest                       # 50 passed, 1 skipped (docker)
+.venv/bin/pytest                       # 92 passed, 1 skipped (docker)
 ```
 
 ## Quick start — watch it work
 
 ```bash
 # the dashboard (open the printed URL)
-.venv/bin/tyani-tolkai web
+.venv/bin/pull-and-push web
 #   • 🪄 "Згенерувати з опису": describe the task in plain language;
 #     the configurator agent drafts the whole project, you review it in the form, then Create.
 #   • ▶ Run drives the adversarial loop; the quality curve climbs as candidates are kept.
@@ -59,10 +59,12 @@ agents:
 roles:
   executor:  { goal: "Make all tests pass.", task: "Edit src/ only." }
   validator: { goal: "Say why the score moved; one concrete next step." }
-seed: { copy: ~/path/to/starting/code }       # empty | copy:<path> | generate
+seed: { copy: ~/path/to/starting/code }       # empty | copy:<path>
 evaluation:
   adapter: pytest-pass                         # numeric | command-exit | pytest-pass
-  metrics: [ { name: pass_pct, dir: higher, weight: 1, worst: 0, target: 100 } ]
+  # 'worst' (the score-0 point) is optional — the system pins it to the first
+  # measured value automatically; give only dir + target (the goal).
+  metrics: [ { name: pass_pct, dir: higher, weight: 1, target: 100 } ]
   target_score: 100
   harness_dir: metrics/                        # hidden tests, invisible to the executor
 limits: { max_iterations: 30, plateau_N: 6, step_seconds: 600 }
@@ -70,19 +72,19 @@ sandbox: { backend: local }                    # docker (default in spec) | loca
 ```
 
 ```bash
-.venv/bin/tyani-tolkai run config.yaml          # drives the real agents
-.venv/bin/tyani-tolkai run config.yaml --resume # continue after a stop / limit
+.venv/bin/pull-and-push run config.yaml          # drives the real agents
+.venv/bin/pull-and-push run config.yaml --resume # continue after a stop / limit
 ```
 
 ## Projects
 
 ```bash
-tyani-tolkai projects list
-tyani-tolkai projects export my-task --to my-task.tar.gz   # portable (git bundle inside)
-tyani-tolkai projects import my-task.tar.gz --to copy-1     # continue on another machine
-tyani-tolkai projects reset my-task                         # back to seed, keep config
-tyani-tolkai projects rename my-task --to renamed
-tyani-tolkai projects delete renamed
+pull-and-push projects list
+pull-and-push projects export my-task --to my-task.tar.gz   # portable (git bundle inside)
+pull-and-push projects import my-task.tar.gz --to copy-1     # continue on another machine
+pull-and-push projects reset my-task                         # back to seed, keep config
+pull-and-push projects rename my-task --to renamed
+pull-and-push projects delete renamed
 ```
 
 ## Status
@@ -118,7 +120,7 @@ tyani-tolkai projects delete renamed
 
 ## Tests
 
-`50 passed, 1 skipped` — unit (scorer, config, state, metrics, brief, registry, sandbox),
+`92 passed, 1 skipped` — unit (scorer, config, state, metrics, brief, registry, sandbox),
 integration (orchestrator with mock + validator), CLI adapter, projects round-trip,
 WebUI endpoints, and the **golden run** proving 1/10→10/10 convergence with the harness
 left untouched (anti-collusion).
