@@ -206,7 +206,22 @@ def create_app(token: str | None = None) -> FastAPI:
     @app.get("/api/projects")
     def api_projects(token: str | None = Query(None)):
         auth(token)
-        return {"projects": list_projects()}
+        import sqlite3
+        items = []
+        for n in list_projects():
+            st = "idle"
+            db = project_dir(n) / "state.db"
+            if db.exists():
+                try:
+                    con = sqlite3.connect(str(db)); con.row_factory = sqlite3.Row
+                    r = con.execute("SELECT status FROM run ORDER BY id DESC LIMIT 1").fetchone()
+                    if r:
+                        st = r["status"]
+                    con.close()
+                except Exception:
+                    pass
+            items.append({"name": n, "status": st})
+        return {"projects": [i["name"] for i in items], "items": items}
 
     @app.get("/api/projects/{name}")
     def api_project(name: str, token: str | None = Query(None)):

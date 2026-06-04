@@ -30,7 +30,14 @@ def test_index_served(client):
 def test_projects_empty(client):
     r = client.get("/api/projects")
     assert r.status_code == 200
-    assert r.json() == {"projects": []}
+    assert r.json()["projects"] == []
+    assert r.json()["items"] == []
+
+
+def test_projects_list_has_status(client):
+    client.post("/api/projects/create", json=_VALID)
+    items = client.get("/api/projects").json()["items"]
+    assert items and items[0]["name"] == "webtest" and "status" in items[0]
 
 
 def test_demo_runs_and_converges(client):

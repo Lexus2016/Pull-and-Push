@@ -4,10 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Тяни-Толкай</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d1420'/%3E%3Cpath d='M7 13h13l-3-3 M25 19H12l3 3' fill='none' stroke='%2346e0d0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M25 19H12l3 3' fill='none' stroke='%23ffc14d' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/styles/github-dark.min.css">
+<script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/highlight.min.js"></script>
 <style>
   /* ───────── Тяни-Толкай · blueprint arena ─────────
      Two opposing forces: COLD (cyan) = Executor/push · WARM (amber) = Evaluator/pull */
@@ -26,6 +29,7 @@
   html{scroll-behavior:smooth}
   body{
     margin:0;color:var(--ink);font-family:var(--ui);font-weight:400;font-size:16px;line-height:1.55;
+    overflow-x:hidden;
     background-color:var(--bg);
     background-image:
       linear-gradient(rgba(124,166,206,.045) 1px,transparent 1px),
@@ -65,7 +69,8 @@
   aside h2{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:2.5px;color:var(--mut);
     margin:22px 0 12px;display:flex;align-items:center;gap:8px}
   aside h2::before{content:"";width:10px;height:1px;background:var(--cold)}
-  main{padding:24px 30px;display:grid;gap:18px;align-content:start;max-width:1120px}
+  main{padding:24px 30px;display:grid;gap:18px;align-content:start;max-width:1120px;min-width:0}
+  main>*{min-width:0;max-width:100%}
 
   /* ───────── buttons ───────── */
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:13px 16px;
@@ -196,6 +201,20 @@
   .hidden{display:none!important}
   @keyframes rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:none}}
   @keyframes blink{0%,100%{opacity:1}50%{opacity:.45}}
+  .plist li[data-status="running"]::before{color:var(--cold)}
+  .plist li[data-status="finished"]::before{color:var(--good)}
+  .plist li[data-status="error"]::before{color:var(--bad)}
+  .plist li[data-status="stopped"]::before,.plist li[data-status="paused"]::before{color:var(--warn)}
+  .diff code{background:transparent!important;padding:0;font-size:12.5px}
+  .diff code.hljs{background:transparent!important}
+  @media(max-width:820px){
+    .wrap{grid-template-columns:1fr}
+    aside{border-right:0;border-bottom:1px solid var(--line)}
+    .grid{grid-template-columns:1fr}
+    .mhead{display:none} .mrow{grid-template-columns:1fr 1fr 1fr;gap:6px}
+    header .sub,.pp{display:none} header h1{font-size:19px}
+    .score{font-size:42px} main{padding:18px 16px}
+  }
   ::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
 </style>
 </head>
@@ -461,12 +480,16 @@ async function loadFiles(){if(!current)return;
   $('files').innerHTML='<div class="hint">завантаження…</div>';
   const d=await(await fetch(api('/api/projects/'+current+'/files'))).json().catch(()=>({files:[]}));
   if(!d.files||!d.files.length){$('files').innerHTML='<div class="hint">артефакт порожній — запусти прогін, щоб агент створив файли</div>';return;}
-  $('files').innerHTML=d.files.map(f=>`<details><summary>📄 ${esc(f.path)}</summary><pre class="diff">${esc(f.content)}</pre></details>`).join('');}
+  const lang=p=>p.endsWith('.py')?'python':(p.endsWith('.json')?'json':(p.endsWith('.yaml')||p.endsWith('.yml')?'yaml':'plaintext'));
+  $('files').innerHTML=d.files.map(f=>`<details><summary>📄 ${esc(f.path)}</summary><pre class="diff"><code class="language-${lang(f.path)}">${esc(f.content)}</code></pre></details>`).join('');
+  if(window.hljs)$('files').querySelectorAll('pre code').forEach(b=>{try{hljs.highlightElement(b);}catch(e){}});}
 function highlight(){[...$('projects').children].forEach(li=>li.classList.toggle('active',li.textContent===current));}
 
 async function loadProjects(){const d=await(await fetch(api('/api/projects'))).json();const ul=$('projects');ul.innerHTML='';
-  (d.projects||[]).forEach(n=>{const li=document.createElement('li');li.textContent=n;li.onclick=()=>selectProject(n);ul.appendChild(li);});
-  $('empty').classList.toggle('hidden',(d.projects||[]).length>0);highlight();}
+  const items=d.items||(d.projects||[]).map(n=>({name:n,status:'idle'}));
+  items.forEach(it=>{const li=document.createElement('li');li.textContent=it.name;li.dataset.status=it.status||'idle';
+    li.title='статус: '+(it.status||'idle');li.onclick=()=>selectProject(it.name);ul.appendChild(li);});
+  $('empty').classList.toggle('hidden',items.length>0);highlight();}
 async function selectProject(name){const cfg=await(await fetch(api('/api/projects/'+name+'/config'))).json().catch(()=>({}));
   CFG=cfg;fillForm(name,cfg);highlight();loadState(name);showView('progress');
   try{localStorage.setItem('tt_current',name);}catch(e){}}
@@ -476,7 +499,9 @@ function ensureChart(){if(chart||!window.Chart)return chart;
     options:{scales:{y:{min:0,max:100,grid:{color:'rgba(124,166,206,.12)'},ticks:{color:'#75899e'}},
       x:{grid:{color:'rgba(124,166,206,.06)'},ticks:{color:'#75899e'}}},plugins:{legend:{display:false}}}});return chart;}
 function plot(o){const c=ensureChart();if(!c)return;const p=o.filter(x=>x.score!=null);
-  c.data.labels=p.map(x=>'#'+x.n);c.data.datasets[0].data=p.map(x=>x.score);c.update();}
+  c.data.labels=p.map(x=>'#'+x.n);c.data.datasets[0].data=p.map(x=>x.score);
+  c.data.datasets[0].pointBackgroundColor=p.map(x=>x.verdict==='keep'?'#46e0a0':(x.verdict==='discard'?'#ffd166':'#75899e'));
+  c.update();}
 function renderMetricCards(lastMetrics){
   const specs=(CFG&&CFG.evaluation&&CFG.evaluation.metrics)||[];
   const el=$('metricCards'); if(!el) return;
