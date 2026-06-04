@@ -143,6 +143,31 @@ class Orchestrator:
 
     # ---- one iteration ----
 
+    def _artifact_snapshot(self, max_chars: int = 9000) -> str:
+        """The whole current artifact (the system under review) as text, so the Reviewer can judge
+        the overall design — not just the diff. Excludes the hidden harness dir (anti-collusion #4)
+        and big/binary data files; caps total size to keep the prompt bounded."""
+        harness = (self.cfg.evaluation.harness_dir or "metrics").strip("/")
+        parts, used = [], 0
+        for rel in self.state.tracked_files():
+            if rel.split("/", 1)[0] == harness:          # never show the scorer to the reviewer
+                continue
+            p = self.state.artifact_dir / rel
+            try:
+                if p.stat().st_size > 50_000:            # skip data blobs / huge files
+                    continue
+                text = p.read_text(encoding="utf-8")
+            except (OSError, UnicodeDecodeError):
+                continue                                 # binary or unreadable → skip
+            chunk = f"--- {rel} ---\n{text}\n"
+            if used + len(chunk) > max_chars:
+                chunk = chunk[: max(0, max_chars - used)] + "\n…(truncated)\n"
+            parts.append(chunk)
+            used += len(chunk)
+            if used >= max_chars:
+                break
+        return "".join(parts).strip()
+
     def _consult_validator(self, values: dict, new_score, verdict: str, candidate_diff: str) -> None:
         """Run the read-only Validator for feedback; guarantee read-only by reverting
         any edits it makes (not every CLI honors a read-only flag)."""
@@ -150,7 +175,7 @@ class Orchestrator:
             return
         cfg, state = self.cfg, self.state
         vprompt = build_validator_prompt(cfg, candidate_diff, values, new_score, verdict,
-                                         self.last_feedback)
+                                         self.last_feedback, artifact_text=self._artifact_snapshot())
         vtimeout = cfg.agents["validator"].timeout if "validator" in cfg.agents else 300
         vres = self.validator.run(vprompt, state.artifact_dir, "read-only", vtimeout)
         if state.has_changes():               # enforce read-only regardless of engine

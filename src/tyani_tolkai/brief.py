@@ -57,14 +57,16 @@ def _attempt_diff(state: StateStore, verdict: str | None, git_hash: str | None,
 
 
 def build_validator_prompt(cfg: Config, candidate_diff: str, metrics_values: dict,
-                           new_score: float | None, verdict: str, prev_feedback: str = "") -> str:
+                           new_score: float | None, verdict: str, prev_feedback: str = "",
+                           artifact_text: str = "") -> str:
     """Prompt for the read-only Reviewer (spec §4). The score is deterministic, so this agent
-    is NOT a scorer — it sees the candidate diff, the metrics and the verdict (and, when rejected,
-    its own prior advice) and returns the judgement the number can't give: an assessment of the
-    change, why the score moved, and concrete ideas to try next. It never assigns the number."""
+    is NOT a scorer — it sees the WHOLE current system (the artifact), the latest diff, the metrics
+    and the verdict (and, when rejected, its own prior advice) and returns the judgement the number
+    can't give: whether the system itself is soundly built (not just the change), why the score
+    moved, and concrete ideas to try next. It never assigns the number."""
     role = cfg.roles.get("validator")
-    goal = role.goal if role else ("Review the change, give your honest opinion on it, and "
-                                   "suggest concrete improvements.")
+    goal = role.goal if role else ("Review the whole system and the change, give your honest "
+                                   "opinion, and suggest concrete improvements.")
     score_txt = "n/a (did not run)" if new_score is None else f"{new_score:.2f}"
     lines = [
         "You are the read-only REVIEWER. A deterministic harness already computed the score, so do "
@@ -77,15 +79,22 @@ def build_validator_prompt(cfg: Config, candidate_diff: str, metrics_values: dic
         lines.append("- This attempt was REJECTED (it did not clear the best score + noise band).")
         if prev_feedback:
             lines.append(f"- Your PREVIOUS advice was: {prev_feedback!r} — it did not work; change direction.")
-    lines.append("- Candidate diff:")
+    if artifact_text:
+        lines.append("- FULL CURRENT SYSTEM (the entire artifact under review — judge its overall "
+                     "design, not only the diff):")
+        lines.append(_truncate(artifact_text, 260))
+    lines.append("- Latest change (diff):")
     lines.append(_truncate(candidate_diff, 40))
     lines.append("")
     lines.append("Reply in three short, labelled parts:")
-    lines.append("1. ASSESSMENT — what this change actually did and whether it was a sound idea "
-                 "(call out risks or side-effects the score alone hides).")
+    lines.append("1. ASSESSMENT — judge the SYSTEM AS A WHOLE: is the overall approach soundly "
+                 "built? If it is fundamentally mis-designed (wrong/own logic, look-ahead or "
+                 "survivorship bias, ignoring a key real-world factor like fees/slippage/risk, "
+                 "overfitting, or degenerate behaviour the score hides), say so plainly and why — "
+                 "even if this particular change was fine. Then comment on the change itself.")
     lines.append("2. WHY — why the score moved the way it did.")
     lines.append("3. IDEAS — one or two concrete changes to try next, plus any higher-level idea "
-                 "worth exploring. Keep each part to a sentence or two.")
+                 "or redesign worth exploring. Keep each part to a sentence or two.")
     return "\n".join(lines)
 
 
