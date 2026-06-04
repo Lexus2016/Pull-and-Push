@@ -54,7 +54,12 @@
   .coord{font-family:var(--mono);font-size:11px;color:var(--cold-dim);letter-spacing:1px;opacity:.8}
 
   /* ───────── layout ───────── */
+  .iconbtn{background:var(--panel-2);border:1px solid var(--line);color:var(--ink);border-radius:var(--radius);
+    font-size:18px;padding:7px 13px;cursor:pointer;line-height:1}
+  .iconbtn:hover{border-color:var(--cold);color:var(--cold)}
   .wrap{display:grid;grid-template-columns:300px 1fr;min-height:calc(100vh - 66px)}
+  body.nav-collapsed aside{display:none}
+  body.nav-collapsed .wrap{grid-template-columns:1fr}
   aside{border-right:1px solid var(--line);padding:22px;background:linear-gradient(180deg,rgba(12,19,28,.7),rgba(8,13,20,.4));
     animation:rise .5s .06s both}
   aside h2{font-family:var(--mono);font-size:11px;text-transform:uppercase;letter-spacing:2.5px;color:var(--mut);
@@ -192,6 +197,7 @@
 </head>
 <body>
 <header>
+  <button class="iconbtn" id="navBtn" title="Сховати / показати ліву панель">☰</button>
   <div class="brand">
     <h1>Тяни-Толкай</h1><span class="pp">[ push ⇄ pull ]</span>
   </div>
@@ -221,8 +227,8 @@
     </div>
 
     <div class="tabs">
-      <button class="tab active" id="tabConfig">⚙ Конфігурація</button>
       <button class="tab" id="tabProgress">📊 Прогрес</button>
+      <button class="tab" id="tabConfig">⚙ Конфігурація</button>
     </div>
 
     <div id="view-config">
@@ -398,7 +404,7 @@ function blankForm(){current=null;$('cfgTitle').textContent='Новий проє
   $('f_va_engine').value='';$('f_target').value=100;$('f_mindelta').value=1;$('f_maxiter').value=30;
   $('f_plateau').value=6;$('f_step').value=600;$('f_seed').value='empty';$('f_sandbox').value='local';$('f_adapter').value='pytest-pass';
   $('metrics').innerHTML='';$('metrics').appendChild(metricRow({name:'pass_pct',dir:'higher',weight:1,worst:0,target:100}));
-  $('f_project').disabled=false;enableControls(false);vis();highlight();}
+  $('f_project').disabled=false;enableControls(false);vis();highlight();showView('config');}
 function setFields(cfg){
   const a=cfg.agents||{},r=cfg.roles||{},ev=cfg.evaluation||{},lim=cfg.limits||{},sd=cfg.seed||{},sb=cfg.sandbox||{};
   if(cfg.project!==undefined)$('f_project').value=cfg.project||'';
@@ -441,7 +447,7 @@ async function loadProjects(){const d=await(await fetch(api('/api/projects'))).j
   (d.projects||[]).forEach(n=>{const li=document.createElement('li');li.textContent=n;li.onclick=()=>selectProject(n);ul.appendChild(li);});
   $('empty').classList.toggle('hidden',(d.projects||[]).length>0);highlight();}
 async function selectProject(name){const cfg=await(await fetch(api('/api/projects/'+name+'/config'))).json().catch(()=>({}));
-  CFG=cfg;fillForm(name,cfg);highlight();loadState(name);showView('config');
+  CFG=cfg;fillForm(name,cfg);highlight();loadState(name);showView('progress');
   try{localStorage.setItem('tt_current',name);}catch(e){}}
 function ensureChart(){if(chart||!window.Chart)return chart;
   chart=new Chart($('chart'),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#46e0d0',
@@ -496,6 +502,7 @@ function startPolling(name){if(poll)clearInterval(poll);
     if(d.status!=='running'){clearInterval(poll);poll=null;loadProjects();}},1000);}
 
 $('helpBtn').onclick=()=>$('helpCard').classList.toggle('hidden');
+$('navBtn').onclick=()=>document.body.classList.toggle('nav-collapsed');
 function showView(v){$('view-config').classList.toggle('hidden',v!=='config');
   $('view-progress').classList.toggle('hidden',v!=='progress');
   $('tabConfig').classList.toggle('active',v==='config');
