@@ -9,11 +9,16 @@ the agent — so this adapter just runs the process and classifies the outcome.
 from __future__ import annotations
 
 import os
+import re
 import signal
 import subprocess
 from pathlib import Path
 
 from .base import RunResult
+
+# strip terminal control sequences (colors, cursor moves, carriage returns) so the
+# tee'd agent.log is readable plain text rather than raw ANSI from a TTY.
+_ANSI = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|[\r\x08]")
 
 
 _EXECUTOR_FOCUS = (
@@ -83,77 +88,110 @@ class CLIAgentAdapter:
                 except Exception:
                     pass
 
-    def run(self, brief: str, workdir: str | Path, profile: str, timeout: int) -> RunResult:
-        self._killed = False
-        cmd = list(self.prefix)
-        # The subprocess runs with cwd=workdir, so the agent already has the working
-        # directory. Only codex needs it stated explicitly via -C (a single-path flag).
-        # claude/agy use --add-dir, which is GREEDY (variadic) and swallows the prompt
-        # argument that follows it — breaking the call ("prompt not provided"). So we do
-        # NOT pass --add-dir; cwd is sufficient.
-        if self.engine == "codex":
-            cmd += ["-C", str(workdir)]
-
-        argv = [*cmd, brief]
-        # For the executor (writeable) we tee the agent's real output to <project>/agent.log
-        # (the project dir is workdir's parent — OUTSIDE the artifact git tree, so it never
-        # pollutes change-detection). This gives ground-truth visibility into what the agent
-        # is doing, with no cooperation from the agent. Read-only (validator) uses a pipe.
-        log_file = None
-        if profile == "writeable":
-            try:
-                log_file = open(Path(workdir).parent / "agent.log", "w", encoding="utf-8")
-            except OSError:
-                log_file = None
-        try:
-            proc = subprocess.Popen(
-                argv, cwd=str(workdir), text=True,
-                stdout=(log_file or subprocess.PIPE),
-                stderr=subprocess.STDOUT if log_file else subprocess.PIPE,
-                # Detach stdin so a CLI that reads it (codex appends a piped <stdin> block;
-                # others may await interactive input) gets immediate EOF instead of blocking.
-                stdin=subprocess.DEVNULL,
-                start_new_session=True,   # own process group → killable as a unit on Force-Stop
-            )
-        except FileNotFoundError:
-            if log_file:
-                log_file.close()
-            return RunResult(status="crashed", stdout=f"{self.prefix[0]!r} not installed")
-        self._proc = proc
-        timed_out = False
-        out = err = ""
-        try:
-            out, err = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            self.kill()
-            try:
-                out, err = proc.communicate()
-            except Exception:
-                out, err = "", ""
-            timed_out = True
-        finally:
-            self._proc = None
-            if log_file:
-                try:
-                    log_file.close()
-                except Exception:
-                    pass
-
-        if log_file is not None:   # output went to the file → read it back as the result text
-            try:
-                full = (Path(workdir).parent / "agent.log").read_text(encoding="utf-8", errors="replace")
-            except OSError:
-                full = ""
-        else:
-            full = (out or "") + (err or "")
+    def _classify(self, full: str, returncode: int, timed_out: bool) -> RunResult:
         if self._killed and not timed_out:
             return RunResult(status="killed", stdout=full)   # deliberate Force-Stop
         if timed_out:
             return RunResult(status="timeout", stdout=full)
-        status = "success" if proc.returncode == 0 else "crashed"
+        status = "success" if returncode == 0 else "crashed"
         low = full.lower()
         if any(k in low for k in ("rate limit", "rate_limit", "ratelimit", "429",
                                   "too many requests", "quota", "overloaded",
                                   "usage limit", "insufficient_quota")):
             status = "rate_limited"        # transient provider limit — pause, don't retry
         return RunResult(status=status, stdout=full)
+
+    def run(self, brief: str, workdir: str | Path, profile: str, timeout: int) -> RunResult:
+        self._killed = False
+        cmd = list(self.prefix)
+        # The subprocess runs with cwd=workdir, so the agent already has the working
+        # directory. Only codex needs it stated explicitly via -C (a single-path flag).
+        # claude/agy use --add-dir, which is GREEDY (variadic) and swallows the prompt
+        # argument that follows it. So we do NOT pass --add-dir; cwd is sufficient.
+        if self.engine == "codex":
+            cmd += ["-C", str(workdir)]
+        argv = [*cmd, brief]
+        if profile == "writeable":
+            return self._run_logged(argv, workdir, timeout)   # executor → live agent.log
+        return self._run_plain(argv, workdir, timeout)        # validator → pipe (not logged)
+
+    def _run_plain(self, argv, workdir, timeout) -> RunResult:
+        try:
+            proc = subprocess.Popen(
+                argv, cwd=str(workdir), text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL, start_new_session=True)
+        except FileNotFoundError:
+            return RunResult(status="crashed", stdout=f"{self.prefix[0]!r} not installed")
+        self._proc = proc
+        timed_out = False
+        try:
+            out, _ = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self.kill()
+            try:
+                out, _ = proc.communicate()
+            except Exception:
+                out = ""
+            timed_out = True
+        finally:
+            self._proc = None
+        return self._classify(out or "", proc.returncode, timed_out)
+
+    def _run_logged(self, argv, workdir, timeout) -> RunResult:
+        """Run under a PTY so the agent (a TTY app) line-buffers and FLUSHES live; tee that
+        stream to <project>/agent.log as it arrives so the dashboard can follow it in real
+        time. Falls back to a pipe if a PTY isn't available."""
+        import pty
+        import select
+        import time
+        log_path = Path(workdir).parent / "agent.log"
+        try:
+            master, slave = pty.openpty()
+        except OSError:
+            return self._run_plain(argv, workdir, timeout)   # no PTY → at least don't crash
+        try:
+            proc = subprocess.Popen(
+                argv, cwd=str(workdir), stdin=subprocess.DEVNULL,
+                stdout=slave, stderr=slave, start_new_session=True, close_fds=True)
+        except FileNotFoundError:
+            os.close(master); os.close(slave)
+            return RunResult(status="crashed", stdout=f"{self.prefix[0]!r} not installed")
+        os.close(slave)
+        self._proc = proc
+        chunks: list[bytes] = []
+        timed_out = False
+        deadline = time.monotonic() + max(1, timeout)
+        try:
+            with open(log_path, "wb") as lf:
+                while True:
+                    if time.monotonic() > deadline:
+                        self.kill(); timed_out = True; break
+                    try:
+                        r, _, _ = select.select([master], [], [], 0.5)
+                    except (OSError, ValueError):
+                        break
+                    if r:
+                        try:
+                            data = os.read(master, 4096)
+                        except OSError:
+                            break          # PTY closed → child exited
+                        if not data:
+                            break
+                        data = _ANSI.sub(b"", data)
+                        lf.write(data); lf.flush(); chunks.append(data)
+                    elif proc.poll() is not None:
+                        break
+        except OSError:
+            pass
+        finally:
+            try:
+                os.close(master)
+            except OSError:
+                pass
+            try:
+                proc.wait(timeout=10)
+            except Exception:
+                self.kill()
+            self._proc = None
+        full = b"".join(chunks).decode("utf-8", errors="replace")
+        return self._classify(full, proc.returncode if proc.returncode is not None else 0, timed_out)

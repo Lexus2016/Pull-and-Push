@@ -33,7 +33,7 @@ def test_subprocess_detaches_stdin_and_new_session(tmp_path):
         fake.communicate.return_value = ("", "")
         fake.returncode = 0
         fake.poll.return_value = 0
-        CLIAgentAdapter(["true"], engine="claude").run("brief", tmp_path, "writeable", 5)
+        CLIAgentAdapter(["true"], engine="claude").run("brief", tmp_path, "read-only", 5)
     k = m.call_args[1]
     assert k.get("stdin") == sp.DEVNULL
     assert k.get("start_new_session") is True
@@ -91,7 +91,7 @@ def test_cli_adapter_dir_handling(tmp_path):
             fake.communicate.return_value = ("ok", "")
             fake.returncode = 0
             fake.poll.return_value = 0
-            a.run("PROMPT", tmp_path, "writeable", 10)
+            a.run("PROMPT", tmp_path, "read-only", 10)
             return m.call_args[0][0], m.call_args[1]["cwd"]
 
     av, cwd = argv_for("claude", ["claude", "-p"])
