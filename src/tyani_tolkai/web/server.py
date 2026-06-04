@@ -208,6 +208,27 @@ def create_app(token: str | None = None) -> FastAPI:
         auth(token)
         return _persisted_state(name)
 
+    @app.get("/api/projects/{name}/files")
+    def api_files(name: str, token: str | None = Query(None)):
+        auth(token)
+        art = project_dir(name) / "artifact"
+        if not (art / ".git").exists():
+            return {"files": []}
+        import subprocess
+        tracked = subprocess.run(["git", "-C", str(art), "ls-files"],
+                                 capture_output=True, text=True).stdout.split()
+        files = []
+        for f in tracked[:40]:
+            if f == ".gitignore":
+                continue
+            p = art / f
+            try:
+                txt = p.read_text(encoding="utf-8")[:20000]
+            except Exception:
+                txt = "(binary or unreadable)"
+            files.append({"path": f, "content": txt})
+        return {"files": files}
+
     @app.get("/api/projects/{name}/live")
     def api_live(name: str, token: str | None = Query(None)):
         auth(token)

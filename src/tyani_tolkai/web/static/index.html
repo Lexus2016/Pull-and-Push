@@ -335,6 +335,7 @@
     <div class="card">
       <h3>Керування та прогрес</h3>
       <p class="desc">Запускай, зупиняй і скеровуй прогін. Графік — крива якості; лог — рішення keep/discard щокроку.</p>
+      <div id="runGoal" class="hint" style="margin:-6px 0 14px"></div>
       <div class="controls" style="margin-bottom:18px">
         <button class="btn" id="runBtn" disabled title="Запустити цикл з реальними агентами">▶ Run</button>
         <button class="btn sec" id="stopBtn" disabled title="Зупинити на межі поточної ітерації">⏹ Stop</button>
@@ -358,6 +359,9 @@
       </div>
       <h3 style="margin-top:22px">Хід ітерацій</h3>
       <div id="log">—</div>
+      <h3 style="margin-top:22px">Файли артефакту <small class="hint" style="display:inline">— що агент побудував</small></h3>
+      <div class="controls" style="margin-bottom:8px"><button class="btn sec" id="filesBtn" style="width:auto" disabled>↻ Показати / оновити файли</button></div>
+      <div id="files"></div>
     </div>
     </div><!-- /view-progress -->
   </main>
@@ -440,7 +444,12 @@ function buildConfig(){const c={project:$('f_project').value.trim(),mode:$('f_mo
   if($('f_seed').value==='copy'&&$('f_seedpath').value)c.seed.path=$('f_seedpath').value;
   if($('g_desc').value.trim())c.description=$('g_desc').value.trim();  // persist the task prompt
   return c;}
-function enableControls(on){['runBtn','stopBtn','resetBtn','renameBtn','exportBtn','deleteBtn','steerBtn'].forEach(b=>$(b).disabled=!on);}
+function enableControls(on){['runBtn','stopBtn','resetBtn','renameBtn','exportBtn','deleteBtn','steerBtn','filesBtn'].forEach(b=>$(b).disabled=!on);}
+async function loadFiles(){if(!current)return;
+  $('files').innerHTML='<div class="hint">завантаження…</div>';
+  const d=await(await fetch(api('/api/projects/'+current+'/files'))).json().catch(()=>({files:[]}));
+  if(!d.files||!d.files.length){$('files').innerHTML='<div class="hint">артефакт порожній — запусти прогін, щоб агент створив файли</div>';return;}
+  $('files').innerHTML=d.files.map(f=>`<details><summary>📄 ${esc(f.path)}</summary><pre class="diff">${esc(f.content)}</pre></details>`).join('');}
 function highlight(){[...$('projects').children].forEach(li=>li.classList.toggle('active',li.textContent===current));}
 
 async function loadProjects(){const d=await(await fetch(api('/api/projects'))).json();const ul=$('projects');ul.innerHTML='';
@@ -487,19 +496,22 @@ function renderLog(o){
       `</details>`;
   }
   return `<div class="lrow"><span>iter #${x.n}${metsHtml}</span><span class="v-${x.verdict}">${x.verdict}</span><span>${sc}</span></div>`;
-}).join('')||'—';}
+}).join('')||'<div class="empty" style="margin:6px 0">Ще немає ітерацій. Натисни <b>▶ Run</b>, щоб запустити цикл.</div>';}
 function setStatus(s,score,sum){const t=$('tag');t.className='tag '+(s||'idle');t.textContent=s||'idle';
   $('score').textContent=score==null?'—':(+score).toFixed(1);
   $('summary').textContent=sum?(sum.error?('помилка: '+sum.error):`результат: ${sum.reason} · ітерацій: ${sum.iterations}`):'';}
 async function loadState(name){const d=await(await fetch(api('/api/projects/'+name))).json();
   const its=d.iterations||[];setStatus(d.status||'idle',d.best_score,null);plot(its);renderLog(its);
-  renderMetricCards(its.length?its[its.length-1].metrics:[]);}
+  renderMetricCards(its.length?its[its.length-1].metrics:[]);
+  $('runGoal').textContent=(CFG&&CFG.roles&&CFG.roles.executor&&CFG.roles.executor.goal)?('🎯 Мета: '+CFG.roles.executor.goal):'';}
 function startPolling(name){if(poll)clearInterval(poll);
   poll=setInterval(async()=>{const d=await(await fetch(api('/api/projects/'+name+'/live'))).json();
     const best=(d.outcomes||[]).reduce((m,o)=>o.score!=null&&o.score>m?o.score:m,0)||null;
     const oc=d.outcomes||[];setStatus(d.status,best,d.summary);plot(oc);renderLog(oc);
     renderMetricCards(oc.length?oc[oc.length-1].metrics:[]);
-    if(d.status!=='running'){clearInterval(poll);poll=null;loadProjects();}},1000);}
+    if(d.status!=='running'){clearInterval(poll);poll=null;loadProjects();
+      const r=d.summary?d.summary.reason:d.status;
+      toast('Прогін завершено: '+r+(best!=null?(' · бал '+(+best).toFixed(1)):''), d.status==='error'?'err':'ok');}},1000);}
 
 $('helpBtn').onclick=()=>$('helpCard').classList.toggle('hidden');
 $('navBtn').onclick=()=>document.body.classList.toggle('nav-collapsed');
@@ -528,7 +540,14 @@ $('saveBtn').onclick=async()=>{const cfg=buildConfig();
   const r=await fetch(api(url),{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
   if(!r.ok){const e=await r.json().catch(()=>({}));toast('Помилка: '+(e.detail||r.status),'err');return;}
   toast(current?'Збережено ✓':'Проєкт створено ✓','ok');await loadProjects();selectProject(cfg.project);};
-$('runBtn').onclick=async()=>{if(!current)return;const r=await fetch(api('/api/projects/'+current+'/run'),{method:'POST'});
+$('filesBtn').onclick=loadFiles;
+$('runBtn').onclick=async()=>{if(!current)return;
+  if(!localStorage.getItem('tt_run_ack')){
+    const eng=(CFG&&CFG.agents&&CFG.agents.executor&&CFG.agents.executor.engine)||$('f_ex_engine').value||'CLI';
+    if(!confirm('Run запускає РЕАЛЬНИЙ агент ('+eng+'). Кожна ітерація може коштувати токени. Прогін працює у фоні — онови сторінку, щоб бачити прогрес. Продовжити?'))return;
+    try{localStorage.setItem('tt_run_ack','1');}catch(e){}
+  }
+  const r=await fetch(api('/api/projects/'+current+'/run'),{method:'POST'});
   if(!r.ok){const e=await r.json().catch(()=>({}));toast('Run: '+(e.detail||r.status),'err');return;}
   setStatus('running',null,null);startPolling(current);toast('Запущено ▶','ok');};
 $('stopBtn').onclick=async()=>{if(current){await fetch(api('/api/projects/'+current+'/stop'),{method:'POST'});toast('Зупиняю на межі ітерації…','ok');}};

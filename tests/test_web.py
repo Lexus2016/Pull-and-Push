@@ -49,6 +49,13 @@ def test_auth_enforced(tmp_path, monkeypatch):
     assert c.get("/api/projects?token=secret").status_code == 200
 
 
+def test_files_endpoint(client):
+    client.post("/api/projects/create", json=_VALID)
+    r = client.get("/api/projects/webtest/files")
+    assert r.status_code == 200
+    assert "files" in r.json()
+
+
 def test_meta(client):
     m = client.get("/api/meta").json()
     assert "claude" in m["engines"] and "numeric" in m["adapters"]

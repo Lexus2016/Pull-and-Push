@@ -69,9 +69,13 @@ def reset_project(name: str) -> None:
         seed = state._git("rev-list", "--max-parents=0", "HEAD").splitlines()[0]
         state._git("reset", "-q", "--hard", seed)
         state._git("clean", "-fdq")
-        with state.conn:
+        cur = state.conn.cursor()       # explicit cursor (PyPy-safe: no dangling statements)
+        try:
             for tbl in ("metric", "iteration", "command", "checkpoint", "run"):
-                state.conn.execute(f"DELETE FROM {tbl}")
+                cur.execute(f"DELETE FROM {tbl}")
+            state.conn.commit()
+        finally:
+            cur.close()
     finally:
         state.close()
 
