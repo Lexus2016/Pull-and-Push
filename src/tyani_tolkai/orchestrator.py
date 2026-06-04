@@ -181,11 +181,11 @@ class Orchestrator:
             state.revert_uncommitted()
             state.record_iteration(self.run_id, n=n, git_hash=None, score=state.best_score(self.run_id),
                                    verdict="stopped", metrics=[],
-                                   feedback="Зупинено вручну (Force Stop) під час роботи агента.",
+                                   feedback="Force-stopped by the user while the agent was running.",
                                    agent_exit="killed")
             state.update_run(self.run_id, iter_count=n)
             return IterationOutcome(n, "stopped", state.best_score(self.run_id),
-                                    "Зупинено вручну (Force Stop).")
+                                    "Force-stopped by the user.")
 
         # provider rate limit / quota → pause the whole run and inform (no churn)
         if result.status == "rate_limited":
