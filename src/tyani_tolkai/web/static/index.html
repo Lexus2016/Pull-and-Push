@@ -245,7 +245,7 @@
     <button class="btn" id="newBtn">＋ Новий проєкт</button>
     <h2>Проєкти</h2>
     <ul class="plist" id="projects"></ul>
-    <div class="empty" id="empty">Проєктів ще немає.<br>Натисни <b>Demo</b> або <b>Новий проєкт</b>.</div>
+    <div class="empty" id="empty">Проєктів ще немає.<br>Натисни <b>＋ Новий проєкт</b>, щоб почати.</div>
     <p class="coord" style="margin-top:24px">// COLD = Виконавець · WARM = Оцінювач</p>
   </aside>
   <main>
@@ -254,9 +254,8 @@
       <p class="desc">Два агенти змагаються над одним проєктом: <b>Виконавець</b> покращує артефакт, а оцінка
         (детермінований код + опційний <b>Валідатор</b>) каже, чи стало краще. Цикл тримає лише покращення.</p>
       <ol>
-        <li>Натисни <b>Demo</b> — побачиш, як крива якості повзе до 100.</li>
-        <li><b>Новий проєкт</b> → опиши завдання й 🪄 згенеруй, або заповни форму → <b>Створити</b>.</li>
-        <li><b>Run</b> запускає реальних агентів; графік і лог оновлюються наживо.</li>
+        <li><b>＋ Новий проєкт</b> → опиши завдання й 🪄 згенеруй, або заповни форму → <b>Створити</b>.</li>
+        <li><b>▶ Run</b> запускає реальних агентів; крива якості й лог оновлюються наживо.</li>
         <li><b>Команда наживо</b> керує агентом без зупинки; <b>Stop</b> — на межі ітерації.</li>
       </ol>
     </div>
@@ -510,7 +509,13 @@ async function loadProjects(){const d=await(await fetch(api('/api/projects'))).j
   items.forEach(it=>{const li=document.createElement('li');li.textContent=it.name;li.dataset.status=it.status||'idle';
     li.title='статус: '+(it.status||'idle');li.onclick=()=>selectProject(it.name);ul.appendChild(li);});
   $('empty').classList.toggle('hidden',items.length>0);highlight();}
-async function selectProject(name){const cfg=await(await fetch(api('/api/projects/'+name+'/config'))).json().catch(()=>({}));
+async function selectProject(name){
+  stopPolling();                                   // never keep polling a previous project
+  const r=await fetch(api('/api/projects/'+name+'/config')).catch(()=>null);
+  const cfg=r&&r.ok?await r.json().catch(()=>null):null;
+  if(!cfg||!cfg.evaluation){                        // deleted between list & click, or broken config
+    try{localStorage.removeItem('tt_current');}catch(e){}
+    toast('Проєкт недоступний — оновлюю список','err');blankForm();await loadProjects();return;}
   CFG=cfg;fillForm(name,cfg);highlight();loadState(name);showView('progress');
   try{localStorage.setItem('tt_current',name);}catch(e){}}
 function ensureChart(){if(chart||!window.Chart)return chart;
@@ -564,6 +569,7 @@ async function loadState(name){const d=await(await fetch(api('/api/projects/'+na
   const its=d.iterations||[];setStatus(d.status||'idle',d.best_score,null);plot(its);renderLog(its);
   renderMetricCards(its.length?its[its.length-1].metrics:[]);
   $('runGoal').textContent=(CFG&&CFG.roles&&CFG.roles.executor&&CFG.roles.executor.goal)?('🎯 Мета: '+CFG.roles.executor.goal):'';}
+function stopPolling(){if(poll){clearInterval(poll);poll=null;}}
 function startPolling(name){if(poll)clearInterval(poll);
   poll=setInterval(async()=>{const d=await(await fetch(api('/api/projects/'+name+'/live'))).json();
     if(d.baseline&&Object.keys(d.baseline).length)BASELINE=d.baseline;   // live zero-points
@@ -654,7 +660,10 @@ $('renameBtn').onclick=async()=>{const to=prompt('Нова назва:',current)
   const r=await fetch(api('/api/projects/'+current+'/rename?to='+encodeURIComponent(to)),{method:'POST'});
   if(!r.ok){toast('Rename не вдалося','err');return;}toast('Перейменовано','ok');await loadProjects();selectProject(to);};
 $('exportBtn').onclick=()=>{if(current)location.href=api('/api/projects/'+current+'/export');};
-$('deleteBtn').onclick=async()=>{if(current&&confirm('Видалити проєкт '+current+'?')){await fetch(api('/api/projects/'+current+'/delete'),{method:'POST'});toast('Видалено','ok');blankForm();loadProjects();}};
+$('deleteBtn').onclick=async()=>{if(current&&confirm('Видалити проєкт '+current+'?')){
+  stopPolling();await fetch(api('/api/projects/'+current+'/delete'),{method:'POST'});
+  try{localStorage.removeItem('tt_current');}catch(e){}
+  toast('Видалено','ok');blankForm();loadProjects();}};
 $('steerBtn').onclick=async()=>{const t=$('steerText').value.trim();if(!current||!t)return;
   await fetch(api('/api/projects/'+current+'/command?role=executor&text='+encodeURIComponent(t)),{method:'POST'});
   $('steerText').value='';toast('Команду додано — застосується на наступній ітерації','ok');};

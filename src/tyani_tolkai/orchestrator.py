@@ -69,8 +69,11 @@ class Orchestrator:
                 m.worst = self._baseline[m.name]
 
     def _resolve_baseline(self, values: dict) -> None:
-        """Pin each unset metric.worst to its first measured value (the natural
-        zero-point: 0 = where you started, 100 = target). Persisted for resume."""
+        """Pin each unset metric.worst to its first measured value: the natural
+        zero-point, so a normal seed reads ~0 (where you started) and target=100.
+        Persisted for resume. Note: if the seed ALREADY meets/beats the target, we
+        give the scale a hair of range and the seed reads ~100 — i.e. 'already done',
+        which is the honest reading, not a forced 0."""
         changed = False
         for m in self.cfg.evaluation.metrics:
             if m.worst is not None or m.name not in values:
@@ -78,7 +81,7 @@ class Orchestrator:
             v = float(values[m.name])
             already_at_goal = (m.dir == "higher" and v >= m.target) or \
                               (m.dir == "lower" and v <= m.target)
-            if already_at_goal:        # leave a hair of range so 0–100 stays valid
+            if already_at_goal:        # seed is at/beyond goal → keep a valid range; reads ~100
                 span = max(abs(m.target) * 0.1, 1.0)
                 m.worst = m.target - span if m.dir == "higher" else m.target + span
             else:
@@ -216,6 +219,22 @@ class Orchestrator:
             return IterationOutcome(n, "fail", None, fb, candidate_diff)
 
         values = {m["name"]: m["value"] for m in mres.metrics}
+        # the command ran but didn't report every configured metric → fail THIS iteration
+        # (revert + count toward plateau) instead of crashing the whole run on a KeyError.
+        missing = [m.name for m in cfg.evaluation.metrics if m.name not in values]
+        if missing:
+            self._consult_validator(values, None, "fail", candidate_diff)
+            fb = self.last_feedback
+            state.reset_hard(parent)
+            state.record_iteration(self.run_id, n=n, git_hash=None, score=None, verdict="fail",
+                                   metrics=mres.metrics, change_summary=candidate_diff,
+                                   feedback=("metrics not reported: " + ", ".join(missing)
+                                             + (f"\n{fb}" if fb else "")),
+                                   agent_exit=result.status)
+            self.plateau_count += 1
+            state.update_run(self.run_id, plateau_count=self.plateau_count, iter_count=n)
+            return IterationOutcome(n, "fail", None, fb, candidate_diff)
+
         self._resolve_baseline(values)        # pin metric zero-points on first measurement
         new_score = score(values, cfg.evaluation.metrics)
         best = state.best_score(self.run_id)

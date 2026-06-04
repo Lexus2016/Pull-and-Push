@@ -265,6 +265,24 @@ def test_baseline_worst_pinned_from_first_measurement(tmp_path):
     assert json.loads(s.get_run(run_id)["baseline_json"]) == {"s": 20.0}   # persisted
 
 
+def test_missing_metric_fails_iteration_not_run(tmp_path):
+    # config wants 's' AND 'extra', but FakeMetric only reports 's' → fail THIS iteration,
+    # don't crash the whole run with a KeyError from the scorer.
+    cfg = Config(
+        project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "g"}},
+        evaluation={"adapter": "numeric", "command": "true",
+                    "metrics": [{"name": "s", "dir": "higher", "target": 100},
+                                {"name": "extra", "dir": "higher", "target": 100}],
+                    "target_score": 100},
+        limits={"max_iterations": 5, "plateau_N": 3},
+    )
+    orch, s, run_id = _orch(tmp_path, [_edit_val(70)], cfg)
+    o = orch.run_iteration()
+    assert o.verdict == "fail" and o.score is None
+    assert "extra" in s.last_iterations(run_id, 1)[0].feedback   # names the missing metric
+    assert orch.plateau_count == 1                               # counted as a non-improving step
+
+
 def test_baseline_worst_restored_on_resume(tmp_path):
     s = StateStore(tmp_path / "proj")
     s.git_init()
