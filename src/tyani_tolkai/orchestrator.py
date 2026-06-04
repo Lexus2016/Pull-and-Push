@@ -120,13 +120,15 @@ class Orchestrator:
             state.revert_uncommitted()
         self.last_feedback = (vres.stdout or "").strip()[:1000]
 
-    def run_iteration(self, context_text: str = "") -> IterationOutcome:
+    def run_iteration(self, context_text: str = "", on_phase=None) -> IterationOutcome:
         self.n += 1
         n = self.n
         cfg, state = self.cfg, self.state
+        ph = on_phase or (lambda *_: None)
         brief = build_brief(state, self.run_id, cfg, context_text=context_text,
                             validator_feedback=self.last_feedback)
 
+        ph("executor")                       # Executor is editing the artifact
         result = self._run_executor(brief)   # runs with restart-on-crash/timeout
 
         # provider rate limit / quota → pause the whole run and inform (no churn)
@@ -170,6 +172,7 @@ class Orchestrator:
         cand_hash = state.commit(f"candidate {n}")
         candidate_diff = state.diff(parent, cand_hash)[:_DIFF_KEEP_CHARS]
 
+        ph("scoring")                        # Metric Runner scores the candidate
         mres = self._run_metrics()
         state.revert_uncommitted()            # drop metric side-effects (tree → candidate)
 
@@ -190,6 +193,8 @@ class Orchestrator:
         verdict = decide(new_score, best, cfg.evaluation.min_delta)
 
         # Validator advises first (read-only) so its "why / what next" persists with the row.
+        if self.validator is not None:
+            ph("validator")                  # Validator analyzes & advises
         self._consult_validator(values, new_score, verdict, candidate_diff)
         fb = self.last_feedback
         if verdict == "keep":
@@ -209,14 +214,14 @@ class Orchestrator:
 
     # ---- loop ----
 
-    def run_loop(self, on_iteration=None, should_stop=None) -> LoopSummary:
+    def run_loop(self, on_iteration=None, should_stop=None, on_phase=None) -> LoopSummary:
         cfg = self.cfg
         while True:
             if should_stop and should_stop():
                 best = self.state.best_score(self.run_id)
                 self.state.set_status(self.run_id, "stopped")
                 return LoopSummary("stopped", best, self.n)
-            outcome = self.run_iteration()
+            outcome = self.run_iteration(on_phase=on_phase)
             if on_iteration:
                 on_iteration(outcome)
             if self.halt:                      # agent rate-limited or repeatedly failing

@@ -10,10 +10,13 @@ from __future__ import annotations
 import os
 import re
 import shutil
+import sqlite3
 import subprocess
 import tarfile
 import tempfile
 from pathlib import Path
+
+import yaml
 
 from .state import StateStore
 
@@ -80,6 +83,85 @@ def reset_project(name: str) -> None:
         state.close()
 
 
+def _build_docs(d: Path, name: str) -> tuple[str, str]:
+    """Generate README.md (how to run/use) + RESULTS.md (achieved metrics) for the bundle."""
+    cfg = {}
+    if (d / "config.yaml").exists():
+        try:
+            cfg = yaml.safe_load((d / "config.yaml").read_text(encoding="utf-8")) or {}
+        except Exception:
+            cfg = {}
+    ev = cfg.get("evaluation", {}) or {}
+    cmd, adapter, target = ev.get("command"), ev.get("adapter"), ev.get("target_score")
+    goal = ((cfg.get("roles", {}) or {}).get("executor", {}) or {}).get("goal", "")
+    desc = cfg.get("description") or goal or "(no description)"
+
+    best, iters, achieved = None, 0, []
+    if (d / "state.db").exists():
+        con = sqlite3.connect(str(d / "state.db")); con.row_factory = sqlite3.Row
+        try:
+            run = (con.execute("SELECT * FROM run WHERE id IN (SELECT DISTINCT run_id FROM iteration) "
+                               "ORDER BY id DESC LIMIT 1").fetchone()
+                   or con.execute("SELECT * FROM run ORDER BY id DESC LIMIT 1").fetchone())
+            if run:
+                best, iters = run["best_score"], run["iter_count"]
+                it = con.execute("SELECT id FROM iteration WHERE run_id=? AND verdict='keep' "
+                                 "ORDER BY n DESC LIMIT 1", (run["id"],)).fetchone()
+                if it:
+                    achieved = [dict(m) for m in con.execute(
+                        "SELECT name,value,dir,weight FROM metric WHERE iteration_id=?", (it["id"],)).fetchall()]
+        finally:
+            con.close()
+
+    tgt = {m["name"]: m for m in (ev.get("metrics") or [])}
+    rows = "".join(f"| {m['name']} | {m['value']} | {tgt.get(m['name'],{}).get('target','?')} "
+                   f"| {m.get('dir','')} | {tgt.get(m['name'],{}).get('weight','')} |\n" for m in achieved) \
+           or "| (no metrics recorded yet) | | | | |\n"
+
+    readme = f"""# {cfg.get('project', name)} — result bundle
+
+{desc}
+
+_Produced by Тяни-Толкай — an adversarial co-evolution orchestrator: one agent improves the
+artifact, a deterministic scorer (+ optional validator agent) judges it, and the best version
+is kept._
+
+## What's in this archive
+- `artifact/` — **the result**: the code the agent produced (e.g. `strategy.py`).
+- `metrics/` — the evaluation harness + data used to score it (lets you reproduce the numbers).
+- `config.yaml` — the run setup (agents, metrics, targets).
+- `RESULTS.md` — the score and metrics achieved.
+- `artifact.bundle` — full git history of how the artifact evolved
+  (optional: `git clone artifact.bundle history`).
+
+## How to run / reproduce
+1. Install Python 3.10+ and any libraries your evaluation needs.
+2. From the `artifact/` directory, run the evaluation command:
+   ```
+   {cmd or '<your evaluation command>'}
+   ```
+   Adapter: `{adapter}`. The harness and data live in `metrics/` (the command references them).
+3. It prints the objective metrics as JSON — exactly what was optimized.
+
+## How to use the result
+`artifact/` is your deliverable. For a trading strategy, `strategy.py` holds the tuned
+result; `metrics/backtest.py` shows precisely how those parameters are consumed, so you can
+port them into your own backtest or live pipeline.
+"""
+    results = f"""# Results — {cfg.get('project', name)}
+
+- **Composite score:** {best if best is not None else '—'} / target {target if target is not None else '—'}
+- **Iterations:** {iters}
+
+## Metrics achieved (best kept version)
+| metric | value | target | dir | weight |
+|---|---|---|---|---|
+{rows}
+> Composite score normalizes each metric `worst → target` to 0–100 and takes the weighted sum.
+"""
+    return readme, results
+
+
 def export_project(name: str, dest_tar: str | Path) -> Path:
     d = project_dir(name)
     if not d.exists():
@@ -92,14 +174,21 @@ def export_project(name: str, dest_tar: str | Path) -> Path:
         for item in ("config.yaml", "state.db"):
             if (d / item).exists():
                 shutil.copy2(d / item, stage / item)
+        _skip = shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache")
         for sub in ("context", "metrics"):
             if (d / sub).exists():
-                shutil.copytree(d / sub, stage / sub)
-        # artifact history as a portable bundle
-        if (d / "artifact" / ".git").exists():
+                shutil.copytree(d / sub, stage / sub, ignore=_skip)
+        # the actual result code, ready to read/run (working tree, without .git)
+        if (d / "artifact").exists():
+            shutil.copytree(d / "artifact", stage / "artifact",
+                            ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
+        if (d / "artifact" / ".git").exists():     # + full history as a portable bundle
             subprocess.run(["git", "-C", str(d / "artifact"), "bundle", "create",
                             str(stage / "artifact.bundle"), "--all"], check=True,
                            capture_output=True)
+        readme, results = _build_docs(d, name)     # human-readable deliverable docs
+        (stage / "README.md").write_text(readme, encoding="utf-8")
+        (stage / "RESULTS.md").write_text(results, encoding="utf-8")
         with tarfile.open(dest, "w:gz") as tar:
             tar.add(stage, arcname=name)
     return dest

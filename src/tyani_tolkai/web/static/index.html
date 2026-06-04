@@ -172,6 +172,10 @@
   #log{font-family:var(--mono);font-size:13.5px;max-height:260px;overflow:auto;border:1px solid var(--line);
     border-radius:var(--radius);padding:8px 14px;background:var(--field)}
   details{border:1px solid var(--line);border-radius:var(--radius);margin-bottom:6px;background:var(--field)}
+  .advbox{border:0;background:transparent;margin:6px 0}
+  .advbox>summary{cursor:pointer;font-family:var(--mono);font-size:14px;color:var(--mut);padding:8px 2px;list-style:none}
+  .advbox>summary::-webkit-details-marker{display:none}
+  .advbox>summary::before{content:"▸ "} .advbox[open]>summary::before{content:"▾ ";color:var(--cold)}
   summary{cursor:pointer;padding:8px 12px;font-family:var(--mono);font-size:13.5px;list-style:none}
   summary::-webkit-details-marker{display:none}
   summary::before{content:"▸ ";color:var(--mut)} details[open] summary::before{content:"▾ ";color:var(--cold)}
@@ -245,6 +249,8 @@
       <div class="save-bar"><button class="btn" id="genBtn" style="width:auto">🪄 Згенерувати проєкт</button>
         <span class="hint">Заповнить форму нижче — перевір і натисни «Створити».</span></div>
     </div>
+    <details id="manualForm" class="advbox">
+      <summary>⚙ Заповнити / редагувати вручну (розширене)</summary>
     <div class="card">
       <h3 id="cfgTitle">Новий проєкт</h3>
       <p class="desc">Або заповни вручну. Усе валідовується перед збереженням.</p>
@@ -329,6 +335,7 @@
       <div class="save-bar"><button class="btn" id="saveBtn" style="width:auto">💾 Створити</button>
         <span class="hint" id="saveHint">Заповни назву та хоча б одну метрику.</span></div>
     </div>
+    </details>
     </div><!-- /view-config -->
 
     <div id="view-progress" class="hidden">
@@ -408,7 +415,8 @@ function blankForm(){current=null;$('cfgTitle').textContent='Новий проє
   $('f_va_engine').value='';$('f_target').value=100;$('f_mindelta').value=1;$('f_maxiter').value=30;
   $('f_plateau').value=6;$('f_step').value=600;$('f_seed').value='empty';$('f_sandbox').value='local';$('f_adapter').value='pytest-pass';
   $('metrics').innerHTML='';$('metrics').appendChild(metricRow({name:'pass_pct',dir:'higher',weight:1,worst:0,target:100}));
-  $('f_project').disabled=false;enableControls(false);vis();highlight();showView('config');}
+  $('f_project').disabled=false;enableControls(false);vis();highlight();showView('config');
+  try{$('manualForm').open=false;}catch(e){}}
 function setFields(cfg){
   const a=cfg.agents||{},r=cfg.roles||{},ev=cfg.evaluation||{},lim=cfg.limits||{},sd=cfg.seed||{},sb=cfg.sandbox||{};
   if(cfg.project!==undefined)$('f_project').value=cfg.project||'';
@@ -425,9 +433,11 @@ function setFields(cfg){
   $('f_maxiter').value=lim.max_iterations??30;$('f_plateau').value=lim.plateau_N??6;$('f_step').value=lim.step_seconds??600;
   $('f_sandbox').value=sb.backend||'local';vis();}
 function fillForm(name,cfg){current=name;$('cfgTitle').textContent='Проєкт: '+name;$('saveBtn').textContent='💾 Зберегти зміни';
-  setFields({...cfg,project:name});$('f_project').disabled=true;enableControls(true);}
+  setFields({...cfg,project:name});$('f_project').disabled=true;enableControls(true);
+  try{$('manualForm').open=true;}catch(e){}}
 function applyGenerated(cfg){blankForm();setFields(cfg);$('f_project').disabled=false;current=null;
-  $('cfgTitle').textContent='Новий проєкт (згенеровано) — перевір і натисни «Створити»';$('saveBtn').textContent='💾 Створити';}
+  $('cfgTitle').textContent='Новий проєкт (згенеровано) — перевір і натисни «Створити»';$('saveBtn').textContent='💾 Створити';
+  try{$('manualForm').open=true;}catch(e){}}
 function buildConfig(){const c={project:$('f_project').value.trim(),mode:$('f_mode').value,
   agents:{executor:{engine:$('f_ex_engine').value,timeout:600}},
   roles:{executor:{goal:$('f_ex_goal').value||'Improve the artifact.'}},
@@ -509,7 +519,10 @@ function startPolling(name){if(poll)clearInterval(poll);
     const best=(d.outcomes||[]).reduce((m,o)=>o.score!=null&&o.score>m?o.score:m,0)||null;
     const oc=d.outcomes||[];setStatus(d.status,best,d.summary);plot(oc);renderLog(oc);
     renderMetricCards(oc.length?oc[oc.length-1].metrics:[]);
-    if(d.status!=='running'){clearInterval(poll);poll=null;loadProjects();
+    if(d.status==='running'&&d.phase){
+      const pl={executor:'✍ агент редагує код…',scoring:'📊 оцінка (бектест)…',validator:'🔎 валідатор аналізує…'};
+      $('summary').textContent=(pl[d.phase]||('фаза: '+d.phase))+' · ітерація '+(((oc[oc.length-1]||{}).n||0)+1);}
+    if(d.status!=='running'){clearInterval(poll);poll=null;loadProjects();loadFiles();
       const r=d.summary?d.summary.reason:d.status;
       toast('Прогін завершено: '+r+(best!=null?(' · бал '+(+best).toFixed(1)):''), d.status==='error'?'err':'ok');}},1000);}
 

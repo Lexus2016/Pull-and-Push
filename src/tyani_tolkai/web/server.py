@@ -49,7 +49,7 @@ class RunManager:
             if r is None:
                 return None          # no in-memory run → caller falls back to idle
             return {"status": r["status"], "summary": r["summary"],
-                    "outcomes": list(r["outcomes"])}
+                    "outcomes": list(r["outcomes"]), "phase": r.get("phase")}
 
     def is_running(self, name: str) -> bool:
         with self._lock:
@@ -75,7 +75,7 @@ class RunManager:
             if self._runs.get(name, {}).get("status") == "running":
                 raise HTTPException(409, "run already in progress")
             self._stop.discard(name)   # clear inside the lock so a racing /stop isn't lost
-            self._runs[name] = {"status": "running", "summary": None, "outcomes": []}
+            self._runs[name] = {"status": "running", "summary": None, "outcomes": [], "phase": None}
         threading.Thread(target=self._run, args=(name,), daemon=True).start()
 
     def _run(self, name: str) -> None:
@@ -114,7 +114,12 @@ class RunManager:
                          "feedback": o.feedback, "change": o.change,
                          "metrics": [{"name": m["name"], "value": m["value"]} for m in (o.metrics or [])]})
 
-            summary = orch.run_loop(on_iteration=on_iter,
+            def on_ph(p):
+                with self._lock:
+                    if name in self._runs:
+                        self._runs[name]["phase"] = p
+
+            summary = orch.run_loop(on_iteration=on_iter, on_phase=on_ph,
                                     should_stop=lambda: name in self._stop)
             st = {"stopped": "stopped", "rate_limited": "error",
                   "agent_error": "error"}.get(summary.reason, "finished")
