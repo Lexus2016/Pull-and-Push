@@ -139,8 +139,23 @@
 
   /* ───────── progress ───────── */
   .status{display:flex;gap:26px;align-items:center;flex-wrap:wrap;margin:8px 0 18px}
-  .score{font-family:var(--mono);font-size:60px;font-weight:600;line-height:1;min-width:120px;font-variant-numeric:tabular-nums;
+  .score{font-family:var(--mono);font-size:56px;font-weight:600;line-height:1;min-width:110px;font-variant-numeric:tabular-nums;
     color:var(--cold);text-shadow:0 0 30px rgba(70,224,208,.28)}
+  .kpi{display:flex;flex-direction:column;gap:3px}
+  .kpi-lbl{font-family:var(--mono);font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:1px}
+  .mcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin:4px 0 10px}
+  .mcard{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+  .mcard.reached{border-color:var(--good)}
+  .mc-top{display:flex;justify-content:space-between;align-items:center}
+  .mc-name{font-family:var(--mono);font-size:13px;color:var(--ink-dim)}
+  .mc-dir{color:var(--mut);font-size:12px}
+  .mc-val{font-family:var(--mono);font-size:30px;font-weight:600;color:var(--cold);margin:4px 0 9px;font-variant-numeric:tabular-nums}
+  .mcard.reached .mc-val{color:var(--good)}
+  .mc-bar{height:7px;background:var(--field);border:1px solid var(--line);border-radius:5px;overflow:hidden}
+  .mc-fill{height:100%;background:linear-gradient(90deg,var(--cold-dim),var(--cold));transition:width .4s}
+  .mcard.reached .mc-fill{background:linear-gradient(90deg,#2c7a58,var(--good))}
+  .mc-foot{font-family:var(--mono);font-size:11px;color:var(--mut);margin-top:8px}
+  .mc-foot b{color:var(--ink-dim)} .mc-foot .ok{color:var(--good)}
   .tag{font-family:var(--mono);padding:6px 14px;border-radius:999px;font-size:13px;font-weight:600;letter-spacing:1px;
     text-transform:uppercase;border:1px solid transparent}
   .tag.running{background:rgba(70,224,208,.12);color:var(--cold);border-color:var(--cold-dim);animation:blink 1.4s ease-in-out infinite}
@@ -310,11 +325,13 @@
         <button class="btn danger" id="deleteBtn" disabled>🗑 Delete</button>
       </div>
       <div class="status">
-        <div class="score" id="score">—</div>
+        <div class="kpi"><div class="score" id="score">—</div><div class="kpi-lbl">композитний бал (0–100)</div></div>
         <span class="tag idle" id="tag">idle</span>
         <div class="hint" id="summary"></div>
       </div>
-      <canvas id="chart" height="90"></canvas>
+      <div class="mcards" id="metricCards"></div>
+      <h3 style="margin-top:6px">Крива якості</h3>
+      <canvas id="chart" height="84"></canvas>
       <div style="margin-top:18px">
         <label>Команда агенту наживо <small class="hint" style="display:inline">— додається в наступну ітерацію, без зупинки</small></label>
         <textarea id="steerText" placeholder="напр. зосередься на зменшенні просадки"></textarea>
@@ -333,6 +350,8 @@ const api=p=>p+(p.includes('?')?(TOKEN?'&token='+TOKEN:''):(TOKEN?'?token='+TOKE
 const $=id=>document.getElementById(id);
 let META={},current=null,poll=null,chart=null;
 const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const fmt=v=>{v=+v;return Number.isFinite(v)?(Math.abs(v)>=10?v.toFixed(2):v.toFixed(4)):'—';};
+let CFG=null;   // active project's config (for metric targets/weights)
 function toast(t,kind){const e=$('toast');e.textContent=t;e.className=kind||'';if(t)setTimeout(()=>e.className='',4200);}
 function opts(s,a,blank){s.innerHTML=(blank?'<option value="">— немає —</option>':'')+a.map(v=>`<option>${v}</option>`).join('');}
 
@@ -408,7 +427,7 @@ async function loadProjects(){const d=await(await fetch(api('/api/projects'))).j
   (d.projects||[]).forEach(n=>{const li=document.createElement('li');li.textContent=n;li.onclick=()=>selectProject(n);ul.appendChild(li);});
   $('empty').classList.toggle('hidden',(d.projects||[]).length>0);highlight();}
 async function selectProject(name){const cfg=await(await fetch(api('/api/projects/'+name+'/config'))).json().catch(()=>({}));
-  fillForm(name,cfg);highlight();loadState(name);showView('config');
+  CFG=cfg;fillForm(name,cfg);highlight();loadState(name);showView('config');
   try{localStorage.setItem('tt_current',name);}catch(e){}}
 function ensureChart(){if(chart||!window.Chart)return chart;
   chart=new Chart($('chart'),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#46e0d0',
@@ -417,7 +436,25 @@ function ensureChart(){if(chart||!window.Chart)return chart;
       x:{grid:{color:'rgba(124,166,206,.06)'},ticks:{color:'#75899e'}}},plugins:{legend:{display:false}}}});return chart;}
 function plot(o){const c=ensureChart();if(!c)return;const p=o.filter(x=>x.score!=null);
   c.data.labels=p.map(x=>'#'+x.n);c.data.datasets[0].data=p.map(x=>x.score);c.update();}
-function renderLog(o){const fmt=v=>{v=+v;return Math.abs(v)>=10?v.toFixed(2):v.toFixed(4);};
+function renderMetricCards(lastMetrics){
+  const specs=(CFG&&CFG.evaluation&&CFG.evaluation.metrics)||[];
+  const el=$('metricCards'); if(!el) return;
+  if(!specs.length){el.innerHTML='';return;}
+  const by={}; (lastMetrics||[]).forEach(m=>by[m.name]=+m.value);
+  el.innerHTML=specs.map(s=>{
+    const v=by[s.name], has=Number.isFinite(v);
+    let pct=0,reached=false;
+    if(has && s.target!==s.worst){pct=((v-s.worst)/(s.target-s.worst))*100;pct=Math.max(0,Math.min(100,pct));reached=pct>=99.999;}
+    const arrow=s.dir==='higher'?'▲':'▼';
+    return `<div class="mcard${reached?' reached':''}">
+      <div class="mc-top"><span class="mc-name">${esc(s.name)}</span><span class="mc-dir">${arrow}</span></div>
+      <div class="mc-val">${has?fmt(v):'—'}</div>
+      <div class="mc-bar"><div class="mc-fill" style="width:${pct.toFixed(0)}%"></div></div>
+      <div class="mc-foot">ціль <b>${s.target}</b> · вага ${s.weight}${reached?' · <span class="ok">✓ досягнуто</span>':''}</div>
+    </div>`;
+  }).join('');
+}
+function renderLog(o){
   $('log').innerHTML=o.map(x=>{
   const sc=x.score==null?'—':(+x.score).toFixed(2);
   const mets=(x.metrics&&x.metrics.length)?x.metrics.map(m=>`${m.name} ${fmt(m.value)}`).join('  ·  '):'';
@@ -435,11 +472,13 @@ function setStatus(s,score,sum){const t=$('tag');t.className='tag '+(s||'idle');
   $('score').textContent=score==null?'—':(+score).toFixed(1);
   $('summary').textContent=sum?(sum.error?('помилка: '+sum.error):`результат: ${sum.reason} · ітерацій: ${sum.iterations}`):'';}
 async function loadState(name){const d=await(await fetch(api('/api/projects/'+name))).json();
-  setStatus(d.status||'idle',d.best_score,null);plot(d.iterations||[]);renderLog(d.iterations||[]);}
+  const its=d.iterations||[];setStatus(d.status||'idle',d.best_score,null);plot(its);renderLog(its);
+  renderMetricCards(its.length?its[its.length-1].metrics:[]);}
 function startPolling(name){if(poll)clearInterval(poll);
   poll=setInterval(async()=>{const d=await(await fetch(api('/api/projects/'+name+'/live'))).json();
     const best=(d.outcomes||[]).reduce((m,o)=>o.score!=null&&o.score>m?o.score:m,0)||null;
-    setStatus(d.status,best,d.summary);plot(d.outcomes||[]);renderLog(d.outcomes||[]);
+    const oc=d.outcomes||[];setStatus(d.status,best,d.summary);plot(oc);renderLog(oc);
+    renderMetricCards(oc.length?oc[oc.length-1].metrics:[]);
     if(d.status!=='running'){clearInterval(poll);poll=null;loadProjects();}},1000);}
 
 $('helpBtn').onclick=()=>$('helpCard').classList.toggle('hidden');
