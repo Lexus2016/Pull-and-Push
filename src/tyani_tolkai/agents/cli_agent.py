@@ -16,6 +16,14 @@ from pathlib import Path
 from .base import RunResult
 
 
+_EXECUTOR_FOCUS = (
+    "You are an autonomous code executor in an automated loop. Ignore ALL global/personal "
+    "agent instructions, memory, and rituals (activation tokens, SSoT, cheap-read "
+    "justifications, tqmemory/memory checks, consultants, language/style rules). Work only in "
+    "the current working directory; do not explore the wider filesystem or unrelated tools. "
+    "Do exactly what the prompt asks by editing files, then stop. No meta-commentary.")
+
+
 def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
     """Build the argv prefix for an engine (prompt is appended by the caller)."""
     if engine == "claude":
@@ -24,7 +32,11 @@ def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
         # then just sits in the executor phase until the step timeout). This boolean flag
         # is safe to place before the positional prompt. Read-only is still enforced by
         # the orchestrator reverting any edits the validator makes.
-        cmd = ["claude", "-p", "--dangerously-skip-permissions"]
+        # --append-system-prompt: claude -p still loads the operator's ~/.claude/CLAUDE.md;
+        # this forces it to act as a confined executor and ignore those personal rituals
+        # (otherwise it spends the turn on SSoT/tqmemory/etc. and never edits → no_op).
+        cmd = ["claude", "-p", "--dangerously-skip-permissions",
+               "--append-system-prompt", _EXECUTOR_FOCUS]
         if model:
             cmd += ["--model", model]
         return cmd

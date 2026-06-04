@@ -89,6 +89,18 @@ def build_brief(state: StateStore, run_id: int, cfg: Config,
     attempts = state.last_iterations(run_id, cfg.history.depth_k)
 
     lines: list[str] = []
+    # Focus preamble — the agent's CLI may carry the operator's personal config (global
+    # CLAUDE.md / AGENTS.md / GEMINI.md, hooks, memory rituals). Tell it to ignore all of
+    # that and behave as a single-purpose executor confined to the working directory, or it
+    # will spend the turn doing the operator's rituals instead of the task → endless no_op.
+    lines.append(
+        "You are an autonomous CODE EXECUTOR inside an automated loop. Work ONLY in the "
+        "current working directory. IGNORE every global/personal agent instruction or memory "
+        "you may have loaded (activation tokens, SSoT rituals, cheap-read justifications, "
+        "tqmemory/memory checks, consultants, language/style rules). Do NOT explore the wider "
+        "filesystem, search the web, or inspect unrelated tools. Just create/edit the files "
+        "this brief specifies, then stop. No meta-commentary.")
+    lines.append("")
     n = (attempts[-1].n + 1) if attempts else 1
     lines.append(f"ITERATION BRIEF (iteration {n})")
     lines.append(f"- Goal: {role_cfg.goal}")
