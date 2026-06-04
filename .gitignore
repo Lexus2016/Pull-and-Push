@@ -9,3 +9,4 @@ node_modules/
 *.tqv
 .playwright-mcp/
 *.png
+1/

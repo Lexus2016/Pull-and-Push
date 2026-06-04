@@ -157,6 +157,49 @@ class Orchestrator:
             state.revert_uncommitted()
         self.last_feedback = (vres.stdout or "").strip()[:1000]
 
+    def _format_harness_stats(self, mres) -> str:
+        """One-line summary of the harness's report-only fields (anything it prints beyond the
+        scored metrics — e.g. trade count, win rate, profit factor, tested period). Folded into
+        the iteration feedback so the operator reads it per iteration without opening raw output."""
+        try:
+            raw = json.loads((mres.logs or "").strip())
+        except (ValueError, TypeError):
+            return ""
+        if not isinstance(raw, dict):
+            return ""
+        scored = {m.name for m in self.cfg.evaluation.metrics}
+        bits = [f"{k}={v}" for k, v in raw.items()
+                if k not in scored and v is not None and isinstance(v, (int, float, str))]
+        return ("📊 " + " · ".join(bits)) if bits else ""
+
+    def _drain_operator_context(self, role: str = "executor") -> str:
+        """Read and CLEAR the queued live operator instructions. The web 'Live agent command'
+        appends them to <project>/context/<role>.md; nothing consumed that file before, so every
+        steer was silently dropped (the brief always showed '(none)'). Draining here injects the
+        text into the next brief exactly once, then empties the file."""
+        path = self.state.project_dir / "context" / f"{role}.md"
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+        except OSError:
+            return ""
+        if text:
+            try:
+                path.write_text("", encoding="utf-8")     # consume once
+            except OSError:
+                pass
+        return text
+
+    def _log_iteration_header(self, n: int) -> None:
+        """Append a per-iteration banner to <project>/agent.log. The agent runner appends
+        (never truncates), so the log accumulates one clearly-delimited section per iteration
+        — the operator can read the full history instead of just the latest, overwritten run."""
+        try:
+            sep = "─" * 60
+            with (self.state.project_dir / "agent.log").open("a", encoding="utf-8") as f:
+                f.write(f"\n{sep}\n▼ ITERATION {n} · executor\n{sep}\n")
+        except OSError:
+            pass
+
     def run_iteration(self, context_text: str = "", on_phase=None) -> IterationOutcome:
         self.n += 1
         n = self.n
@@ -166,6 +209,7 @@ class Orchestrator:
                             validator_feedback=self.last_feedback)
 
         ph("executor")                       # Executor is editing the artifact
+        self._log_iteration_header(n)        # accumulate agent.log across iterations
         result = self._run_executor(brief)   # runs with restart-on-crash/timeout
 
         # Force-Stop landed while the agent was running → drop any partial edit and bail NOW,
@@ -268,6 +312,9 @@ class Orchestrator:
             ph("validator")                  # Validator analyzes & advises
         self._consult_validator(values, new_score, verdict, candidate_diff)
         fb = self.last_feedback
+        stats = self._format_harness_stats(mres)         # surface report-only harness fields
+        if stats:
+            fb = (stats + "\n\n" + fb).strip() if fb else stats
         if verdict == "keep":
             state.record_iteration(self.run_id, n=n, git_hash=cand_hash, score=new_score,
                                    verdict="keep", metrics=mres.metrics, change_summary=candidate_diff,
@@ -292,7 +339,8 @@ class Orchestrator:
                 best = self.state.best_score(self.run_id)
                 self.state.set_status(self.run_id, "stopped")
                 return LoopSummary("stopped", best, self.n)
-            outcome = self.run_iteration(on_phase=on_phase)
+            ctx = self._drain_operator_context()       # live 'Steer' command, applied once
+            outcome = self.run_iteration(context_text=ctx, on_phase=on_phase)
             if on_iteration:
                 on_iteration(outcome)
             if self.aborted:                   # Force-Stop landed mid-iteration

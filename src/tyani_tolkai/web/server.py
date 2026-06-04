@@ -121,6 +121,17 @@ class RunManager:
                 if state.has_changes():
                     state.revert_uncommitted()
                 state.set_status(run_id, "running")
+                # Seed the live view with THIS run's persisted history. Without it, /live returns
+                # only the outcomes appended this session, so the chart/log collapse to the new
+                # iterations on resume — it looked like the run had reset to iteration 1.
+                hist = state.last_iterations(run_id, 100000)
+                with self._lock:
+                    if name in self._runs:
+                        self._runs[name]["outcomes"] = [
+                            {"n": it.n, "verdict": it.verdict, "score": it.score,
+                             "feedback": it.feedback, "change": it.change_summary,
+                             "metrics": [{"name": m["name"], "value": m["value"]} for m in it.metrics]}
+                            for it in hist]
             else:
                 run_id = state.create_run(cfg.mode)
             ex = cfg.agents["executor"]
@@ -509,6 +520,14 @@ def create_app(token: str | None = None) -> FastAPI:
                 out["metric_specs"] = [{"name": m.name, "dir": m.dir, "weight": m.weight,
                                         "worst": m.worst, "target": m.target}
                                        for m in cfg.evaluation.metrics]
+                # report-only fields the harness printed beyond the scored metrics (e.g. win
+                # rate, profit factor, trade count, tested period) — shown but not scored.
+                try:
+                    raw = json.loads(out["logs"])
+                    scored = {m.name for m in cfg.evaluation.metrics}
+                    out["extras"] = {k: v for k, v in raw.items() if k not in scored}
+                except (ValueError, TypeError):
+                    out["extras"] = {}
                 try:
                     out["score"] = score(values, cfg.evaluation.metrics)
                 except Exception as e:

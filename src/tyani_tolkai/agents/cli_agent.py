@@ -171,7 +171,10 @@ class CLIAgentAdapter:
         timed_out = False
         deadline = time.monotonic() + max(1, timeout)
         try:
-            with open(log_path, "wb") as lf:
+            # APPEND, never truncate: the orchestrator writes a per-iteration header before
+            # each run, so agent.log accumulates every iteration (the operator reads the whole
+            # history, not just the latest run that used to overwrite it).
+            with open(log_path, "ab") as lf:
                 while True:
                     if time.monotonic() > deadline:
                         self.kill(); timed_out = True; break
