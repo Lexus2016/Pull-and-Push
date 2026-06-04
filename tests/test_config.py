@@ -55,6 +55,19 @@ def test_seed_generate_migrates_to_empty():
     assert Config(seed={"copy": "/tmp/x"}, **common).seed.mode == "copy"   # copy shorthand still works
 
 
+def test_notify_requires_url_when_enabled():
+    common = dict(
+        project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "g"}},
+        evaluation={"adapter": "numeric", "command": "true",
+                    "metrics": [{"name": "s", "dir": "higher", "target": 100}]},
+    )
+    with pytest.raises(ValidationError):
+        Config(notify={"enabled": True}, **common)            # enabled but no url → invalid
+    c = Config(notify={"enabled": True, "url": "https://example.com/hook"}, **common)
+    assert c.notify.enabled and c.notify.method == "POST"     # default method
+    assert Config(**common).notify.enabled is False           # off by default, url not required
+
+
 def test_metric_worst_optional():
     cfg = Config(
         project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "g"}},

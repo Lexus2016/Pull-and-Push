@@ -133,6 +133,8 @@
     letter-spacing:1.5px;text-transform:uppercase}
   legend small{color:var(--mut);font-weight:400;letter-spacing:0;text-transform:none;margin-left:8px;font-family:var(--ui)}
   .grid{display:grid;grid-template-columns:1fr 1fr;gap:15px 18px}.full{grid-column:1/-1}.field{min-width:0}
+  .chk{display:flex;align-items:center;gap:9px;cursor:pointer;font-weight:500;text-transform:none;letter-spacing:0}
+  .chk input{width:18px;height:18px;accent-color:var(--cold);cursor:pointer}
   label{display:block;font-size:13.5px;color:var(--ink);margin-bottom:6px;font-weight:500}
   label small{color:var(--mut);font-weight:400}
   .hint{color:var(--mut);font-size:12.5px;margin-top:5px;line-height:1.45}
@@ -195,7 +197,7 @@
     max-height:260px;overflow:auto;border-top:1px solid var(--line);color:var(--mut)}
   .lrow{display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--line)}
   .lrow span:first-child{color:var(--mut)}
-  .v-keep{color:var(--good)}.v-discard{color:var(--warn)}.v-fail{color:var(--bad)}.v-no_op{color:var(--mut)}
+  .v-keep{color:var(--good)}.v-discard{color:var(--warn)}.v-fail{color:var(--bad)}.v-no_op{color:var(--mut)}.v-stopped{color:var(--warn)}
   .mets{color:var(--cold);font-family:var(--mono);font-size:12px}
 
   /* ───────── toast ───────── */
@@ -365,6 +367,17 @@
         </div>
       </fieldset>
 
+      <fieldset><legend>Сповіщення <small>вебхук після завершення прогону</small></legend>
+        <div class="field"><label class="chk"><input type="checkbox" id="f_notify_enabled"> Викликати URL після завершення роботи</label>
+          <div class="hint">Система сама смикне твій URL, коли прогін дійде до кінця (target / plateau / stop / error).</div></div>
+        <div class="grid" id="notify_fields">
+          <div class="field"><label>URL</label><input id="f_notify_url" placeholder="https://example.com/hook">
+            <div class="hint">Твоя адреса. POST надсилає JSON {project, status, reason, best_score, iterations}.</div></div>
+          <div class="field"><label>Метод</label><select id="f_notify_method"><option value="POST">POST</option><option value="GET">GET</option></select>
+            <div class="hint"><b>GET</b> додає <code>?project=…&status=…</code> у запит.</div></div>
+        </div>
+      </fieldset>
+
       <div class="save-bar"><button class="btn" id="saveBtn" style="width:auto">💾 Створити</button>
         <span class="hint" id="saveHint">Заповни назву та хоча б одну метрику.</span></div>
     </div>
@@ -378,7 +391,8 @@
       <div id="runGoal" class="hint" style="margin:-6px 0 14px"></div>
       <div class="controls" style="margin-bottom:18px">
         <button class="btn" id="runBtn" disabled title="Запустити цикл з реальними агентами">▶ Run</button>
-        <button class="btn sec" id="stopBtn" disabled title="Зупинити на межі поточної ітерації">⏹ Stop</button>
+        <button class="btn sec" id="stopBtn" disabled title="Зупинити на межі поточної ітерації (дочекається кроку)">⏹ Stop</button>
+        <button class="btn danger" id="forceStopBtn" disabled title="Негайно вбити процеси агента — без очікування ітерації">⛔ Force Stop</button>
         <button class="btn sec" id="testEvalBtn" disabled title="Запустити оцінку один раз — перевірити, що harness/команда працюють">🧪 Тест оцінки</button>
         <button class="btn sec" id="resetBtn" disabled title="Відкотити артефакт до seed">↺ Reset</button>
         <button class="btn sec" id="renameBtn" disabled>✎ Rename</button>
@@ -441,7 +455,8 @@ function vis(){const ad=$('f_adapter').value;   // adapter is auto/hidden; still
   $('command_wrap').classList.toggle('hidden',!(ad==='numeric'||ad==='command-exit'));
   $('harness_wrap').classList.toggle('hidden',ad!=='pytest-pass');
   $('seedpath_wrap').classList.toggle('hidden',$('f_seed').value!=='copy');
-  $('va_goal_wrap').classList.toggle('hidden',!$('f_va_engine').value);}
+  $('va_goal_wrap').classList.toggle('hidden',!$('f_va_engine').value);
+  $('notify_fields').classList.toggle('hidden',!$('f_notify_enabled').checked);}
 
 function metricRow(m={}){const d=document.createElement('div');d.className='mrow';
   const dlbl={higher:'↑ більше = краще',lower:'↓ менше = краще'};
@@ -459,6 +474,7 @@ function blankForm(){current=null;$('cfgTitle').textContent='Новий проє
   $('f_va_engine').value='';$('f_target').value=100;$('f_maxiter').value=30;
   $('f_plateau').value=6;$('f_step').value=600;$('f_seed').value='empty';$('f_sandbox').value='local';$('f_adapter').value='numeric';
   $('metrics').innerHTML='';$('metrics').appendChild(metricRow({name:'score',dir:'higher',weight:1,target:100}));
+  $('f_notify_enabled').checked=false;$('f_notify_url').value='';$('f_notify_method').value='POST';
   $('f_project').disabled=false;enableControls(false);lockProgressTab(true);vis();highlight();showView('config');
   try{$('manualForm').open=false;}catch(e){}}
 function setFields(cfg){
@@ -476,7 +492,9 @@ function setFields(cfg){
   const sm=typeof sd==='string'?sd:(sd.mode||'empty');$('f_seed').value=(sm==='copy')?'copy':'empty';  // retired modes → empty
   $('f_seedpath').value=sd.path||'';
   $('f_maxiter').value=lim.max_iterations??30;$('f_plateau').value=lim.plateau_N??6;$('f_step').value=lim.step_seconds??600;
-  $('f_sandbox').value=sb.backend||'local';vis();}
+  $('f_sandbox').value=sb.backend||'local';
+  const nt=cfg.notify||{};$('f_notify_enabled').checked=!!nt.enabled;$('f_notify_url').value=nt.url||'';$('f_notify_method').value=nt.method||'POST';
+  vis();}
 function fillForm(name,cfg){current=name;$('cfgTitle').textContent='Проєкт: '+name;$('saveBtn').textContent='💾 Зберегти зміни';
   setFields({...cfg,project:name});$('f_project').disabled=true;enableControls(true);lockProgressTab(false);
   try{$('manualForm').open=true;}catch(e){}}
@@ -496,8 +514,10 @@ function buildConfig(){const c={project:$('f_project').value.trim(),mode:$('f_mo
   if($('f_harness').value)c.evaluation.harness_dir=$('f_harness').value;
   if($('f_seed').value==='copy'&&$('f_seedpath').value)c.seed.path=$('f_seedpath').value;
   if($('g_desc').value.trim())c.description=$('g_desc').value.trim();  // persist the task prompt
+  const nUrl=$('f_notify_url').value.trim(),nEn=$('f_notify_enabled').checked;
+  if(nEn||nUrl)c.notify={enabled:nEn,url:nUrl||null,method:$('f_notify_method').value};
   return c;}
-function enableControls(on){['runBtn','stopBtn','resetBtn','renameBtn','exportBtn','deleteBtn','steerBtn','filesBtn','testEvalBtn'].forEach(b=>$(b).disabled=!on);}
+function enableControls(on){['runBtn','stopBtn','forceStopBtn','resetBtn','renameBtn','exportBtn','deleteBtn','steerBtn','filesBtn','testEvalBtn'].forEach(b=>$(b).disabled=!on);}
 async function loadFiles(){if(!current)return;
   $('files').innerHTML='<div class="hint">завантаження…</div>';
   const d=await(await fetch(api('/api/projects/'+current+'/files'))).json().catch(()=>({files:[]}));
@@ -567,7 +587,10 @@ function renderLog(o){
       `</details>`;
   }
   return `<div class="lrow"><span>iter #${x.n}${metsHtml}</span><span class="v-${x.verdict}">${x.verdict}</span><span>${sc}</span></div>`;
-}).join('')||'<div class="empty" style="margin:6px 0">Ще немає ітерацій. Натисни <b>▶ Run</b>, щоб запустити цикл.</div>';}
+}).join('')||(()=>{const st=$('tag').textContent||'idle';
+  return (st==='stopped'||st==='error')
+    ? '<div class="empty" style="margin:6px 0">Прогін зупинено ще до завершення першої ітерації — записів немає.</div>'
+    : '<div class="empty" style="margin:6px 0">Ще немає ітерацій. Натисни <b>▶ Run</b>, щоб запустити цикл.</div>';})();}
 function setStatus(s,score,sum){const t=$('tag');t.className='tag '+(s||'idle');t.textContent=s||'idle';
   $('score').textContent=score==null?'—':(+score).toFixed(1);
   $('summary').textContent=sum?(sum.error?('помилка: '+sum.error):`результат: ${sum.reason} · ітерацій: ${sum.iterations}`):'';}
@@ -604,7 +627,7 @@ $('tabConfig').onclick=()=>showView('config');
 $('tabProgress').onclick=()=>{if(current)showView('progress');};
 $('newBtn').onclick=()=>{blankForm();showView('config');};
 $('addMetric').onclick=()=>$('metrics').appendChild(metricRow());
-$('f_adapter').onchange=vis;$('f_seed').onchange=vis;$('f_va_engine').onchange=vis;
+$('f_adapter').onchange=vis;$('f_seed').onchange=vis;$('f_va_engine').onchange=vis;$('f_notify_enabled').onchange=vis;
 
 // ---- server-side folder picker ----
 let pkTarget=null,pkCur=null;
@@ -662,6 +685,10 @@ $('runBtn').onclick=async()=>{if(!current)return;
   if(!r.ok){const e=await r.json().catch(()=>({}));toast('Run: '+(e.detail||r.status),'err');return;}
   setStatus('running',null,null);startPolling(current);toast('Запущено ▶','ok');};
 $('stopBtn').onclick=async()=>{if(current){await fetch(api('/api/projects/'+current+'/stop'),{method:'POST'});toast('Зупиняю на межі ітерації…','ok');}};
+$('forceStopBtn').onclick=async()=>{if(!current)return;
+  if(!confirm('Force Stop негайно вб\'є процеси агента (поточний крок втратиться). Продовжити?'))return;
+  const d=await(await fetch(api('/api/projects/'+current+'/force-stop'),{method:'POST'})).json().catch(()=>({}));
+  toast(d.killed?'Агента зупинено негайно ⛔':'Активного процесу не було — позначено стоп','ok');};
 $('resetBtn').onclick=async()=>{if(current&&confirm('Скинути прогрес до seed?')){await fetch(api('/api/projects/'+current+'/reset'),{method:'POST'});toast('Скинуто','ok');loadState(current);}};
 $('renameBtn').onclick=async()=>{const to=prompt('Нова назва:',current);if(!to||to===current)return;
   const r=await fetch(api('/api/projects/'+current+'/rename?to='+encodeURIComponent(to)),{method:'POST'});

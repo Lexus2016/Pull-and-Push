@@ -101,6 +101,19 @@ class SeedCfg(BaseModel):
     path: str | None = None
 
 
+class NotifyCfg(BaseModel):
+    """Optional webhook called once when a run reaches a terminal state."""
+    enabled: bool = False
+    url: str | None = None
+    method: Literal["GET", "POST"] = "POST"
+
+    @model_validator(mode="after")
+    def _require_url(self) -> "NotifyCfg":
+        if self.enabled and not (self.url and self.url.strip()):
+            raise ValueError("notify.enabled requires a 'url'")
+        return self
+
+
 class Config(BaseModel):
     project: str
     description: str | None = None        # original plain-language task (from the generator)
@@ -113,6 +126,7 @@ class Config(BaseModel):
     history: HistoryCfg = HistoryCfg()
     checkpoints: CheckpointsCfg = CheckpointsCfg()
     sandbox: SandboxCfg = SandboxCfg()
+    notify: NotifyCfg = NotifyCfg()
 
     @model_validator(mode="before")
     @classmethod

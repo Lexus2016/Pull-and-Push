@@ -283,6 +283,17 @@ def test_missing_metric_fails_iteration_not_run(tmp_path):
     assert orch.plateau_count == 1                               # counted as a non-improving step
 
 
+def test_force_stop_records_a_stopped_iteration(tmp_path):
+    # Force-Stop must leave a visible row in the iteration list, not an empty list.
+    s = StateStore(tmp_path / "p"); s.git_init(); rid = s.create_run("asymmetric")
+    orch = Orchestrator(_cfg(), s, rid, MockAdapter([_edit_val(70)]), FakeMetric(), LocalBackend())
+    orch.force_kill()                         # abort lands before/while the agent runs
+    o = orch.run_iteration()
+    assert o.verdict == "stopped"
+    rows = s.last_iterations(rid, 1)
+    assert rows and rows[0].verdict == "stopped" and rows[0].feedback   # recorded with a reason
+
+
 def test_baseline_worst_restored_on_resume(tmp_path):
     s = StateStore(tmp_path / "proj")
     s.git_init()

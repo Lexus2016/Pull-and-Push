@@ -155,6 +155,49 @@ def test_lifecycle_blocked_while_running(client, monkeypatch):
     assert client.post("/api/projects/busy/reset").status_code == 409
 
 
+def test_force_stop_no_active_run(client):
+    client.post("/api/projects/create", json=_VALID)
+    r = client.post("/api/projects/webtest/force-stop")
+    assert r.status_code == 200 and r.json()["killed"] is False   # nothing running → nothing killed
+
+
+def test_webhook_fires_on_completion(monkeypatch):
+    import urllib.request
+    from tyani_tolkai.web import server
+    from tyani_tolkai.config import Config
+    captured = {}
+
+    class _Resp:
+        def close(self): pass
+
+    def fake_urlopen(req, timeout=None):
+        captured["method"] = req.get_method()
+        captured["data"] = req.data
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    cfg = Config(project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "g"}},
+                 evaluation={"adapter": "numeric", "command": "true",
+                             "metrics": [{"name": "s", "dir": "higher", "target": 100}]},
+                 notify={"enabled": True, "url": "https://hook.test/x", "method": "POST"})
+    server._fire_webhook(cfg, "p", {"project": "p", "status": "finished"})
+    assert captured["method"] == "POST" and b"finished" in captured["data"]
+
+
+def test_webhook_skipped_when_disabled(monkeypatch):
+    import urllib.request
+    from tyani_tolkai.web import server
+    from tyani_tolkai.config import Config
+    hits = {"n": 0}
+    monkeypatch.setattr(urllib.request, "urlopen",
+                        lambda *a, **k: hits.__setitem__("n", hits["n"] + 1))
+    cfg = Config(project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "g"}},
+                 evaluation={"adapter": "numeric", "command": "true",
+                             "metrics": [{"name": "s", "dir": "higher", "target": 100}]})
+    server._fire_webhook(cfg, "p", {"status": "finished"})
+    assert hits["n"] == 0       # disabled → never called
+
+
 def test_lifecycle_endpoints(client):
     client.post("/api/projects/create", json=dict(_VALID, project="lc"))
     assert client.post("/api/projects/lc/stop").status_code == 200

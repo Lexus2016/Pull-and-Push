@@ -33,6 +33,31 @@ from ..state import StateStore
 STATIC = Path(__file__).parent / "static"
 
 
+def _fire_webhook(cfg, name: str, payload: dict) -> None:
+    """Call the user-configured completion webhook (their own URL, opt-in). Best-effort:
+    a webhook failure must never affect the run. GET appends project/status as query
+    params; POST sends the payload as JSON."""
+    n = getattr(cfg, "notify", None)
+    if not (n and n.enabled and n.url):
+        return
+    import json as _json
+    import urllib.parse
+    import urllib.request
+    try:
+        if n.method == "GET":
+            sep = "&" if "?" in n.url else "?"
+            url = (n.url + sep + urllib.parse.urlencode(
+                {"project": name, "status": payload.get("status", "")}))
+            req = urllib.request.Request(url, method="GET")
+        else:
+            req = urllib.request.Request(
+                n.url, data=_json.dumps(payload).encode("utf-8"), method="POST",
+                headers={"Content-Type": "application/json"})
+        urllib.request.urlopen(req, timeout=10).close()
+    except Exception:
+        pass
+
+
 class RunManager:
     """Tracks background runs and their streamed outcomes (in memory)."""
 
@@ -43,6 +68,17 @@ class RunManager:
 
     def stop(self, name: str) -> None:
         self._stop.add(name)
+
+    def force_stop(self, name: str) -> bool:
+        """Kill the live agent and abort the loop NOW, without waiting for the boundary."""
+        with self._lock:
+            r = self._runs.get(name)
+            orch = r.get("orch") if r else None
+            self._stop.add(name)
+        if orch is None:
+            return False
+        orch.force_kill()          # outside the lock: SIGKILLs the agent's process group
+        return True
 
     def snapshot(self, name: str) -> dict | None:
         with self._lock:
@@ -70,6 +106,7 @@ class RunManager:
     def _run(self, name: str) -> None:
         state = None
         run_id = None
+        cfg = None
         try:
             base = project_dir(name)
             cfg = load_config(base / "config.yaml")
@@ -95,6 +132,8 @@ class RunManager:
             orch = Orchestrator(cfg, state, run_id, executor,
                                 get_metric_adapter(cfg.evaluation.adapter),
                                 get_backend(cfg.sandbox.backend, cfg.sandbox), validator)
+            with self._lock:
+                self._runs[name]["orch"] = orch   # so Force-Stop can reach the live agent
 
             def on_iter(o):
                 with self._lock:
@@ -117,6 +156,9 @@ class RunManager:
                 self._runs[name]["status"] = st
                 self._runs[name]["summary"] = {"reason": summary.reason,
                     "best_score": summary.best_score, "iterations": summary.iterations}
+            _fire_webhook(cfg, name, {"project": name, "status": st, "reason": summary.reason,
+                                      "best_score": summary.best_score,
+                                      "iterations": summary.iterations})
         except Exception as e:  # surface failures to the UI rather than dying silently
             with self._lock:
                 self._runs[name]["status"] = "error"
@@ -126,6 +168,7 @@ class RunManager:
                     state.set_status(run_id, "error")   # no zombie 'running' in the db
                 except Exception:
                     pass
+            _fire_webhook(cfg, name, {"project": name, "status": "error", "error": str(e)})
         finally:
             if state is not None:
                 state.close()                            # never leak the connection
@@ -437,6 +480,12 @@ def create_app(token: str | None = None) -> FastAPI:
         auth(token)
         app.state.runs.stop(name)
         return {"stopping": name}
+
+    @app.post("/api/projects/{name}/force-stop")
+    def api_force_stop(name: str, token: str | None = Query(None)):
+        auth(token)
+        killed = app.state.runs.force_stop(name)   # SIGKILL the live agent immediately
+        return {"force_stopped": name, "killed": killed}
 
     @app.post("/api/projects/{name}/delete")
     def api_delete(name: str, token: str | None = Query(None)):

@@ -23,17 +23,35 @@ def test_headless_agents_auto_approve_to_never_hang():
     assert "--sandbox" in build_cli_prefix("codex", None, "writeable")
 
 
-def test_subprocess_detaches_stdin(tmp_path, monkeypatch):
-    # a CLI that reads stdin must not block on inherited stdin → we pass DEVNULL
+def test_subprocess_detaches_stdin_and_new_session(tmp_path):
+    # a CLI that reads stdin must not block on inherited stdin → DEVNULL; and it must run
+    # in its own session so Force-Stop can kill the whole group.
     import subprocess as sp
-    seen = {}
-    real = sp.run
-    def spy(*a, **k):
-        seen.update(k)
-        return real(["true"], capture_output=True, text=True)
-    monkeypatch.setattr(sp, "run", spy)
-    CLIAgentAdapter(["true"], engine="claude").run("brief", tmp_path, "writeable", 5)
-    assert seen.get("stdin") == sp.DEVNULL
+    from unittest.mock import patch
+    with patch("subprocess.Popen") as m:
+        fake = m.return_value
+        fake.communicate.return_value = ("", "")
+        fake.returncode = 0
+        fake.poll.return_value = 0
+        CLIAgentAdapter(["true"], engine="claude").run("brief", tmp_path, "writeable", 5)
+    k = m.call_args[1]
+    assert k.get("stdin") == sp.DEVNULL
+    assert k.get("start_new_session") is True
+
+
+def test_kill_terminates_a_running_agent(tmp_path):
+    # a real long-running child must die promptly when kill() is called from another thread
+    import threading, time
+    adapter = CLIAgentAdapter(["/bin/sh", "-c", "sleep 30", "sh"])
+    result = {}
+    t = threading.Thread(target=lambda: result.update(
+        r=adapter.run("brief", tmp_path, "writeable", 30)))
+    t.start()
+    time.sleep(0.5)
+    adapter.kill()
+    t.join(timeout=5)
+    assert not t.is_alive()                      # run() returned promptly, not after 30s
+    assert result["r"].status == "killed"
 
 
 def test_cli_adapter_runs_subprocess_and_edits(tmp_path):
@@ -59,8 +77,11 @@ def test_cli_adapter_dir_handling(tmp_path):
 
     def argv_for(engine, prefix):
         a = CLIAgentAdapter(prefix, engine=engine)
-        with patch("subprocess.run") as m:
-            m.return_value = subprocess.CompletedProcess(args=[], returncode=0, stdout="ok")
+        with patch("subprocess.Popen") as m:
+            fake = m.return_value
+            fake.communicate.return_value = ("ok", "")
+            fake.returncode = 0
+            fake.poll.return_value = 0
             a.run("PROMPT", tmp_path, "writeable", 10)
             return m.call_args[0][0], m.call_args[1]["cwd"]
 

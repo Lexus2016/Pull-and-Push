@@ -60,6 +60,7 @@ class Orchestrator:
         self.last_feedback = ""
         self.halt = None              # None | "rate_limited" | "agent_error"
         self.consecutive_fail = 0     # consecutive hard agent failures (for escalation)
+        self.aborted = False          # set by force_kill() — stop NOW, kill the live agent
         # Baseline zero-points: metric.worst the user never has to invent. Pinned to the
         # first measured value, persisted so a resumed run keeps the same 0–100 scale.
         raw = run["baseline_json"] if (run and "baseline_json" in run.keys()) else None
@@ -67,6 +68,16 @@ class Orchestrator:
         for m in cfg.evaluation.metrics:
             if m.worst is None and m.name in self._baseline:
                 m.worst = self._baseline[m.name]
+
+    def force_kill(self) -> None:
+        """Force-Stop: abort the loop and SIGKILL the live agent immediately (any thread)."""
+        self.aborted = True
+        for a in (self.executor, self.validator):
+            if a is not None and hasattr(a, "kill"):
+                try:
+                    a.kill()
+                except Exception:
+                    pass
 
     def _resolve_baseline(self, values: dict) -> None:
         """Pin each unset metric.worst to its first measured value: the natural
@@ -97,10 +108,12 @@ class Orchestrator:
         cfg = self.cfg
         result = None
         for _ in range(max(0, cfg.limits.agent_retries) + 1):
+            if self.aborted:                         # Force-Stop: don't (re)spawn the agent
+                return result
             self.state.revert_uncommitted()          # clean slate before each attempt
             result = self.executor.run(brief, self.state.artifact_dir, "writeable",
                                        cfg.agents["executor"].timeout)
-            if result.status in ("success", "rate_limited"):
+            if result.status in ("success", "rate_limited") or self.aborted:
                 return result
             # crashed / timeout → restart the process (next loop iteration)
         return result
@@ -161,6 +174,18 @@ class Orchestrator:
 
         ph("executor")                       # Executor is editing the artifact
         result = self._run_executor(brief)   # runs with restart-on-crash/timeout
+
+        # Force-Stop landed while the agent was running → drop any partial edit and bail NOW,
+        # but LEAVE A RECORD so the iteration list shows what happened (not an empty list).
+        if self.aborted:
+            state.revert_uncommitted()
+            state.record_iteration(self.run_id, n=n, git_hash=None, score=state.best_score(self.run_id),
+                                   verdict="stopped", metrics=[],
+                                   feedback="Зупинено вручну (Force Stop) під час роботи агента.",
+                                   agent_exit="killed")
+            state.update_run(self.run_id, iter_count=n)
+            return IterationOutcome(n, "stopped", state.best_score(self.run_id),
+                                    "Зупинено вручну (Force Stop).")
 
         # provider rate limit / quota → pause the whole run and inform (no churn)
         if result.status == "rate_limited":
@@ -265,13 +290,17 @@ class Orchestrator:
     def run_loop(self, on_iteration=None, should_stop=None, on_phase=None) -> LoopSummary:
         cfg = self.cfg
         while True:
-            if should_stop and should_stop():
+            if self.aborted or (should_stop and should_stop()):
                 best = self.state.best_score(self.run_id)
                 self.state.set_status(self.run_id, "stopped")
                 return LoopSummary("stopped", best, self.n)
             outcome = self.run_iteration(on_phase=on_phase)
             if on_iteration:
                 on_iteration(outcome)
+            if self.aborted:                   # Force-Stop landed mid-iteration
+                best = self.state.best_score(self.run_id)
+                self.state.set_status(self.run_id, "stopped")
+                return LoopSummary("stopped", best, self.n)
             if self.halt:                      # agent rate-limited or repeatedly failing
                 best = self.state.best_score(self.run_id)
                 self.state.set_status(self.run_id, "paused" if self.halt == "rate_limited" else "error")

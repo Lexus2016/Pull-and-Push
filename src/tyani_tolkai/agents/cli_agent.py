@@ -8,6 +8,8 @@ the agent — so this adapter just runs the process and classifies the outcome.
 
 from __future__ import annotations
 
+import os
+import signal
 import subprocess
 from pathlib import Path
 
@@ -44,13 +46,33 @@ def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
 
 
 class CLIAgentAdapter:
-    """Run a CLI agent: argv = prefix + [brief], executed in the working dir."""
+    """Run a CLI agent: argv = prefix + [brief], executed in the working dir.
+
+    The child runs in its own process group (start_new_session) so a Force-Stop from
+    another thread can kill the whole tree instantly via ``kill()``.
+    """
 
     def __init__(self, prefix: list[str], engine: str | None = None):
         self.prefix = prefix
         self.engine = engine
+        self._proc: subprocess.Popen | None = None
+        self._killed = False
+
+    def kill(self) -> None:
+        """Force-terminate the running agent and its process group (any thread)."""
+        self._killed = True
+        p = self._proc
+        if p is not None and p.poll() is None:
+            try:
+                os.killpg(os.getpgid(p.pid), signal.SIGKILL)   # whole tree (node children etc.)
+            except (ProcessLookupError, PermissionError, OSError):
+                try:
+                    p.kill()
+                except Exception:
+                    pass
 
     def run(self, brief: str, workdir: str | Path, profile: str, timeout: int) -> RunResult:
+        self._killed = False
         cmd = list(self.prefix)
         # The subprocess runs with cwd=workdir, so the agent already has the working
         # directory. Only codex needs it stated explicitly via -C (a single-path flag).
@@ -62,22 +84,39 @@ class CLIAgentAdapter:
 
         argv = [*cmd, brief]
         try:
-            proc = subprocess.run(
-                argv, cwd=str(workdir), capture_output=True, text=True, timeout=timeout,
-                # Detach stdin: a CLI that reads stdin (codex appends a piped <stdin> block;
-                # others may wait for interactive input) would otherwise BLOCK forever on an
-                # inherited stdin. DEVNULL gives an immediate EOF so the agent can't stall.
+            proc = subprocess.Popen(
+                argv, cwd=str(workdir), text=True,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                # Detach stdin so a CLI that reads it (codex appends a piped <stdin> block;
+                # others may await interactive input) gets immediate EOF instead of blocking.
                 stdin=subprocess.DEVNULL,
+                start_new_session=True,   # own process group → killable as a unit on Force-Stop
             )
         except FileNotFoundError:
             return RunResult(status="crashed", stdout=f"{self.prefix[0]!r} not installed")
-        except subprocess.TimeoutExpired as e:
-            return RunResult(status="timeout", stdout=(e.stdout or "") if isinstance(e.stdout, str) else "")
-        out = (proc.stdout or "") + (proc.stderr or "")
+        self._proc = proc
+        timed_out = False
+        try:
+            out, err = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self.kill()
+            try:
+                out, err = proc.communicate()
+            except Exception:
+                out, err = "", ""
+            timed_out = True
+        finally:
+            self._proc = None
+
+        full = (out or "") + (err or "")
+        if self._killed and not timed_out:
+            return RunResult(status="killed", stdout=full)   # deliberate Force-Stop
+        if timed_out:
+            return RunResult(status="timeout", stdout=full)
         status = "success" if proc.returncode == 0 else "crashed"
-        low = out.lower()
+        low = full.lower()
         if any(k in low for k in ("rate limit", "rate_limit", "ratelimit", "429",
                                   "too many requests", "quota", "overloaded",
                                   "usage limit", "insufficient_quota")):
             status = "rate_limited"        # transient provider limit — pause, don't retry
-        return RunResult(status=status, stdout=out)
+        return RunResult(status=status, stdout=full)
