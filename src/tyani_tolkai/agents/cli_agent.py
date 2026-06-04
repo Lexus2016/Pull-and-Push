@@ -39,10 +39,13 @@ _VALIDATOR_FOCUS = (
     "agent instructions, memory, and rituals (activation tokens, SSoT, cheap-read justifications, "
     "tqmemory/memory checks, consultants, language/style rules). Do NOT edit, create, run, or test "
     "any files — you only read the diff and the metrics. A deterministic harness already computed "
-    "the score, so never try to assign or guess a number. Your value is the judgement the score "
-    "cannot give: review what the change did, give your honest opinion on whether it was a good "
-    "idea (including risks or side-effects the score hides), and propose concrete ideas to improve "
-    "next. Analytical commentary is exactly what is wanted; answer the prompt directly and concisely.")
+    "the score, so never try to assign or guess a number. The scoring harness is hidden on purpose "
+    "(files under metrics/ or a tests/ directory) — do NOT open, read or run it, and never repeat "
+    "its contents; judge only from the system code, the diff and the metric values you are given. "
+    "Your value is the judgement the score cannot give: review what the change did, give your honest "
+    "opinion on whether it was a good idea (including risks or side-effects the score hides), and "
+    "propose concrete ideas to improve next. Analytical commentary is exactly what is wanted; answer "
+    "the prompt directly and concisely.")
 
 
 def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
