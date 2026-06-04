@@ -346,11 +346,13 @@
       <div class="controls" style="margin-bottom:18px">
         <button class="btn" id="runBtn" disabled title="Запустити цикл з реальними агентами">▶ Run</button>
         <button class="btn sec" id="stopBtn" disabled title="Зупинити на межі поточної ітерації">⏹ Stop</button>
+        <button class="btn sec" id="testEvalBtn" disabled title="Запустити оцінку один раз — перевірити, що harness/команда працюють">🧪 Тест оцінки</button>
         <button class="btn sec" id="resetBtn" disabled title="Відкотити артефакт до seed">↺ Reset</button>
         <button class="btn sec" id="renameBtn" disabled>✎ Rename</button>
         <button class="btn sec" id="exportBtn" disabled title="Завантажити як .tar.gz">⬇ Export</button>
         <button class="btn danger" id="deleteBtn" disabled>🗑 Delete</button>
       </div>
+      <div id="testResult"></div>
       <div class="status">
         <div class="kpi"><div class="score" id="score">—</div><div class="kpi-lbl">композитний бал (0–100)</div></div>
         <span class="tag idle" id="tag">idle</span>
@@ -454,7 +456,7 @@ function buildConfig(){const c={project:$('f_project').value.trim(),mode:$('f_mo
   if($('f_seed').value==='copy'&&$('f_seedpath').value)c.seed.path=$('f_seedpath').value;
   if($('g_desc').value.trim())c.description=$('g_desc').value.trim();  // persist the task prompt
   return c;}
-function enableControls(on){['runBtn','stopBtn','resetBtn','renameBtn','exportBtn','deleteBtn','steerBtn','filesBtn'].forEach(b=>$(b).disabled=!on);}
+function enableControls(on){['runBtn','stopBtn','resetBtn','renameBtn','exportBtn','deleteBtn','steerBtn','filesBtn','testEvalBtn'].forEach(b=>$(b).disabled=!on);}
 async function loadFiles(){if(!current)return;
   $('files').innerHTML='<div class="hint">завантаження…</div>';
   const d=await(await fetch(api('/api/projects/'+current+'/files'))).json().catch(()=>({files:[]}));
@@ -548,12 +550,24 @@ $('genBtn').onclick=async()=>{const desc=$('g_desc').value.trim();if(!desc){toas
   }catch(e){toast('Помилка: '+e,'err');}finally{b.disabled=false;b.textContent='🪄 Згенерувати проєкт';}};
 $('saveBtn').onclick=async()=>{const cfg=buildConfig();
   if(!cfg.project){toast('Вкажи назву проєкту','err');return;}
-  if(!cfg.evaluation.metrics.length){toast('Додай хоча б одну метрику','err');return;}
+  if(!cfg.evaluation.metrics.length){toast('Додай хоча б одну метрику','err');$('manualForm').open=true;return;}
+  let bad=false;
+  [...$('metrics').children].forEach(row=>{const i=row.querySelectorAll('input'),s=row.querySelector('select');
+    const nm=i[0].value.trim(),dr=s.value,w=+i[2].value,t=+i[3].value; row.style.outline='';
+    if(nm&&((dr==='higher'&&t<=w)||(dr==='lower'&&t>=w))){row.style.outline='2px solid var(--bad)';bad=true;}});
+  if(bad){toast('Метрика некоректна: для «↑ більше=краще» target > worst; для «↓ менше=краще» target < worst','err');$('manualForm').open=true;return;}
   const url=current?('/api/projects/'+current+'/config'):'/api/projects/create',method=current?'PUT':'POST';
   const r=await fetch(api(url),{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
   if(!r.ok){const e=await r.json().catch(()=>({}));toast('Помилка: '+(e.detail||r.status),'err');return;}
   toast(current?'Збережено ✓':'Проєкт створено ✓','ok');await loadProjects();selectProject(cfg.project);};
 $('filesBtn').onclick=loadFiles;
+$('testEvalBtn').onclick=async()=>{if(!current)return;
+  $('testResult').innerHTML='<div class="hint" style="margin-top:8px">тестую оцінку…</div>';
+  const r=await fetch(api('/api/projects/'+current+'/test-eval'),{method:'POST'});
+  const d=await r.json().catch(()=>({ok:false,logs:'помилка запиту'}));
+  if(d.ok){const mets=(d.metrics||[]).map(m=>m.name+'='+m.value).join('  ·  ');
+    $('testResult').innerHTML=`<div class="why" style="border:1px solid #1f5a45;border-radius:6px;margin-top:8px"><b class="ok">✓ оцінка працює</b> — score `+(d.score!=null?(+d.score).toFixed(2):'?')+` · `+esc(mets)+`</div>`;}
+  else{$('testResult').innerHTML=`<div class="why" style="border:1px solid #5a2a2a;border-radius:6px;margin-top:8px"><b style="color:var(--bad)">✗ оцінка не вдалась</b> — ось вивід:</div><pre class="diff">`+esc(d.logs||'')+`</pre>`;}};
 $('runBtn').onclick=async()=>{if(!current)return;
   if(!localStorage.getItem('tt_run_ack')){
     const eng=(CFG&&CFG.agents&&CFG.agents.executor&&CFG.agents.executor.engine)||$('f_ex_engine').value||'CLI';

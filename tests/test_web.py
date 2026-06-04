@@ -56,6 +56,13 @@ def test_live_no_active_run_is_idle(client):
     assert r.json()["status"] == "idle"
 
 
+def test_test_eval_endpoint(client):
+    client.post("/api/projects/create", json=_VALID)
+    r = client.post("/api/projects/webtest/test-eval")
+    assert r.status_code == 200
+    assert "ok" in r.json() and "logs" in r.json()
+
+
 def test_files_endpoint(client):
     client.post("/api/projects/create", json=_VALID)
     r = client.get("/api/projects/webtest/files")

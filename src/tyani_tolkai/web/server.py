@@ -345,6 +345,36 @@ def create_app(token: str | None = None) -> FastAPI:
         return {"updated": name}
 
     # ---- run control & lifecycle ----
+    @app.post("/api/projects/{name}/test-eval")
+    def api_test_eval(name: str, token: str | None = Query(None)):
+        """Run the evaluation ONCE on the current artifact — verify the harness works and
+        see the metrics or the raw stdout/stderr, without a full run (beats cold-start)."""
+        auth(token)
+        base = project_dir(name)
+        if not (base / "config.yaml").exists():
+            raise HTTPException(404, "no such project")
+        cfg = load_config(base / "config.yaml")
+        state = StateStore(base)
+        try:
+            adapter = get_metric_adapter(cfg.evaluation.adapter)
+            sandbox = get_backend(cfg.sandbox.backend, cfg.sandbox)
+            res = adapter.run(state.artifact_dir, sandbox, cfg.evaluation, cfg.limits.step_seconds)
+            out = {"ok": bool(res.ok), "logs": (res.logs or "")[:4000],
+                   "metrics": [{"name": m["name"], "value": m["value"]} for m in res.metrics]}
+            if res.ok:
+                from ..scorer import score
+                try:
+                    out["score"] = score({m["name"]: m["value"] for m in res.metrics},
+                                         cfg.evaluation.metrics)
+                except Exception as e:
+                    out["score"] = None
+                    out["logs"] = f"metrics ran but scoring failed: {e}\n" + out["logs"]
+            return out
+        except Exception as e:
+            return {"ok": False, "logs": f"could not run evaluation: {e}", "metrics": []}
+        finally:
+            state.close()
+
     @app.post("/api/projects/{name}/stop")
     def api_stop(name: str, token: str | None = Query(None)):
         auth(token)
