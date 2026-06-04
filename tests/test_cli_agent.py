@@ -11,7 +11,29 @@ def test_build_cli_prefix_engines():
     assert "read-only" in codex_r
 
     assert build_cli_prefix("opencode", None, "writeable")[:2] == ["opencode", "run"]
-    assert build_cli_prefix("agy", None, "writeable") == ["agy", "-p"]
+    assert build_cli_prefix("agy", None, "writeable")[:2] == ["agy", "-p"]
+
+
+def test_headless_agents_auto_approve_to_never_hang():
+    # claude/opencode/agy must auto-approve tool permissions, or headless runs block
+    # forever on an interactive prompt. codex exec is non-interactive via its sandbox.
+    assert "--dangerously-skip-permissions" in build_cli_prefix("claude", None, "writeable")
+    assert "--dangerously-skip-permissions" in build_cli_prefix("opencode", None, "writeable")
+    assert "--dangerously-skip-permissions" in build_cli_prefix("agy", None, "writeable")
+    assert "--sandbox" in build_cli_prefix("codex", None, "writeable")
+
+
+def test_subprocess_detaches_stdin(tmp_path, monkeypatch):
+    # a CLI that reads stdin must not block on inherited stdin → we pass DEVNULL
+    import subprocess as sp
+    seen = {}
+    real = sp.run
+    def spy(*a, **k):
+        seen.update(k)
+        return real(["true"], capture_output=True, text=True)
+    monkeypatch.setattr(sp, "run", spy)
+    CLIAgentAdapter(["true"], engine="claude").run("brief", tmp_path, "writeable", 5)
+    assert seen.get("stdin") == sp.DEVNULL
 
 
 def test_cli_adapter_runs_subprocess_and_edits(tmp_path):

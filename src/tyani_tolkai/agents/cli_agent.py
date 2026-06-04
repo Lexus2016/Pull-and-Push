@@ -17,7 +17,12 @@ from .base import RunResult
 def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
     """Build the argv prefix for an engine (prompt is appended by the caller)."""
     if engine == "claude":
-        cmd = ["claude", "-p"]
+        # Headless claude must be allowed to use its file tools, or it BLOCKS forever
+        # waiting for an interactive permission prompt that no one can answer (the run
+        # then just sits in the executor phase until the step timeout). This boolean flag
+        # is safe to place before the positional prompt. Read-only is still enforced by
+        # the orchestrator reverting any edits the validator makes.
+        cmd = ["claude", "-p", "--dangerously-skip-permissions"]
         if model:
             cmd += ["--model", model]
         return cmd
@@ -28,12 +33,13 @@ def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
             cmd += ["-m", model]
         return cmd
     if engine == "opencode":
-        cmd = ["opencode", "run"]
+        cmd = ["opencode", "run", "--dangerously-skip-permissions"]  # auto-approve, never block
         if model:
             cmd += ["-m", model]
         return cmd
     if engine == "agy":
-        return ["agy", "-p"]
+        # -p = non-interactive print; auto-approve tools so it can't stall on a prompt.
+        return ["agy", "-p", "--dangerously-skip-permissions"]
     raise ValueError(f"no CLI prefix for engine {engine!r}")
 
 
@@ -58,6 +64,10 @@ class CLIAgentAdapter:
         try:
             proc = subprocess.run(
                 argv, cwd=str(workdir), capture_output=True, text=True, timeout=timeout,
+                # Detach stdin: a CLI that reads stdin (codex appends a piped <stdin> block;
+                # others may wait for interactive input) would otherwise BLOCK forever on an
+                # inherited stdin. DEVNULL gives an immediate EOF so the agent can't stall.
+                stdin=subprocess.DEVNULL,
             )
         except FileNotFoundError:
             return RunResult(status="crashed", stdout=f"{self.prefix[0]!r} not installed")
