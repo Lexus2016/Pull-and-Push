@@ -234,7 +234,12 @@ class Orchestrator:
 
         if not mres.ok:
             self._consult_validator({}, None, "fail", candidate_diff)  # advise before reset/record
-            fb = self.last_feedback
+            # persist the ACTUAL evaluation error (stdout/stderr of the metric command), not
+            # just the validator's guess — otherwise a broken/missing harness is invisible.
+            err = (mres.logs or "").strip()
+            fb = ("evaluation error:\n" + err[:1500]) if err else ""
+            if self.last_feedback:
+                fb = (fb + "\n\nvalidator: " + self.last_feedback).strip()
             state.reset_hard(parent)          # discard the candidate commit
             state.record_iteration(self.run_id, n=n, git_hash=None, score=None, verdict="fail",
                                    metrics=[], change_summary=candidate_diff, feedback=fb,
