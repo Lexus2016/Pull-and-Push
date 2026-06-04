@@ -49,6 +49,13 @@ def test_auth_enforced(tmp_path, monkeypatch):
     assert c.get("/api/projects?token=secret").status_code == 200
 
 
+def test_live_no_active_run_is_idle(client):
+    client.post("/api/projects/create", json=_VALID)
+    r = client.get("/api/projects/webtest/live")   # no in-memory run → must not 500
+    assert r.status_code == 200
+    assert r.json()["status"] == "idle"
+
+
 def test_files_endpoint(client):
     client.post("/api/projects/create", json=_VALID)
     r = client.get("/api/projects/webtest/files")

@@ -43,13 +43,13 @@ class RunManager:
     def stop(self, name: str) -> None:
         self._stop.add(name)
 
-    def snapshot(self, name: str) -> dict:
+    def snapshot(self, name: str) -> dict | None:
         with self._lock:
             r = self._runs.get(name)
-            return dict(r) if r is None else {
-                "status": r["status"], "summary": r["summary"],
-                "outcomes": list(r["outcomes"]),
-            }
+            if r is None:
+                return None          # no in-memory run → caller falls back to idle
+            return {"status": r["status"], "summary": r["summary"],
+                    "outcomes": list(r["outcomes"])}
 
     def is_running(self, name: str) -> bool:
         with self._lock:
