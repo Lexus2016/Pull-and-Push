@@ -139,6 +139,24 @@ def test_btc_template_scores_on_real_harness(home):
     assert 0.0 <= sc <= 100.0
 
 
+def test_btc_strategy_owns_signals_logic(home):
+    # the player/judge split: strategy.py is a REAL strategy (signals() logic + PARAMS), not just
+    # params. The executor can rewrite signals(); the harness imports and executes it.
+    import importlib.util
+    scaffold.scaffold_project("sig-btc", "btcusdt futures strategy", "btcusdt-futures")
+    sp = project_dir("sig-btc") / "artifact" / "strategy.py"
+    spec = importlib.util.spec_from_file_location("strat_under_test", sp)
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    assert isinstance(getattr(m, "PARAMS", None), dict)
+    assert callable(getattr(m, "signals", None)), "strategy.py must own the signal logic"
+    bars = [(i * 300_000, 100.0, 101.0, 99.0, 100.0 + (i % 11) - 5, 1.0) for i in range(400)]
+    want = m.signals(bars)
+    assert len(want) == len(bars)            # one decision per bar
+    assert set(want) <= {-1, 0, 1}           # valid positions only
+    assert any(w != 0 for w in want)         # the seed actually trades on a moving series
+
+
 def test_btc_harness_reports_extra_stats(home):
     # the operator-requested report-only fields (win rate, profit factor, trades, tested period)
     # are emitted by the harness and surfaced via the adapter's parsed `data`, beyond the 4 scored

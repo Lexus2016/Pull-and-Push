@@ -9,8 +9,8 @@
     "agents": {"executor": {"engine": "claude", "timeout": 600},
                "validator": {"engine": "claude", "timeout": 300}},
     "roles": {
-      "executor": {"task": "Edit ONLY strategy.py — tune the PARAMS dict values. Do NOT modify or run anything under metrics/. One focused change per step."},
-      "validator": {"goal": "Review the change: your honest opinion on whether the idea was sound, why the score moved, and one or two concrete PARAMS ideas to try next."}
+      "executor": {"task": "Edit strategy.py — tune PARAMS and/or rewrite the signals() logic (add indicators, change entry/exit rules, restructure). Do NOT modify or run anything under ../metrics/ (the scoring harness). One focused change per step."},
+      "validator": {"goal": "Review the strategy and the change: your honest opinion on whether the approach is soundly built, why the score moved, and one or two concrete ideas (PARAMS or signals logic) to try next."}
     },
     "evaluation": {
       "adapter": "numeric",
