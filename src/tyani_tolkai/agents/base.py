@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal, Protocol
 
-RunStatus = Literal["success", "timeout", "crashed", "no_op"]
+RunStatus = Literal["success", "timeout", "crashed", "no_op", "rate_limited"]
 
 
 @dataclass

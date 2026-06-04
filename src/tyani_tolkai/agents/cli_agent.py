@@ -63,5 +63,11 @@ class CLIAgentAdapter:
             return RunResult(status="crashed", stdout=f"{self.prefix[0]!r} not installed")
         except subprocess.TimeoutExpired as e:
             return RunResult(status="timeout", stdout=(e.stdout or "") if isinstance(e.stdout, str) else "")
+        out = (proc.stdout or "") + (proc.stderr or "")
         status = "success" if proc.returncode == 0 else "crashed"
-        return RunResult(status=status, stdout=(proc.stdout or "") + (proc.stderr or ""))
+        low = out.lower()
+        if any(k in low for k in ("rate limit", "rate_limit", "ratelimit", "429",
+                                  "too many requests", "quota", "overloaded",
+                                  "usage limit", "insufficient_quota")):
+            status = "rate_limited"        # transient provider limit — pause, don't retry
+        return RunResult(status=status, stdout=out)

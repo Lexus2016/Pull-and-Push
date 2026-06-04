@@ -65,6 +65,8 @@ class LimitsCfg(BaseModel):
     plateau_N: int = 8
     budget_usd: float | None = None
     step_seconds: int = 600
+    agent_retries: int = 2          # restart a crashed/timed-out agent this many times
+    max_agent_failures: int = 3     # consecutive hard failures → halt the run (escalate)
 
 
 class HistoryCfg(BaseModel):

@@ -85,7 +85,18 @@ class RunManager:
             base = project_dir(name)
             cfg = load_config(base / "config.yaml")
             state = StateStore(base)
-            run_id = state.create_run(cfg.mode)
+            # resume the latest unfinished run (continue progress) instead of starting over
+            last = state.conn.execute("SELECT id, status FROM run ORDER BY id DESC LIMIT 1").fetchone()
+            has_hist = last and state.conn.execute(
+                "SELECT 1 FROM iteration WHERE run_id=? LIMIT 1", (last["id"],)).fetchone()
+            if last and last["status"] != "finished" and has_hist:
+                run_id = last["id"]
+                state.reconcile(run_id)
+                if state.has_changes():
+                    state.revert_uncommitted()
+                state.set_status(run_id, "running")
+            else:
+                run_id = state.create_run(cfg.mode)
             ex = cfg.agents["executor"]
             executor = build_adapter(ex.engine, ex.model, "writeable")
             validator = None
@@ -105,8 +116,10 @@ class RunManager:
 
             summary = orch.run_loop(on_iteration=on_iter,
                                     should_stop=lambda: name in self._stop)
+            st = {"stopped": "stopped", "rate_limited": "error",
+                  "agent_error": "error"}.get(summary.reason, "finished")
             with self._lock:
-                self._runs[name]["status"] = "stopped" if summary.reason == "stopped" else "finished"
+                self._runs[name]["status"] = st
                 self._runs[name]["summary"] = {"reason": summary.reason,
                     "best_score": summary.best_score, "iterations": summary.iterations}
         except Exception as e:  # surface failures to the UI rather than dying silently

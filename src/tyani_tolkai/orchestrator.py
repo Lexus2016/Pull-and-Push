@@ -57,6 +57,22 @@ class Orchestrator:
         self.plateau_count = run["plateau_count"] if run else 0
         self.no_op_count = run["no_op_count"] if run else 0
         self.last_feedback = ""
+        self.halt = None              # None | "rate_limited" | "agent_error"
+        self.consecutive_fail = 0     # consecutive hard agent failures (for escalation)
+
+    def _run_executor(self, brief: str):
+        """Run the executor, restarting it on a crash/timeout up to agent_retries.
+        Does NOT retry rate-limits (pointless and abusive)."""
+        cfg = self.cfg
+        result = None
+        for _ in range(max(0, cfg.limits.agent_retries) + 1):
+            self.state.revert_uncommitted()          # clean slate before each attempt
+            result = self.executor.run(brief, self.state.artifact_dir, "writeable",
+                                       cfg.agents["executor"].timeout)
+            if result.status in ("success", "rate_limited"):
+                return result
+            # crashed / timeout → restart the process (next loop iteration)
+        return result
 
     # ---- metric runner with noise median ----
 
@@ -111,18 +127,32 @@ class Orchestrator:
         brief = build_brief(state, self.run_id, cfg, context_text=context_text,
                             validator_feedback=self.last_feedback)
 
-        result = self.executor.run(
-            brief, state.artifact_dir, "writeable", cfg.agents["executor"].timeout,
-        )
+        result = self._run_executor(brief)   # runs with restart-on-crash/timeout
 
-        # agent error → revert, record fail, do not blame the design (no plateau++)
+        # provider rate limit / quota → pause the whole run and inform (no churn)
+        if result.status == "rate_limited":
+            state.revert_uncommitted()
+            self.halt = "rate_limited"
+            msg = "RATE LIMIT / quota from the agent — paused:\n" + (result.stdout or "")[:600]
+            state.record_iteration(self.run_id, n=n, git_hash=None, score=state.best_score(self.run_id),
+                                   verdict="fail", metrics=[], feedback=msg, agent_exit="rate_limited")
+            state.update_run(self.run_id, iter_count=n)
+            return IterationOutcome(n, "fail", state.best_score(self.run_id), msg)
+
+        # hard failure that survived the retries → record + escalate if it keeps happening
         if result.status in ("crashed", "timeout"):
             state.revert_uncommitted()
-            state.record_iteration(self.run_id, n=n, git_hash=None,
-                                   score=state.best_score(self.run_id), verdict="fail",
-                                   metrics=[], agent_exit=result.status)
+            self.consecutive_fail += 1
+            msg = (f"AGENT {result.status.upper()} (after {cfg.limits.agent_retries} retries):\n"
+                   + (result.stdout or "")[:600])
+            state.record_iteration(self.run_id, n=n, git_hash=None, score=state.best_score(self.run_id),
+                                   verdict="fail", metrics=[], feedback=msg, agent_exit=result.status)
             state.update_run(self.run_id, iter_count=n)
-            return IterationOutcome(n, "fail", state.best_score(self.run_id))
+            if self.consecutive_fail >= cfg.limits.max_agent_failures:
+                self.halt = "agent_error"     # too many in a row → stop & inform
+            return IterationOutcome(n, "fail", state.best_score(self.run_id), msg)
+
+        self.consecutive_fail = 0   # the agent ran fine this iteration
 
         # did the agent actually change anything? (git decides, not the agent)
         if not state.has_changes():
@@ -189,6 +219,10 @@ class Orchestrator:
             outcome = self.run_iteration()
             if on_iteration:
                 on_iteration(outcome)
+            if self.halt:                      # agent rate-limited or repeatedly failing
+                best = self.state.best_score(self.run_id)
+                self.state.set_status(self.run_id, "paused" if self.halt == "rate_limited" else "error")
+                return LoopSummary(self.halt, best, self.n)
             best = self.state.best_score(self.run_id)
             if best is not None and best >= cfg.evaluation.target_score:
                 self.state.set_status(self.run_id, "finished")

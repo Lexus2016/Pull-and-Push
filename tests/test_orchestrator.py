@@ -120,6 +120,57 @@ def test_iteration_records_change_and_feedback(tmp_path):
     assert row.change_summary and "val.txt" in row.change_summary
 
 
+class _CrashThenEdit:
+    """Crashes `crashes` times, then succeeds with an edit — to test restart-on-crash."""
+    def __init__(self, crashes, edit):
+        self.left = crashes
+        self.edit = edit
+    def run(self, brief, workdir, profile, timeout):
+        from tyani_tolkai.agents.base import RunResult
+        if self.left > 0:
+            self.left -= 1
+            return RunResult("crashed", "boom")
+        self.edit(Path(workdir))
+        return RunResult("success", "ok", changed=True)
+
+
+class _RateLimited:
+    def run(self, brief, workdir, profile, timeout):
+        from tyani_tolkai.agents.base import RunResult
+        return RunResult("rate_limited", "Error: 429 too many requests / quota")
+
+
+class _AlwaysCrash:
+    def run(self, brief, workdir, profile, timeout):
+        from tyani_tolkai.agents.base import RunResult
+        return RunResult("crashed", "boom")
+
+
+def test_executor_restarted_on_crash(tmp_path):
+    s = StateStore(tmp_path / "p"); s.git_init(); rid = s.create_run("asymmetric")
+    orch = Orchestrator(_cfg(), s, rid, _CrashThenEdit(1, _edit_val(80)),
+                        FakeMetric(), LocalBackend())
+    o = orch.run_iteration()
+    assert o.verdict == "keep"          # the retry recovered and the real change scored
+
+
+def test_rate_limit_pauses_run(tmp_path):
+    s = StateStore(tmp_path / "p"); s.git_init(); rid = s.create_run("asymmetric")
+    orch = Orchestrator(_cfg(), s, rid, _RateLimited(), FakeMetric(), LocalBackend())
+    summ = orch.run_loop()
+    assert summ.reason == "rate_limited"
+    assert s.get_run(rid)["status"] == "paused"
+
+
+def test_repeated_crash_escalates(tmp_path):
+    s = StateStore(tmp_path / "p"); s.git_init(); rid = s.create_run("asymmetric")
+    cfg = _cfg(); cfg.limits.agent_retries = 0; cfg.limits.max_agent_failures = 2
+    orch = Orchestrator(cfg, s, rid, _AlwaysCrash(), FakeMetric(), LocalBackend())
+    summ = orch.run_loop()
+    assert summ.reason == "agent_error"
+    assert s.get_run(rid)["status"] == "error"
+
+
 def test_plateau_stops_the_loop(tmp_path):
     # first keeps 70, then meaningful-but-non-improving changes → plateau
     edits = [_edit_val(70, tag=i) for i in range(6)]
