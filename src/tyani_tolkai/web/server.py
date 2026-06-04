@@ -294,6 +294,18 @@ def create_app(token: str | None = None) -> FastAPI:
         snap = app.state.runs.snapshot(name)
         return snap or {"status": "idle", "outcomes": [], "summary": None}
 
+    @app.get("/api/projects/{name}/agent-log")
+    def api_agent_log(name: str, token: str | None = Query(None)):
+        auth(token)
+        p = project_dir(name) / "agent.log"   # the executor's real output (tee'd live)
+        if not p.exists():
+            return {"log": ""}
+        try:
+            txt = p.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            txt = ""
+        return {"log": txt[-40000:]}          # tail — enough to follow without flooding
+
     @app.post("/api/projects/{name}/run")
     def api_run(name: str, token: str | None = Query(None)):
         auth(token)

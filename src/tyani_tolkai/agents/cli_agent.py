@@ -83,19 +83,33 @@ class CLIAgentAdapter:
             cmd += ["-C", str(workdir)]
 
         argv = [*cmd, brief]
+        # For the executor (writeable) we tee the agent's real output to <project>/agent.log
+        # (the project dir is workdir's parent — OUTSIDE the artifact git tree, so it never
+        # pollutes change-detection). This gives ground-truth visibility into what the agent
+        # is doing, with no cooperation from the agent. Read-only (validator) uses a pipe.
+        log_file = None
+        if profile == "writeable":
+            try:
+                log_file = open(Path(workdir).parent / "agent.log", "w", encoding="utf-8")
+            except OSError:
+                log_file = None
         try:
             proc = subprocess.Popen(
                 argv, cwd=str(workdir), text=True,
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                stdout=(log_file or subprocess.PIPE),
+                stderr=subprocess.STDOUT if log_file else subprocess.PIPE,
                 # Detach stdin so a CLI that reads it (codex appends a piped <stdin> block;
                 # others may await interactive input) gets immediate EOF instead of blocking.
                 stdin=subprocess.DEVNULL,
                 start_new_session=True,   # own process group → killable as a unit on Force-Stop
             )
         except FileNotFoundError:
+            if log_file:
+                log_file.close()
             return RunResult(status="crashed", stdout=f"{self.prefix[0]!r} not installed")
         self._proc = proc
         timed_out = False
+        out = err = ""
         try:
             out, err = proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -107,8 +121,19 @@ class CLIAgentAdapter:
             timed_out = True
         finally:
             self._proc = None
+            if log_file:
+                try:
+                    log_file.close()
+                except Exception:
+                    pass
 
-        full = (out or "") + (err or "")
+        if log_file is not None:   # output went to the file → read it back as the result text
+            try:
+                full = (Path(workdir).parent / "agent.log").read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                full = ""
+        else:
+            full = (out or "") + (err or "")
         if self._killed and not timed_out:
             return RunResult(status="killed", stdout=full)   # deliberate Force-Stop
         if timed_out:

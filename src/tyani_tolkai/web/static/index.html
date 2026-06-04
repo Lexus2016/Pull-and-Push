@@ -415,6 +415,10 @@
       </div>
       <h3 style="margin-top:22px">Хід ітерацій</h3>
       <div id="log">—</div>
+
+      <h3 style="margin-top:22px">🔎 Лог агента <small class="hint" style="display:inline">— реальний вивід Виконавця (оновлюється під час прогону)</small></h3>
+      <div class="controls" style="margin-bottom:8px"><button class="btn sec" id="agentLogBtn" style="width:auto" disabled>↻ Оновити лог</button></div>
+      <pre class="diff" id="agentLog" style="max-height:320px">—</pre>
       <h3 style="margin-top:22px">Файли артефакту <small class="hint" style="display:inline">— що агент побудував</small></h3>
       <div class="controls" style="margin-bottom:8px"><button class="btn sec" id="filesBtn" style="width:auto" disabled>↻ Показати / оновити файли</button></div>
       <div id="files"></div>
@@ -517,7 +521,12 @@ function buildConfig(){const c={project:$('f_project').value.trim(),mode:$('f_mo
   const nUrl=$('f_notify_url').value.trim(),nEn=$('f_notify_enabled').checked;
   if(nEn||nUrl)c.notify={enabled:nEn,url:nUrl||null,method:$('f_notify_method').value};
   return c;}
-function enableControls(on){['runBtn','stopBtn','forceStopBtn','resetBtn','renameBtn','exportBtn','deleteBtn','steerBtn','filesBtn','testEvalBtn'].forEach(b=>$(b).disabled=!on);}
+function enableControls(on){['runBtn','stopBtn','forceStopBtn','resetBtn','renameBtn','exportBtn','deleteBtn','steerBtn','filesBtn','testEvalBtn','agentLogBtn'].forEach(b=>$(b).disabled=!on);}
+async function loadAgentLog(){if(!current)return;
+  const d=await(await fetch(api('/api/projects/'+current+'/agent-log'))).json().catch(()=>({log:''}));
+  const el=$('agentLog');const atBottom=el.scrollTop+el.clientHeight>=el.scrollHeight-30;
+  el.textContent=d.log||'— агент ще нічого не вивів —';
+  if(atBottom)el.scrollTop=el.scrollHeight;}            // follow the tail unless user scrolled up
 async function loadFiles(){if(!current)return;
   $('files').innerHTML='<div class="hint">завантаження…</div>';
   const d=await(await fetch(api('/api/projects/'+current+'/files'))).json().catch(()=>({files:[]}));
@@ -597,7 +606,7 @@ function setStatus(s,score,sum){const t=$('tag');t.className='tag '+(s||'idle');
 async function loadState(name){const d=await(await fetch(api('/api/projects/'+name))).json();
   BASELINE=d.baseline||{};
   const its=d.iterations||[];setStatus(d.status||'idle',d.best_score,null);plot(its);renderLog(its);
-  renderMetricCards(its.length?its[its.length-1].metrics:[]);
+  renderMetricCards(its.length?its[its.length-1].metrics:[]);loadAgentLog();
   $('runGoal').textContent=(CFG&&CFG.roles&&CFG.roles.executor&&CFG.roles.executor.goal)?('🎯 Мета: '+CFG.roles.executor.goal):'';}
 function stopPolling(){if(poll){clearInterval(poll);poll=null;}}
 function startPolling(name){if(poll)clearInterval(poll);
@@ -606,6 +615,7 @@ function startPolling(name){if(poll)clearInterval(poll);
     const best=(d.outcomes||[]).reduce((m,o)=>o.score!=null&&o.score>m?o.score:m,0)||null;
     const oc=d.outcomes||[];setStatus(d.status,best,d.summary);plot(oc);renderLog(oc);
     renderMetricCards(oc.length?oc[oc.length-1].metrics:[]);
+    if(d.status==='running')loadAgentLog();        // live tail of the executor's output
     if(d.status==='running'&&d.phase){
       const pl={executor:'✍ агент редагує код…',scoring:'📊 оцінка (бектест)…',validator:'🔎 валідатор аналізує…'};
       $('summary').textContent=(pl[d.phase]||('фаза: '+d.phase))+' · ітерація '+(((oc[oc.length-1]||{}).n||0)+1);}
@@ -663,6 +673,7 @@ $('saveBtn').onclick=async()=>{const cfg=buildConfig();
   if(!r.ok){const e=await r.json().catch(()=>({}));toast('Помилка: '+(e.detail||r.status),'err');return;}
   toast(current?'Збережено ✓':'Проєкт створено ✓','ok');await loadProjects();selectProject(cfg.project);};
 $('filesBtn').onclick=loadFiles;
+$('agentLogBtn').onclick=loadAgentLog;
 $('testEvalBtn').onclick=async()=>{if(!current)return;
   $('testResult').innerHTML='<div class="hint" style="margin-top:8px">тестую оцінку…</div>';
   const r=await fetch(api('/api/projects/'+current+'/test-eval'),{method:'POST'});

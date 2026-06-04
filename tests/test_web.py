@@ -155,6 +155,12 @@ def test_lifecycle_blocked_while_running(client, monkeypatch):
     assert client.post("/api/projects/busy/reset").status_code == 409
 
 
+def test_agent_log_endpoint(client):
+    client.post("/api/projects/create", json=_VALID)
+    r = client.get("/api/projects/webtest/agent-log")
+    assert r.status_code == 200 and "log" in r.json()
+
+
 def test_force_stop_no_active_run(client):
     client.post("/api/projects/create", json=_VALID)
     r = client.post("/api/projects/webtest/force-stop")

@@ -62,6 +62,15 @@ def test_cli_adapter_runs_subprocess_and_edits(tmp_path):
     assert (tmp_path / "out.txt").read_text() == "hello-brief"
 
 
+def test_writeable_tees_output_to_agent_log(tmp_path):
+    # executor (writeable) output is captured to <project>/agent.log for live monitoring
+    wd = tmp_path / "artifact"; wd.mkdir()
+    adapter = CLIAgentAdapter(["/bin/sh", "-c", "echo HELLO-AGENT", "sh"])
+    res = adapter.run("brief", wd, "writeable", 10)
+    assert res.status == "success" and "HELLO-AGENT" in res.stdout
+    assert "HELLO-AGENT" in (tmp_path / "agent.log").read_text()   # file outside artifact tree
+
+
 def test_cli_adapter_missing_binary(tmp_path):
     adapter = CLIAgentAdapter(["definitely-not-a-real-binary-xyz-123"])
     res = adapter.run("brief", tmp_path, "writeable", 10)
