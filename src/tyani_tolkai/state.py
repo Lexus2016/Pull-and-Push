@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS run (
     no_op_count INTEGER NOT NULL DEFAULT 0,
     iter_count INTEGER NOT NULL DEFAULT 0,
     cost_total REAL NOT NULL DEFAULT 0,
+    baseline_json TEXT,
     created_ts TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS iteration (
@@ -95,10 +96,12 @@ class StateStore:
         self.conn.row_factory = sqlite3.Row
         self.conn.execute("PRAGMA journal_mode=WAL")   # concurrent web read + run write
         self.conn.executescript(SCHEMA)
-        try:                                            # migrate older DBs in place
-            self.conn.execute("ALTER TABLE iteration ADD COLUMN feedback TEXT")
-        except sqlite3.OperationalError:
-            pass                                        # column already exists
+        for _mig in ("ALTER TABLE iteration ADD COLUMN feedback TEXT",
+                     "ALTER TABLE run ADD COLUMN baseline_json TEXT"):
+            try:                                        # migrate older DBs in place
+                self.conn.execute(_mig)
+            except sqlite3.OperationalError:
+                pass                                    # column already exists
         self.conn.commit()
 
     def close(self) -> None:

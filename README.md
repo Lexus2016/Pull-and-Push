@@ -32,16 +32,12 @@ python3.12 -m venv .venv
 ## Quick start — watch it work
 
 ```bash
-# 1) terminal demo (mock executor, real numeric adapter + sandbox)
-.venv/bin/tyani-tolkai demo
-#   iter 1: keep 55 → 2: keep 70 → 3: keep 85 → 4: keep 100 → finished (target)
-
-# 2) the dashboard (open the printed URL)
+# the dashboard (open the printed URL)
 .venv/bin/tyani-tolkai web
-#   • click "Demo" to see the evolution chart climb to 100
-#   • ⚙ Config tab → 🪄 "Згенерувати з опису": describe the task in plain language;
-#     the configurator agent drafts the whole project, you tweak it in the form, then Create.
-#   • tabs split Config / Progress so the long form never mixes with results
+#   • 🪄 "Згенерувати з опису": describe the task in plain language;
+#     the configurator agent drafts the whole project, you review it in the form, then Create.
+#   • ▶ Run drives the adversarial loop; the quality curve climbs as candidates are kept.
+#   • tabs split Progress / Config so results never mix with the form.
 ```
 
 ### The configurator agent
@@ -95,7 +91,7 @@ tyani-tolkai projects delete renamed
 |---|---|
 | **1 — core asymmetric loop** | ✅ done (config, state SQLite+git, scorer, metric adapters, brief, orchestrator, CLI, golden run) |
 | **2 — real agents & hardening** | ✅ CLI adapters, git change-detection, Validator role, noise median, Docker backend, seeding, resume, projects, export/import |
-| **3 — product surface** | ✅ WebUI (FastAPI dashboard, live evolution chart, demo+run, token auth) |
+| **3 — product surface** | ✅ WebUI (FastAPI dashboard, live evolution chart, run + steer, token auth) |
 
 **Known boundaries (honest):**
 - **Symmetric mode** (Rival↔Rival + Arena + champion archive) — designed, not yet built.

@@ -237,3 +237,40 @@ def test_resume_restores_counters(tmp_path):
     assert orch.plateau_count == 2
     assert orch.no_op_count == 1
     assert orch.n == 5
+
+
+def _cfg_no_worst(target=100):
+    """Like _cfg but the metric has NO worst — the system must pin it from baseline."""
+    return Config(
+        project="p",
+        agents={"executor": {"engine": "mock"}},
+        roles={"executor": {"goal": "raise s"}},
+        evaluation={"adapter": "numeric", "command": "true",
+                    "metrics": [{"name": "s", "dir": "higher", "weight": 1, "target": target}],
+                    "target_score": target, "min_delta": 1.0},
+        limits={"max_iterations": 20, "plateau_N": 3},
+    )
+
+
+def test_baseline_worst_pinned_from_first_measurement(tmp_path):
+    cfg = _cfg_no_worst()
+    assert cfg.evaluation.metrics[0].worst is None     # user never supplied it
+    orch, s, run_id = _orch(tmp_path, [_edit_val(20), _edit_val(60)], cfg)
+    o1 = orch.run_iteration()
+    assert cfg.evaluation.metrics[0].worst == 20.0     # pinned to the baseline measurement
+    assert o1.score == 0.0 and o1.verdict == "keep"    # 0 = where you started
+    o2 = orch.run_iteration()
+    assert o2.score == 50.0                            # (60-20)/(100-20) → 50
+    import json
+    assert json.loads(s.get_run(run_id)["baseline_json"]) == {"s": 20.0}   # persisted
+
+
+def test_baseline_worst_restored_on_resume(tmp_path):
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    import json
+    s.update_run(run_id, baseline_json=json.dumps({"s": 10.0}))
+    cfg = _cfg_no_worst()
+    orch = Orchestrator(cfg, s, run_id, MockAdapter([]), FakeMetric(), LocalBackend())
+    assert cfg.evaluation.metrics[0].worst == 10.0     # restored from the persisted baseline

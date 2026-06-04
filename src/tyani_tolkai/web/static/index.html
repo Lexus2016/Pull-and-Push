@@ -138,7 +138,8 @@
   input[type=number],.mrow input{font-family:var(--mono)}
   input:focus,select:focus,textarea:focus{outline:0;border-color:var(--cold);box-shadow:0 0 0 1px var(--cold),0 0 16px rgba(70,224,208,.12)}
   textarea{min-height:60px;resize:vertical}
-  .mhead,.mrow{display:grid;grid-template-columns:2fr 1.2fr .9fr .9fr .9fr 40px;gap:8px;align-items:center}
+  .mhead,.mrow{display:grid;grid-template-columns:2fr 1.4fr .9fr .9fr 40px;gap:8px;align-items:center}
+  .pathrow{display:flex;gap:8px}.pathrow input{flex:1 1 auto}.pathrow .btn{width:auto;margin:0;padding:0 14px;white-space:nowrap}
   .mhead{font-family:var(--mono);font-size:11px;color:var(--mut);letter-spacing:1px;text-transform:uppercase;margin:8px 0 5px;padding:0 2px}
   .mrow{margin-bottom:8px}
   .mrow button{padding:11px 0;border-radius:var(--radius);border:1px solid #5a2a2a;background:rgba(255,107,107,.08);
@@ -215,6 +216,17 @@
     header .sub,.pp{display:none} header h1{font-size:19px}
     .score{font-size:42px} main{padding:18px 16px}
   }
+  .modal{position:fixed;inset:0;background:rgba(4,9,16,.72);display:flex;align-items:center;justify-content:center;z-index:50}
+  .modal.hidden{display:none}
+  .modal-box{width:min(640px,92vw);max-height:80vh;display:flex;flex-direction:column;background:var(--panel);
+    border:1px solid var(--line-2);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
+  .modal-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+  .modal-head .x{background:none;border:0;color:var(--mut);font-size:18px;cursor:pointer}
+  .pkpath{font-family:var(--mono);font-size:12px;color:var(--cold);padding:10px 18px;border-bottom:1px solid var(--line);word-break:break-all}
+  .pklist{overflow:auto;flex:1 1 auto;padding:6px 10px;min-height:160px}
+  .pkitem{display:flex;gap:8px;align-items:center;padding:8px 10px;border-radius:8px;cursor:pointer;font-family:var(--mono);font-size:13px}
+  .pkitem:hover{background:var(--line)}.pkitem.dir{color:var(--ink)}.pkitem.file{color:var(--mut)}
+  .modal-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;border-top:1px solid var(--line)}
   ::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
 </style>
 </head>
@@ -230,7 +242,6 @@
 <div class="wrap">
   <aside>
     <button class="btn" id="newBtn">＋ Новий проєкт</button>
-    <button class="btn sec" id="demoBtn" title="Швидкий показ циклу на вбудованому прикладі, без реальних агентів">▷ Demo</button>
     <h2>Проєкти</h2>
     <ul class="plist" id="projects"></ul>
     <div class="empty" id="empty">Проєктів ще немає.<br>Натисни <b>Demo</b> або <b>Новий проєкт</b>.</div>
@@ -287,11 +298,8 @@
         <div class="grid">
           <div class="field"><label>Виконавець — рушій</label><select id="f_ex_engine"></select>
             <div class="hint">Який CLI редагує артефакт (встановлений і залогінений).</div></div>
-          <div class="field"><label>Виконавець — модель <small>(опц.)</small></label><input id="f_ex_model" placeholder="opus">
-            <div class="hint">Порожньо = модель за замовчуванням CLI.</div></div>
           <div class="field"><label>Валідатор — рушій <small>(опц.)</small></label><select id="f_va_engine"></select>
             <div class="hint">Текстовий фідбек. Бери <b>інший</b> провайдер (захист від «змови»).</div></div>
-          <div class="field" id="va_model_wrap"><label>Валідатор — модель <small>(опц.)</small></label><input id="f_va_model" placeholder="gpt-5"></div>
         </div>
       </fieldset>
 
@@ -306,30 +314,33 @@
       </fieldset>
 
       <fieldset><legend>Оцінка <small>бал рахує код, не LLM</small></legend>
+        <select id="f_adapter" hidden></select><!-- спосіб виміру: авто з опису, у формі не показуємо -->
         <div class="grid">
-          <div class="field"><label>Adapter</label><select id="f_adapter"></select>
-            <div class="hint"><b>numeric</b>: команда друкує JSON · <b>command-exit</b>: 0/1 за кодом · <b>pytest-pass</b>: % тестів.</div></div>
-          <div class="field" id="command_wrap"><label>Команда</label><input id="f_command" placeholder="python backtest.py --json">
-            <div class="hint">Запускається в пісочниці. Для numeric друкує JSON виду {"sharpe":1.8}.</div></div>
-          <div class="field" id="harness_wrap"><label>harness_dir</label><input id="f_harness" placeholder="metrics/">
-            <div class="hint">Тека з прихованими тестами — <b>поза</b> досяжністю Виконавця.</div></div>
+          <div class="field" id="command_wrap"><label>Команда оцінки</label><input id="f_command" placeholder="python metrics/backtest.py">
+            <div class="hint">Рядок, що запускається в пісочниці й дає число(а). Кнопкою <b>🧪 Тест оцінки</b> на вкладці «Прогрес» можна перевірити, що працює.</div></div>
+          <div class="field" id="harness_wrap"><label>Тека прихованих тестів</label><input id="f_harness" placeholder="metrics/">
+            <div class="hint">Тека з тестами — <b>поза</b> досяжністю Виконавця.</div></div>
           <div class="field"><label>Цільовий бал</label><input id="f_target" type="number" value="100">
-            <div class="hint">Бал ≥ цього → перемога, зупинка.</div></div>
-          <div class="field"><label>min_delta <small>(шум-смуга)</small></label><input id="f_mindelta" type="number" value="1">
-            <div class="hint">Тримати зміну, лише якщо бал виріс більше за це.</div></div>
+            <div class="hint">Бал ≥ цього → перемога, зупинка. 0 = старт, 100 = ціль.</div></div>
         </div>
-        <label style="margin-top:14px">Метрики <span class="hint" style="display:inline">— кожна нормалізується worst→target у 0–100 за своїм напрямом; бал = зважена сума. Для «менше=краще» (напр. drawdown) worst &gt; target.</span></label>
-        <div class="mhead"><span>name</span><span>напрям</span><span>weight</span><span>worst</span><span>target</span><span></span></div>
+        <label style="margin-top:14px">Метрики <span class="hint" style="display:inline">— що міряємо. Нуль шкали система ставить сама за стартовим заміром (0 = звідки почали), 100 = ціль. Бал = зважена сума.</span></label>
+        <div class="mhead"><span>назва</span><span>напрям</span><span>вага</span><span>ціль</span><span></span></div>
         <div id="metrics"></div>
         <button class="btn sec" id="addMetric" style="width:auto;padding:9px 14px;margin-top:6px">＋ метрика</button>
       </fieldset>
 
       <fieldset><legend>Стартовий код <small>з чого починає виконавець</small></legend>
         <div class="grid">
-          <div class="field"><label>Seed — стартовий артефакт</label><select id="f_seed"></select>
-            <div class="hint"><b>empty</b>: створити з нуля · <b>copy</b>: скопіювати наявний код · <b>generate</b>: агент згенерує початкову версію.</div></div>
-          <div class="field" id="seedpath_wrap"><label>Шлях для copy</label><input id="f_seedpath" placeholder="~/code/baseline">
-            <div class="hint">Тека, яку скопіювати в артефакт як старт (оригінал недоторканий).</div></div>
+          <div class="field"><label>Стартовий код</label>
+            <select id="f_seed">
+              <option value="empty">Порожній — агент створить код з нуля</option>
+              <option value="copy">Зі стартового коду — скопіювати з папки</option>
+            </select>
+            <div class="hint">Найчастіше — <b>порожній</b>: перша ітерація створює перший варіант сама.</div></div>
+          <div class="field" id="seedpath_wrap"><label>Папка стартового коду</label>
+            <div class="pathrow"><input id="f_seedpath" placeholder="~/code/baseline">
+              <button type="button" class="btn sec" id="seedBrowse" title="Огляд папок">📁 Огляд</button></div>
+            <div class="hint">Її вміст копіюється в артефакт як старт (оригінал недоторканий).</div></div>
         </div>
       </fieldset>
 
@@ -394,6 +405,17 @@
     </div><!-- /view-progress -->
   </main>
 </div>
+<div id="picker" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head"><b>📁 Вибір папки</b><button class="x" id="pkClose" title="Закрити">✕</button></div>
+    <div class="pkpath" id="pkPath"></div>
+    <div class="pklist" id="pkList"></div>
+    <div class="modal-foot">
+      <span class="hint" id="pkHint">Подвійний клік — зайти в папку.</span>
+      <button class="btn" id="pkPick" style="width:auto">Вибрати цю папку</button>
+    </div>
+  </div>
+</div>
 <div id="toast"></div>
 <script>
 const TOKEN=new URLSearchParams(location.search).get('token')||'';
@@ -403,39 +425,37 @@ let META={},current=null,poll=null,chart=null;
 const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
 const fmt=v=>{v=+v;return Number.isFinite(v)?(Math.abs(v)>=10?v.toFixed(2):v.toFixed(4)):'—';};
 let CFG=null;   // active project's config (for metric targets/weights)
+let BASELINE={};   // system-resolved metric zero-points (from the run baseline)
 function toast(t,kind){const e=$('toast');e.textContent=t;e.className=kind||'';if(t)setTimeout(()=>e.className='',4200);}
 function opts(s,a,blank){s.innerHTML=(blank?'<option value="">— немає —</option>':'')+a.map(v=>`<option>${v}</option>`).join('');}
 
 async function loadMeta(){META=await(await fetch(api('/api/meta'))).json();
   opts($('f_mode'),META.modes);opts($('f_ex_engine'),META.engines);
-  opts($('f_va_engine'),META.engines,true);opts($('f_adapter'),META.adapters);opts($('f_seed'),META.seeds);
+  opts($('f_va_engine'),META.engines,true);opts($('f_adapter'),META.adapters);
   opts($('g_engine'),META.engines);}
 
-function vis(){const ad=$('f_adapter').value;
+function vis(){const ad=$('f_adapter').value;   // adapter is auto/hidden; still drives which inputs matter
   $('command_wrap').classList.toggle('hidden',!(ad==='numeric'||ad==='command-exit'));
   $('harness_wrap').classList.toggle('hidden',ad!=='pytest-pass');
   $('seedpath_wrap').classList.toggle('hidden',$('f_seed').value!=='copy');
-  const hasVa=!!$('f_va_engine').value;
-  $('va_model_wrap').classList.toggle('hidden',!hasVa);
-  $('va_goal_wrap').classList.toggle('hidden',!hasVa);}
+  $('va_goal_wrap').classList.toggle('hidden',!$('f_va_engine').value);}
 
 function metricRow(m={}){const d=document.createElement('div');d.className='mrow';
   const dlbl={higher:'↑ більше = краще',lower:'↓ менше = краще'};
   d.innerHTML=`<input placeholder="sharpe" value="${m.name||''}">
     <select>${META.dirs.map(x=>`<option value="${x}" ${m.dir===x?'selected':''}>${dlbl[x]||x}</option>`).join('')}</select>
     <input type="number" step="any" placeholder="вага" value="${m.weight??1}">
-    <input type="number" step="any" placeholder="worst" value="${m.worst??0}">
-    <input type="number" step="any" placeholder="target" value="${m.target??100}">
+    <input type="number" step="any" placeholder="ціль" value="${m.target??100}">
     <button title="видалити метрику">✕</button>`;
   d.querySelector('button').onclick=()=>d.remove();return d;}
 function getMetrics(){return[...$('metrics').children].map(r=>{const i=r.querySelectorAll('input'),s=r.querySelector('select');
-  return{name:i[0].value.trim(),dir:s.value,weight:+i[1].value,worst:+i[2].value,target:+i[3].value};}).filter(m=>m.name);}
+  return{name:i[0].value.trim(),dir:s.value,weight:+i[1].value,target:+i[2].value};}).filter(m=>m.name);}
 
 function blankForm(){current=null;$('cfgTitle').textContent='Новий проєкт';$('saveBtn').textContent='💾 Створити';
-  ['f_project','g_desc','f_ex_model','f_va_model','f_ex_goal','f_ex_task','f_va_goal','f_command','f_harness','f_seedpath'].forEach(x=>$(x).value='');
-  $('f_va_engine').value='';$('f_target').value=100;$('f_mindelta').value=1;$('f_maxiter').value=30;
-  $('f_plateau').value=6;$('f_step').value=600;$('f_seed').value='empty';$('f_sandbox').value='local';$('f_adapter').value='pytest-pass';
-  $('metrics').innerHTML='';$('metrics').appendChild(metricRow({name:'pass_pct',dir:'higher',weight:1,worst:0,target:100}));
+  ['f_project','g_desc','f_ex_goal','f_ex_task','f_va_goal','f_command','f_harness','f_seedpath'].forEach(x=>$(x).value='');
+  $('f_va_engine').value='';$('f_target').value=100;$('f_maxiter').value=30;
+  $('f_plateau').value=6;$('f_step').value=600;$('f_seed').value='empty';$('f_sandbox').value='local';$('f_adapter').value='numeric';
+  $('metrics').innerHTML='';$('metrics').appendChild(metricRow({name:'score',dir:'higher',weight:1,target:100}));
   $('f_project').disabled=false;enableControls(false);vis();highlight();showView('config');
   try{$('manualForm').open=false;}catch(e){}}
 function setFields(cfg){
@@ -443,11 +463,11 @@ function setFields(cfg){
   if(cfg.project!==undefined)$('f_project').value=cfg.project||'';
   $('g_desc').value=cfg.description||'';   // original task description, if saved
   $('f_mode').value=cfg.mode||'asymmetric';
-  $('f_ex_engine').value=(a.executor||{}).engine||'claude';$('f_ex_model').value=(a.executor||{}).model||'';
-  $('f_va_engine').value=(a.validator||{}).engine||'';$('f_va_model').value=(a.validator||{}).model||'';
+  $('f_ex_engine').value=(a.executor||{}).engine||'claude';
+  $('f_va_engine').value=(a.validator||{}).engine||'';
   $('f_ex_goal').value=(r.executor||{}).goal||'';$('f_ex_task').value=(r.executor||{}).task||'';$('f_va_goal').value=(r.validator||{}).goal||'';
   $('f_adapter').value=ev.adapter||'numeric';$('f_command').value=ev.command||'';$('f_target').value=ev.target_score??100;
-  $('f_mindelta').value=ev.min_delta??1;$('f_harness').value=ev.harness_dir||'';
+  $('f_harness').value=ev.harness_dir||'';
   $('metrics').innerHTML='';(ev.metrics||[]).forEach(m=>$('metrics').appendChild(metricRow(m)));
   if(!(ev.metrics||[]).length)$('metrics').appendChild(metricRow());
   $('f_seed').value=typeof sd==='string'?sd:(sd.mode||'empty');$('f_seedpath').value=sd.path||'';
@@ -462,13 +482,11 @@ function applyGenerated(cfg){blankForm();setFields(cfg);$('f_project').disabled=
 function buildConfig(){const c={project:$('f_project').value.trim(),mode:$('f_mode').value,
   agents:{executor:{engine:$('f_ex_engine').value,timeout:600}},
   roles:{executor:{goal:$('f_ex_goal').value||'Improve the artifact.'}},
-  evaluation:{adapter:$('f_adapter').value,metrics:getMetrics(),target_score:+$('f_target').value,min_delta:+$('f_mindelta').value},
+  evaluation:{adapter:$('f_adapter').value,metrics:getMetrics(),target_score:+$('f_target').value},
   limits:{max_iterations:+$('f_maxiter').value,plateau_N:+$('f_plateau').value,step_seconds:+$('f_step').value},
   sandbox:{backend:$('f_sandbox').value},seed:{mode:$('f_seed').value}};
-  if($('f_ex_model').value)c.agents.executor.model=$('f_ex_model').value;
   if($('f_ex_task').value)c.roles.executor.task=$('f_ex_task').value;
   if($('f_va_engine').value){c.agents.validator={engine:$('f_va_engine').value,timeout:300};
-    if($('f_va_model').value)c.agents.validator.model=$('f_va_model').value;
     c.roles.validator={goal:$('f_va_goal').value||'Diagnose the score and suggest one next step.'};}
   if($('f_command').value)c.evaluation.command=$('f_command').value;
   if($('f_harness').value)c.evaluation.harness_dir=$('f_harness').value;
@@ -509,8 +527,10 @@ function renderMetricCards(lastMetrics){
   const by={}; (lastMetrics||[]).forEach(m=>by[m.name]=+m.value);
   el.innerHTML=specs.map(s=>{
     const v=by[s.name], has=Number.isFinite(v);
+    // zero-point: prefer the system-resolved baseline; else the config worst; else 0
+    const worst=(BASELINE&&BASELINE[s.name]!=null)?BASELINE[s.name]:(s.worst!=null?s.worst:0);
     let pct=0,reached=false;
-    if(has && s.target!==s.worst){pct=((v-s.worst)/(s.target-s.worst))*100;pct=Math.max(0,Math.min(100,pct));reached=pct>=99.999;}
+    if(has && s.target!==worst){pct=((v-worst)/(s.target-worst))*100;pct=Math.max(0,Math.min(100,pct));reached=pct>=99.999;}
     const arrow=s.dir==='higher'?'▲ макс':'▼ мін';
     return `<div class="mcard${reached?' reached':''}">
       <div class="mc-top"><span class="mc-name">${esc(s.name)}</span><span class="mc-dir">${arrow}</span></div>
@@ -538,6 +558,7 @@ function setStatus(s,score,sum){const t=$('tag');t.className='tag '+(s||'idle');
   $('score').textContent=score==null?'—':(+score).toFixed(1);
   $('summary').textContent=sum?(sum.error?('помилка: '+sum.error):`результат: ${sum.reason} · ітерацій: ${sum.iterations}`):'';}
 async function loadState(name){const d=await(await fetch(api('/api/projects/'+name))).json();
+  BASELINE=d.baseline||{};
   const its=d.iterations||[];setStatus(d.status||'idle',d.best_score,null);plot(its);renderLog(its);
   renderMetricCards(its.length?its[its.length-1].metrics:[]);
   $('runGoal').textContent=(CFG&&CFG.roles&&CFG.roles.executor&&CFG.roles.executor.goal)?('🎯 Мета: '+CFG.roles.executor.goal):'';}
@@ -564,6 +585,24 @@ $('tabProgress').onclick=()=>showView('progress');
 $('newBtn').onclick=()=>{blankForm();showView('config');};
 $('addMetric').onclick=()=>$('metrics').appendChild(metricRow());
 $('f_adapter').onchange=vis;$('f_seed').onchange=vis;$('f_va_engine').onchange=vis;
+
+// ---- server-side folder picker ----
+let pkTarget=null,pkCur=null;
+async function pkNavigate(path){const d=await(await fetch(api('/api/fs'+(path?('?path='+encodeURIComponent(path)):'')))).json();
+  pkCur=d.path;$('pkPath').textContent=d.path;
+  const rows=[];
+  if(d.parent)rows.push(`<div class="pkitem dir" data-path="${esc(d.parent)}" data-dir="1">⬆ ..</div>`);
+  d.entries.forEach(e=>rows.push(`<div class="pkitem ${e.dir?'dir':'file'}" data-path="${esc(e.path)}" data-dir="${e.dir?1:0}">${e.dir?'📁':'📄'} ${esc(e.name)}</div>`));
+  $('pkList').innerHTML=rows.join('')||'<div class="hint" style="padding:10px">порожньо або немає доступу</div>';
+  $('pkList').querySelectorAll('.pkitem').forEach(it=>{
+    it.ondblclick=()=>{if(it.dataset.dir==='1')pkNavigate(it.dataset.path);};
+    it.onclick=()=>{if(it.dataset.dir==='0'){$(pkTarget).value=it.dataset.path;closePicker();}};});}
+function openPicker(targetId,start){pkTarget=targetId;$('picker').classList.remove('hidden');pkNavigate(start||$(targetId).value||null);}
+function closePicker(){$('picker').classList.add('hidden');}
+$('seedBrowse').onclick=()=>openPicker('f_seedpath');
+$('pkClose').onclick=closePicker;
+$('pkPick').onclick=()=>{if(pkCur){$(pkTarget).value=pkCur;}closePicker();};
+$('picker').onclick=e=>{if(e.target.id==='picker')closePicker();};
 $('genBtn').onclick=async()=>{const desc=$('g_desc').value.trim();if(!desc){toast('Опиши завдання','err');return;}
   const b=$('genBtn');b.disabled=true;b.textContent='⏳ Генерую…';
   try{const r=await fetch(api('/api/configure'),{method:'POST',headers:{'Content-Type':'application/json'},
@@ -576,11 +615,6 @@ $('genBtn').onclick=async()=>{const desc=$('g_desc').value.trim();if(!desc){toas
 $('saveBtn').onclick=async()=>{const cfg=buildConfig();
   if(!cfg.project){toast('Вкажи назву проєкту','err');return;}
   if(!cfg.evaluation.metrics.length){toast('Додай хоча б одну метрику','err');$('manualForm').open=true;return;}
-  let bad=false;
-  [...$('metrics').children].forEach(row=>{const i=row.querySelectorAll('input'),s=row.querySelector('select');
-    const nm=i[0].value.trim(),dr=s.value,w=+i[2].value,t=+i[3].value; row.style.outline='';
-    if(nm&&((dr==='higher'&&t<=w)||(dr==='lower'&&t>=w))){row.style.outline='2px solid var(--bad)';bad=true;}});
-  if(bad){toast('Метрика некоректна: для «↑ більше=краще» target > worst; для «↓ менше=краще» target < worst','err');$('manualForm').open=true;return;}
   const url=current?('/api/projects/'+current+'/config'):'/api/projects/create',method=current?'PUT':'POST';
   const r=await fetch(api(url),{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
   if(!r.ok){const e=await r.json().catch(()=>({}));toast('Помилка: '+(e.detail||r.status),'err');return;}
@@ -590,8 +624,13 @@ $('testEvalBtn').onclick=async()=>{if(!current)return;
   $('testResult').innerHTML='<div class="hint" style="margin-top:8px">тестую оцінку…</div>';
   const r=await fetch(api('/api/projects/'+current+'/test-eval'),{method:'POST'});
   const d=await r.json().catch(()=>({ok:false,logs:'помилка запиту'}));
-  if(d.ok){const mets=(d.metrics||[]).map(m=>m.name+'='+m.value).join('  ·  ');
-    $('testResult').innerHTML=`<div class="why" style="border:1px solid #1f5a45;border-radius:6px;margin-top:8px"><b class="ok">✓ оцінка працює</b> — score `+(d.score!=null?(+d.score).toFixed(2):'?')+` · `+esc(mets)+`</div>`;}
+  if(d.ok){const mets=(d.metrics||[]).map(m=>m.name+'='+fmt(+m.value)).join('  ·  ');
+    const zero=(d.metric_specs||[]).map(s=>`${esc(s.name)}: нуль=${fmt(s.worst)} → ціль=${fmt(s.target)}`).join(' · ');
+    const note=d.preview_baseline?'<div class="hint" style="margin-top:6px">нуль шкали показано як стартовий замір (попередньо) — він зафіксується на першому прогоні</div>':'';
+    $('testResult').innerHTML=`<div class="why" style="border:1px solid #1f5a45;border-radius:6px;margin-top:8px">`+
+      `<b class="ok">✓ оцінка працює</b> — бал `+(d.score!=null?(+d.score).toFixed(2):'?')+`<br>`+
+      `<span class="hint" style="display:inline">спосіб: <b>${esc(d.adapter||'')}</b>`+(d.command?` · команда: <code>${esc(d.command)}</code>`:'')+`</span><br>`+
+      `<span class="hint" style="display:inline">${esc(mets)}</span>`+(zero?`<br><span class="hint" style="display:inline">${zero}</span>`:'')+note+`</div>`;}
   else{$('testResult').innerHTML=`<div class="why" style="border:1px solid #5a2a2a;border-radius:6px;margin-top:8px"><b style="color:var(--bad)">✗ оцінка не вдалась</b> — ось вивід:</div><pre class="diff">`+esc(d.logs||'')+`</pre>`;}};
 $('runBtn').onclick=async()=>{if(!current)return;
   if(!localStorage.getItem('tt_run_ack')){
@@ -612,9 +651,6 @@ $('deleteBtn').onclick=async()=>{if(current&&confirm('Видалити проє�
 $('steerBtn').onclick=async()=>{const t=$('steerText').value.trim();if(!current||!t)return;
   await fetch(api('/api/projects/'+current+'/command?role=executor&text='+encodeURIComponent(t)),{method:'POST'});
   $('steerText').value='';toast('Команду додано — застосується на наступній ітерації','ok');};
-$('demoBtn').onclick=async()=>{showView('progress');setStatus('running',null,null);$('log').textContent='demo біжить…';
-  const d=await(await fetch(api('/api/demo'),{method:'POST'})).json();
-  setStatus('finished',d.summary.best_score,d.summary);plot(d.outcomes);renderLog(d.outcomes);toast('Demo завершено ✓','ok');};
 
 (async()=>{
   await loadMeta(); await loadProjects(); blankForm();

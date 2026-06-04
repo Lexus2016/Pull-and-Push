@@ -22,8 +22,8 @@ JSON schema (fill every relevant field, keep it minimal and valid):
   "project": "<kebab-case-name>",
   "mode": "asymmetric",
   "agents": {
-    "executor":  {"engine": "claude|codex|opencode|agy", "model": null, "timeout": 600},
-    "validator": {"engine": "<a DIFFERENT provider than executor>", "model": null, "timeout": 300}
+    "executor":  {"engine": "claude|codex|opencode|agy", "timeout": 600},
+    "validator": {"engine": "<a DIFFERENT provider than executor>", "timeout": 300}
   },
   "roles": {
     "executor":  {"goal": "<what to maximize/achieve>", "task": "<constraints, e.g. edit only X>"},
@@ -33,23 +33,24 @@ JSON schema (fill every relevant field, keep it minimal and valid):
     "adapter": "numeric | command-exit | pytest-pass",
     "command": "<shell command; REQUIRED for numeric and command-exit; omit for pytest-pass>",
     "metrics": [
-      {"name": "<metric>", "dir": "higher|lower", "weight": <num>, "worst": <num>, "target": <num>}
+      {"name": "<metric>", "dir": "higher|lower", "weight": <num>, "target": <num>}
     ],
     "target_score": <num 0-100>,
-    "min_delta": <num>,
     "harness_dir": "metrics/"
   },
   "limits":  {"max_iterations": <int>, "plateau_N": <int>, "step_seconds": <int>},
   "sandbox": {"backend": "local | docker"},
-  "seed":    {"mode": "empty|copy|generate", "path": null}
+  "seed":    {"mode": "empty|copy", "path": null}
 }
 
 Guidance:
 - Choose the adapter that fits: code-correctness → pytest-pass; numeric optimization
   (Sharpe, latency, accuracy) → numeric with a command printing JSON; pass/fail script → command-exit.
-- worst→target must map the metric's bad→good range so progress reads as 0→100.
+- For each metric give only "dir" and "target" (the goal value). DO NOT invent a "worst"
+  zero-point — the system pins it automatically to the first measured (baseline) value.
 - Pick DIFFERENT providers for executor vs validator (anti-collusion).
 - For numeric/command-exit include a concrete "command". For pytest-pass set "harness_dir".
+- "seed": "empty" (agent writes from scratch) unless the user points at existing code ("copy" + path).
 
 USER TASK:
 <<<DESCRIPTION>>>

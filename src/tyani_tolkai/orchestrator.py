@@ -12,6 +12,7 @@ Phase 2 is synchronous; Phase 3 adds async streaming behind the same shape.
 
 from __future__ import annotations
 
+import json
 import statistics
 from dataclasses import dataclass, field
 
@@ -59,6 +60,33 @@ class Orchestrator:
         self.last_feedback = ""
         self.halt = None              # None | "rate_limited" | "agent_error"
         self.consecutive_fail = 0     # consecutive hard agent failures (for escalation)
+        # Baseline zero-points: metric.worst the user never has to invent. Pinned to the
+        # first measured value, persisted so a resumed run keeps the same 0–100 scale.
+        raw = run["baseline_json"] if (run and "baseline_json" in run.keys()) else None
+        self._baseline: dict = json.loads(raw) if raw else {}
+        for m in cfg.evaluation.metrics:
+            if m.worst is None and m.name in self._baseline:
+                m.worst = self._baseline[m.name]
+
+    def _resolve_baseline(self, values: dict) -> None:
+        """Pin each unset metric.worst to its first measured value (the natural
+        zero-point: 0 = where you started, 100 = target). Persisted for resume."""
+        changed = False
+        for m in self.cfg.evaluation.metrics:
+            if m.worst is not None or m.name not in values:
+                continue
+            v = float(values[m.name])
+            already_at_goal = (m.dir == "higher" and v >= m.target) or \
+                              (m.dir == "lower" and v <= m.target)
+            if already_at_goal:        # leave a hair of range so 0–100 stays valid
+                span = max(abs(m.target) * 0.1, 1.0)
+                m.worst = m.target - span if m.dir == "higher" else m.target + span
+            else:
+                m.worst = v
+            self._baseline[m.name] = m.worst
+            changed = True
+        if changed:
+            self.state.update_run(self.run_id, baseline_json=json.dumps(self._baseline))
 
     def _run_executor(self, brief: str):
         """Run the executor, restarting it on a crash/timeout up to agent_retries.
@@ -188,6 +216,7 @@ class Orchestrator:
             return IterationOutcome(n, "fail", None, fb, candidate_diff)
 
         values = {m["name"]: m["value"] for m in mres.metrics}
+        self._resolve_baseline(values)        # pin metric zero-points on first measurement
         new_score = score(values, cfg.evaluation.metrics)
         best = state.best_score(self.run_id)
         verdict = decide(new_score, best, cfg.evaluation.min_delta)

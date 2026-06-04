@@ -8,6 +8,7 @@ TYANI_TOLKAI_WEB_PASSWORD env) protects the API when set.
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import tempfile
@@ -55,20 +56,6 @@ class RunManager:
         with self._lock:
             r = self._runs.get(name)
             return bool(r and r["status"] == "running")
-
-    def start_demo(self) -> dict:
-        """Run the built-in demo synchronously (fast) and return its outcomes."""
-        import tempfile
-        from .._demo import build_demo
-        outcomes: list[dict] = []
-        with tempfile.TemporaryDirectory() as d:
-            _cfg, state, _rid, orch = build_demo(d)
-            summary = orch.run_loop(
-                on_iteration=lambda o: outcomes.append(
-                    {"n": o.n, "verdict": o.verdict, "score": o.score}))
-            state.close()
-        return {"outcomes": outcomes, "summary": {"reason": summary.reason,
-                "best_score": summary.best_score, "iterations": summary.iterations}}
 
     def start_run(self, name: str) -> None:
         with self._lock:
@@ -144,7 +131,7 @@ class RunManager:
 def _persisted_state(name: str) -> dict:
     base = project_dir(name)
     if not (base / "state.db").exists():
-        return {"iterations": [], "best_score": None}
+        return {"iterations": [], "best_score": None, "baseline": {}}
     state = StateStore(base)
     try:
         # prefer the latest run that actually has history (skip empty/zombie runs)
@@ -154,10 +141,16 @@ def _persisted_state(name: str) -> dict:
         if run is None:
             run = state.conn.execute("SELECT * FROM run ORDER BY id DESC LIMIT 1").fetchone()
         if run is None:
-            return {"iterations": [], "best_score": None}
+            return {"iterations": [], "best_score": None, "baseline": {}}
         iters = state.last_iterations(run["id"], 100000)   # oldest-first, with metrics
+        baseline = {}
+        if "baseline_json" in run.keys() and run["baseline_json"]:
+            try:
+                baseline = json.loads(run["baseline_json"])   # resolved metric zero-points
+            except ValueError:
+                baseline = {}
         return {
-            "status": run["status"], "best_score": run["best_score"],
+            "status": run["status"], "best_score": run["best_score"], "baseline": baseline,
             "iterations": [{"n": it.n, "score": it.score, "verdict": it.verdict,
                             "change": it.change_summary, "feedback": it.feedback,
                             "metrics": [{"name": m["name"], "value": m["value"]} for m in it.metrics]}
@@ -275,10 +268,31 @@ def create_app(token: str | None = None) -> FastAPI:
             f.write(text.strip() + "\n")
         return {"ok": True}
 
-    @app.post("/api/demo")
-    def api_demo(token: str | None = Query(None)):
+    # ---- server-side directory browser (for the seed-path picker) ----
+    @app.get("/api/fs")
+    def api_fs(path: str | None = Query(None), token: str | None = Query(None)):
+        """List a directory on the server so the UI can offer a file-manager-style
+        picker (the browser sandbox can't hand us a real server path otherwise).
+        Read-only: lists names, never file contents. Localhost tool — the user owns
+        the machine; we just hide dotfiles and fail soft on unreadable dirs."""
         auth(token)
-        return JSONResponse(app.state.runs.start_demo())
+        base = Path(path).expanduser() if path else Path.home()
+        try:
+            base = base.resolve()
+        except Exception:
+            base = Path.home()
+        if not base.is_dir():
+            base = base.parent if base.parent.is_dir() else Path.home()
+        entries = []
+        try:
+            for p in sorted(base.iterdir(), key=lambda x: (not x.is_dir(), x.name.lower())):
+                if p.name.startswith("."):
+                    continue
+                entries.append({"name": p.name, "path": str(p), "dir": p.is_dir()})
+        except (PermissionError, OSError):
+            pass
+        parent = str(base.parent) if base.parent != base else None
+        return {"path": str(base), "parent": parent, "entries": entries}
 
     # ---- meta for the config form ----
     @app.get("/api/meta")
@@ -287,7 +301,7 @@ def create_app(token: str | None = None) -> FastAPI:
         return {
             "engines": ["claude", "codex", "opencode", "agy"],
             "adapters": ["numeric", "command-exit", "pytest-pass"],
-            "seeds": ["empty", "copy", "generate"],
+            "seeds": ["empty", "copy"],
             "modes": ["asymmetric"],
             "dirs": ["higher", "lower"],
         }
@@ -371,16 +385,41 @@ def create_app(token: str | None = None) -> FastAPI:
         cfg = load_config(base / "config.yaml")
         state = StateStore(base)
         try:
+            # apply any already-resolved zero-points (worst) from the latest run
+            run = state.conn.execute("SELECT baseline_json FROM run "
+                                     "WHERE baseline_json IS NOT NULL ORDER BY id DESC LIMIT 1").fetchone()
+            saved = {}
+            if run and run["baseline_json"]:
+                try:
+                    saved = json.loads(run["baseline_json"])
+                except ValueError:
+                    saved = {}
+            for m in cfg.evaluation.metrics:
+                if m.worst is None and m.name in saved:
+                    m.worst = saved[m.name]
+
             adapter = get_metric_adapter(cfg.evaluation.adapter)
             sandbox = get_backend(cfg.sandbox.backend, cfg.sandbox)
             res = adapter.run(state.artifact_dir, sandbox, cfg.evaluation, cfg.limits.step_seconds)
             out = {"ok": bool(res.ok), "logs": (res.logs or "")[:4000],
+                   "adapter": cfg.evaluation.adapter, "command": cfg.evaluation.command,
                    "metrics": [{"name": m["name"], "value": m["value"]} for m in res.metrics]}
+            preview = False
             if res.ok:
                 from ..scorer import score
+                values = {m["name"]: m["value"] for m in res.metrics}
+                # for any zero-point not yet pinned, preview it as the current measurement
+                # (so the score computes — it will read ~0, i.e. "this is your starting point")
+                for m in cfg.evaluation.metrics:
+                    if m.worst is None and m.name in values:
+                        m.worst = values[m.name]
+                        preview = True
+                out["preview_baseline"] = preview
+                out["metric_specs"] = [{"name": m.name, "dir": m.dir, "weight": m.weight,
+                                        "worst": m.worst, "target": m.target}
+                                       for m in cfg.evaluation.metrics]
                 try:
-                    out["score"] = score({m["name"]: m["value"] for m in res.metrics},
-                                         cfg.evaluation.metrics)
+                    out["score"] = score(values, cfg.evaluation.metrics)
                 except Exception as e:
                     out["score"] = None
                     out["logs"] = f"metrics ran but scoring failed: {e}\n" + out["logs"]

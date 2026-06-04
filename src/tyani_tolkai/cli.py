@@ -1,8 +1,7 @@
-"""CLI entrypoint: `tyani-tolkai run <config>` and `tyani-tolkai demo`.
+"""CLI entrypoint: `tyani-tolkai run <config>`, `projects`, and `web`.
 
-Phase 1 ships a runnable `demo` (mock agent, real numeric adapter + sandbox) so the
-loop can be watched converging live. `run` wires a real config; real CLI-agent
-adapters arrive in Phase 2 (until then it explains that clearly).
+`run` wires a real config and drives the adversarial loop with the configured
+CLI-agent adapters; `projects` is CRUD over saved runs; `web` serves the dashboard.
 """
 
 from __future__ import annotations
@@ -11,7 +10,6 @@ import argparse
 import os
 import shutil
 import sys
-import tempfile
 from pathlib import Path
 
 from .config import Config, load_config
@@ -28,20 +26,6 @@ from .state import StateStore
 
 def _print_iter(o):
     print(f"  iter {o.n:>3}: {o.verdict:<8} score={o.score}")
-
-
-def cmd_demo(_args) -> int:
-    from ._demo import build_demo
-
-    with tempfile.TemporaryDirectory() as d:
-        cfg, state, run_id, orch = build_demo(d)
-        print(f"▶ demo: project={cfg.project}  target={cfg.evaluation.target_score}")
-        print("  (mock Executor raises VALUE; numeric adapter scores it in a local sandbox)")
-        summary = orch.run_loop(on_iteration=_print_iter)
-        print(f"✔ finished: reason={summary.reason}  best_score={summary.best_score}  "
-              f"iterations={summary.iterations}")
-        state.close()
-    return 0
 
 
 def _seed_artifact(state: StateStore, cfg: Config) -> None:
@@ -149,9 +133,6 @@ def main(argv=None) -> int:
     pr.add_argument("config", help="path to config.yaml")
     pr.add_argument("--resume", action="store_true", help="resume an existing project")
     pr.set_defaults(func=cmd_run)
-
-    pd = sub.add_parser("demo", help="run the built-in mock-driven demo loop")
-    pd.set_defaults(func=cmd_demo)
 
     pp = sub.add_parser("projects", help="manage projects")
     pp.add_argument("action", choices=["list", "delete", "rename", "reset", "export", "import"])

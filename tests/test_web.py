@@ -40,15 +40,6 @@ def test_projects_list_has_status(client):
     assert items and items[0]["name"] == "webtest" and "status" in items[0]
 
 
-def test_demo_runs_and_converges(client):
-    r = client.post("/api/demo")
-    assert r.status_code == 200
-    d = r.json()
-    assert d["summary"]["reason"] == "target"
-    assert d["summary"]["best_score"] == 100.0
-    assert d["outcomes"][-1]["score"] == 100.0
-
-
 def test_auth_enforced(tmp_path, monkeypatch):
     monkeypatch.setenv("TYANI_TOLKAI_HOME", str(tmp_path / "home"))
     c = TestClient(create_app(token="secret"))
@@ -80,6 +71,27 @@ def test_files_endpoint(client):
 def test_meta(client):
     m = client.get("/api/meta").json()
     assert "claude" in m["engines"] and "numeric" in m["adapters"]
+    assert m["seeds"] == ["empty", "copy"]              # generate dropped
+
+
+def test_fs_lists_directory(client, tmp_path):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "a.txt").write_text("x")
+    d = client.get("/api/fs", params={"path": str(tmp_path)}).json()
+    assert d["path"] == str(tmp_path)
+    names = [e["name"] for e in d["entries"]]
+    assert "sub" in names and "a.txt" in names
+    assert d["entries"][0]["dir"] is True               # dirs sorted first
+
+
+def test_create_without_worst_is_valid(client):
+    cfg = dict(_VALID, project="nowrst")
+    cfg["evaluation"] = {"adapter": "numeric", "command": "true", "target_score": 100,
+                         "metrics": [{"name": "s", "dir": "higher", "weight": 1, "target": 100}]}
+    assert client.post("/api/projects/create", json=cfg).status_code == 200
+    # persisted-state payload exposes a baseline map (empty until the first run)
+    st = client.get("/api/projects/nowrst").json()
+    assert "baseline" in st
 
 
 def test_create_get_update_config(client):

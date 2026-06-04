@@ -29,12 +29,16 @@ class RoleCfg(BaseModel):
 class MetricCfg(BaseModel):
     name: str
     dir: Literal["higher", "lower"]
-    weight: float = Field(gt=0)
-    worst: float                     # maps to 0
+    weight: float = Field(default=1.0, gt=0)
+    worst: float | None = None       # value mapped to score 0; None → auto-set from the
+    #                                   first measured (baseline) value, so the user never
+    #                                   has to invent a zero-point (orchestrator fills it).
     target: float                    # maps to 100
 
     @model_validator(mode="after")
     def _check_range(self) -> "MetricCfg":
+        if self.worst is None:        # baseline-derived later; nothing to validate yet
+            return self
         if self.worst == self.target:
             raise ValueError(f"metric {self.name!r}: worst and target must differ")
         if self.dir == "higher" and self.target < self.worst:
@@ -50,7 +54,9 @@ class EvaluationCfg(BaseModel):
     metrics: list[MetricCfg] = Field(min_length=1)
     target_score: float = 100.0
     runs: int = 1
-    min_delta: float = 0.0           # keep only if score gain exceeds this (noise band)
+    # noise band on the 0–100 score: keep a candidate only if it improves by more than this.
+    # System-managed default (0.5 ≈ ignore sub-half-point wiggle); not surfaced in the UI.
+    min_delta: float = 0.5
     harness_dir: str | None = None
 
     @model_validator(mode="after")
