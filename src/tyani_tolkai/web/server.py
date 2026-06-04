@@ -50,7 +50,8 @@ class RunManager:
             if r is None:
                 return None          # no in-memory run → caller falls back to idle
             return {"status": r["status"], "summary": r["summary"],
-                    "outcomes": list(r["outcomes"]), "phase": r.get("phase")}
+                    "outcomes": list(r["outcomes"]), "phase": r.get("phase"),
+                    "baseline": dict(r.get("baseline") or {})}
 
     def is_running(self, name: str) -> bool:
         with self._lock:
@@ -62,7 +63,8 @@ class RunManager:
             if self._runs.get(name, {}).get("status") == "running":
                 raise HTTPException(409, "run already in progress")
             self._stop.discard(name)   # clear inside the lock so a racing /stop isn't lost
-            self._runs[name] = {"status": "running", "summary": None, "outcomes": [], "phase": None}
+            self._runs[name] = {"status": "running", "summary": None, "outcomes": [],
+                                "phase": None, "baseline": {}}
         threading.Thread(target=self._run, args=(name,), daemon=True).start()
 
     def _run(self, name: str) -> None:
@@ -100,6 +102,7 @@ class RunManager:
                         {"n": o.n, "verdict": o.verdict, "score": o.score,
                          "feedback": o.feedback, "change": o.change,
                          "metrics": [{"name": m["name"], "value": m["value"]} for m in (o.metrics or [])]})
+                    self._runs[name]["baseline"] = dict(orch._baseline)   # resolved zero-points (live cards)
 
             def on_ph(p):
                 with self._lock:

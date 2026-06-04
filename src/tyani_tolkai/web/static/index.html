@@ -470,7 +470,8 @@ function setFields(cfg){
   $('f_harness').value=ev.harness_dir||'';
   $('metrics').innerHTML='';(ev.metrics||[]).forEach(m=>$('metrics').appendChild(metricRow(m)));
   if(!(ev.metrics||[]).length)$('metrics').appendChild(metricRow());
-  $('f_seed').value=typeof sd==='string'?sd:(sd.mode||'empty');$('f_seedpath').value=sd.path||'';
+  const sm=typeof sd==='string'?sd:(sd.mode||'empty');$('f_seed').value=(sm==='copy')?'copy':'empty';  // retired modes → empty
+  $('f_seedpath').value=sd.path||'';
   $('f_maxiter').value=lim.max_iterations??30;$('f_plateau').value=lim.plateau_N??6;$('f_step').value=lim.step_seconds??600;
   $('f_sandbox').value=sb.backend||'local';vis();}
 function fillForm(name,cfg){current=name;$('cfgTitle').textContent='Проєкт: '+name;$('saveBtn').textContent='💾 Зберегти зміни';
@@ -564,6 +565,7 @@ async function loadState(name){const d=await(await fetch(api('/api/projects/'+na
   $('runGoal').textContent=(CFG&&CFG.roles&&CFG.roles.executor&&CFG.roles.executor.goal)?('🎯 Мета: '+CFG.roles.executor.goal):'';}
 function startPolling(name){if(poll)clearInterval(poll);
   poll=setInterval(async()=>{const d=await(await fetch(api('/api/projects/'+name+'/live'))).json();
+    if(d.baseline&&Object.keys(d.baseline).length)BASELINE=d.baseline;   // live zero-points
     const best=(d.outcomes||[]).reduce((m,o)=>o.score!=null&&o.score>m?o.score:m,0)||null;
     const oc=d.outcomes||[];setStatus(d.status,best,d.summary);plot(oc);renderLog(oc);
     renderMetricCards(oc.length?oc[oc.length-1].metrics:[]);

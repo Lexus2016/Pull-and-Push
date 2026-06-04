@@ -95,7 +95,9 @@ class SandboxCfg(BaseModel):
 
 
 class SeedCfg(BaseModel):
-    mode: Literal["empty", "copy", "generate"] = "empty"
+    # 'generate' was an unimplemented alias for 'empty' — old configs are migrated in
+    # Config._normalize_seed, so only these two modes remain valid.
+    mode: Literal["empty", "copy"] = "empty"
     path: str | None = None
 
 
@@ -118,9 +120,11 @@ class Config(BaseModel):
         if isinstance(data, dict) and "seed" in data:
             raw = data["seed"]
             if isinstance(raw, str):
-                data["seed"] = {"mode": raw}
+                data["seed"] = raw = {"mode": raw}
             elif isinstance(raw, dict) and "copy" in raw:
-                data["seed"] = {"mode": "copy", "path": raw["copy"]}
+                data["seed"] = raw = {"mode": "copy", "path": raw["copy"]}
+            if isinstance(raw, dict) and raw.get("mode") == "generate":
+                raw["mode"] = "empty"            # migrate the retired 'generate' alias
         return data
 
     @model_validator(mode="after")

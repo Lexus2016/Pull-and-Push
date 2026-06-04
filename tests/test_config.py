@@ -43,6 +43,28 @@ def test_rejects_empty_metrics():
         )
 
 
+def test_seed_generate_migrates_to_empty():
+    # 'generate' was an unimplemented alias; old configs must still load (→ empty)
+    common = dict(
+        project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "g"}},
+        evaluation={"adapter": "numeric", "command": "true",
+                    "metrics": [{"name": "s", "dir": "higher", "target": 100}]},
+    )
+    assert Config(seed="generate", **common).seed.mode == "empty"
+    assert Config(seed={"mode": "generate"}, **common).seed.mode == "empty"
+    assert Config(seed={"copy": "/tmp/x"}, **common).seed.mode == "copy"   # copy shorthand still works
+
+
+def test_metric_worst_optional():
+    cfg = Config(
+        project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "g"}},
+        evaluation={"adapter": "numeric", "command": "true",
+                    "metrics": [{"name": "s", "dir": "higher", "target": 100}]},
+    )
+    assert cfg.evaluation.metrics[0].worst is None      # baseline-derived later
+    assert cfg.evaluation.min_delta == 0.5              # system-managed default
+
+
 def test_rejects_inverted_range():
     # dir=higher but target < worst
     with pytest.raises(ValidationError):
