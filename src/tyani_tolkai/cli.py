@@ -37,7 +37,7 @@ def _seed_artifact(state: StateStore, cfg: Config) -> None:
             shutil.copytree(src, state.artifact_dir, dirs_exist_ok=True)
         else:
             print(f"⚠ seed copy path not found: {src} (starting empty)")
-    # 'empty' and 'generate' start empty (generate would run an agent — Phase 3 nicety)
+    # 'empty' starts with no artifact — the first iteration creates the initial code.
 
 
 def cmd_run(args) -> int:

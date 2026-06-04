@@ -517,7 +517,10 @@ async function selectProject(name){
     try{localStorage.removeItem('tt_current');}catch(e){}
     toast('Проєкт недоступний — оновлюю список','err');blankForm();await loadProjects();return;}
   CFG=cfg;fillForm(name,cfg);highlight();loadState(name);showView('progress');
-  try{localStorage.setItem('tt_current',name);}catch(e){}}
+  try{localStorage.setItem('tt_current',name);}catch(e){}
+  // if this project is mid-run, resume LIVE updates (don't show a frozen snapshot)
+  try{const live=await(await fetch(api('/api/projects/'+name+'/live'))).json();
+      if(live.status==='running')startPolling(name);}catch(e){}}
 function ensureChart(){if(chart||!window.Chart)return chart;
   chart=new Chart($('chart'),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:'#46e0d0',
     backgroundColor:'rgba(70,224,208,.14)',tension:.25,pointRadius:4,pointBackgroundColor:'#46e0d0',fill:true}]},
@@ -673,11 +676,7 @@ $('steerBtn').onclick=async()=>{const t=$('steerText').value.trim();if(!current|
   // restore the last-open project after a browser refresh (history is persisted server-side)
   let last=null; try{last=localStorage.getItem('tt_current');}catch(e){}
   const exists=[...$('projects').children].some(li=>li.textContent===last);
-  if(last&&exists){
-    await selectProject(last);
-    const d=await(await fetch(api('/api/projects/'+last+'/live'))).json().catch(()=>({}));
-    if(d.status==='running'){showView('progress');startPolling(last);}  // resume live updates
-  }
+  if(last&&exists){ await selectProject(last); }   // selectProject handles live-resume itself
 })();
 </script>
 </body>
