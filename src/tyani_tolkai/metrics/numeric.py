@@ -25,4 +25,7 @@ class NumericAdapter:
                     {"name": m.name, "value": float(data[m.name]), "dir": m.dir, "weight": m.weight}
                 )
         ok = len(metrics) == len(evaluation.metrics)
-        return MetricResult(metrics=metrics, logs=logs, ok=ok)
+        # expose the full parsed harness output (incl. report-only fields beyond the scored
+        # metrics) so consumers don't re-parse logs (which include stderr and would break).
+        report = data if isinstance(data, dict) else {}
+        return MetricResult(metrics=metrics, logs=logs, ok=ok, data=report)

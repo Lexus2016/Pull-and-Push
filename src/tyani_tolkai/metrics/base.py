@@ -17,6 +17,10 @@ class MetricResult:
     metrics: list[dict] = field(default_factory=list)  # [{name, value, dir, weight}]
     logs: str = ""
     ok: bool = True                                     # False → artifact failed to run
+    data: dict = field(default_factory=dict)           # full parsed adapter output (the harness
+    #                                                    JSON) — report-only fields beyond the
+    #                                                    scored metrics live here, already parsed
+    #                                                    from stdout so it is robust to stderr noise
 
 
 class MetricAdapter(Protocol):

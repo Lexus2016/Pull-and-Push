@@ -168,14 +168,25 @@ class Orchestrator:
                 break
         return "".join(parts).strip()
 
-    def _consult_validator(self, values: dict, new_score, verdict: str, candidate_diff: str) -> None:
+    def _report_extras(self, mres) -> dict:
+        """Report-only fields the harness emitted beyond the scored metrics (win rate, profit
+        factor, trade count, tested period, …) — useful diagnostics for the reviewer's analysis."""
+        data = getattr(mres, "data", None) or {}
+        if not isinstance(data, dict):
+            return {}
+        scored = {m.name for m in self.cfg.evaluation.metrics}
+        return {k: v for k, v in data.items() if k not in scored and v is not None}
+
+    def _consult_validator(self, values: dict, new_score, verdict: str, candidate_diff: str,
+                           report_stats: dict | None = None) -> None:
         """Run the read-only Validator for feedback; guarantee read-only by reverting
         any edits it makes (not every CLI honors a read-only flag)."""
         if self.validator is None:
             return
         cfg, state = self.cfg, self.state
         vprompt = build_validator_prompt(cfg, candidate_diff, values, new_score, verdict,
-                                         self.last_feedback, artifact_text=self._artifact_snapshot())
+                                         self.last_feedback, artifact_text=self._artifact_snapshot(),
+                                         report_stats=report_stats)
         vtimeout = cfg.agents["validator"].timeout if "validator" in cfg.agents else 300
         vres = self.validator.run(vprompt, state.artifact_dir, "read-only", vtimeout)
         if state.has_changes():               # enforce read-only regardless of engine
@@ -186,11 +197,9 @@ class Orchestrator:
     def _format_harness_stats(self, mres) -> str:
         """One-line summary of the harness's report-only fields (anything it prints beyond the
         scored metrics — e.g. trade count, win rate, profit factor, tested period). Folded into
-        the iteration feedback so the operator reads it per iteration without opening raw output."""
-        try:
-            raw = json.loads((mres.logs or "").strip())
-        except (ValueError, TypeError):
-            return ""
+        the iteration feedback so the operator reads it per iteration without opening raw output.
+        Reads the adapter's already-parsed `data` (robust to stderr noise in the logs)."""
+        raw = getattr(mres, "data", None) or {}
         if not isinstance(raw, dict):
             return ""
         scored = {m.name for m in self.cfg.evaluation.metrics}
@@ -336,7 +345,8 @@ class Orchestrator:
         # Validator advises first (read-only) so its "why / what next" persists with the row.
         if self.validator is not None:
             ph("validator")                  # Validator analyzes & advises
-        self._consult_validator(values, new_score, verdict, candidate_diff)
+        self._consult_validator(values, new_score, verdict, candidate_diff,
+                                report_stats=self._report_extras(mres))
         fb = self.last_feedback
         stats = self._format_harness_stats(mres)         # surface report-only harness fields
         if stats:

@@ -90,18 +90,45 @@ class _FakeValidator:
         return RunResult(status="success", stdout=self.text)
 
 
+class _RecordingExecutor:
+    """Executor that records every brief it is handed, then applies the next scripted edit —
+    so a test can assert the reviewer's advice actually reaches the executor's NEXT brief."""
+
+    def __init__(self, edits):
+        self.edits = edits
+        self.i = 0
+        self.briefs = []
+
+    def run(self, brief, workdir, profile, timeout):
+        from tyani_tolkai.agents.base import RunResult
+        self.briefs.append(brief)
+        if self.i >= len(self.edits):
+            return RunResult(status="no_op", stdout="", changed=False)
+        edit = self.edits[self.i]
+        self.i += 1
+        changed = bool(edit(Path(workdir)))
+        return RunResult(status="success" if changed else "no_op", stdout="ok", changed=changed)
+
+
 def test_validator_feedback_flows_into_next_brief(tmp_path):
+    # The reviewer's recommendation must be ANALYSED BY THE EXECUTOR next iteration — i.e. it must
+    # appear in the executor's next brief (the whole point of the loop).
     val = _FakeValidator("reduce leverage")
+    ex = _RecordingExecutor([_edit_val(70), _edit_val(80)])
     s = StateStore(tmp_path / "proj")
     s.git_init()
     run_id = s.create_run("asymmetric")
-    orch = Orchestrator(_cfg(), s, run_id, MockAdapter([_edit_val(70), _edit_val(80)]),
-                        FakeMetric(), LocalBackend(), validator=val)
+    orch = Orchestrator(_cfg(), s, run_id, ex, FakeMetric(), LocalBackend(), validator=val)
+
     o1 = orch.run_iteration()
     assert o1.verdict == "keep"
-    assert orch.last_feedback == "reduce leverage"   # captured for next iteration
+    assert orch.last_feedback == "reduce leverage"          # captured from the reviewer
+
     orch.run_iteration()
-    assert any("reduce leverage" in p for p in val.seen) or val.seen  # validator was consulted
+    assert len(ex.briefs) >= 2
+    # iteration 1 had no prior feedback; iteration 2 carries the reviewer's exact recommendation
+    assert "reduce leverage" not in ex.briefs[0]
+    assert "Validator feedback: reduce leverage" in ex.briefs[1]
 
 
 def test_iteration_records_change_and_feedback(tmp_path):

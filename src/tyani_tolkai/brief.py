@@ -58,7 +58,7 @@ def _attempt_diff(state: StateStore, verdict: str | None, git_hash: str | None,
 
 def build_validator_prompt(cfg: Config, candidate_diff: str, metrics_values: dict,
                            new_score: float | None, verdict: str, prev_feedback: str = "",
-                           artifact_text: str = "") -> str:
+                           artifact_text: str = "", report_stats: dict | None = None) -> str:
     """Prompt for the read-only Reviewer (spec §4). The score is deterministic, so this agent
     is NOT a scorer — it sees the WHOLE current system (the artifact), the latest diff, the metrics
     and the verdict (and, when rejected, its own prior advice) and returns the judgement the number
@@ -75,6 +75,9 @@ def build_validator_prompt(cfg: Config, candidate_diff: str, metrics_values: dic
         f"- This candidate scored {score_txt} → verdict: {verdict.upper()}",
         "- Metrics: " + (", ".join(f"{k}={v}" for k, v in metrics_values.items()) or "(none)"),
     ]
+    if report_stats:
+        lines.append("- Report stats (not scored — use them in your analysis): "
+                     + ", ".join(f"{k}={v}" for k, v in report_stats.items()))
     if verdict in ("discard", "fail"):
         lines.append("- This attempt was REJECTED (it did not clear the best score + noise band).")
         if prev_feedback:

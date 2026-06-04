@@ -37,11 +37,14 @@ def _cfg():
 
 def test_validator_prompt_demands_whole_system_review():
     p = build_validator_prompt(_cfg(), "diff --git a/s.py b/s.py\n+x=1", {"r": 42.0}, 55.1, "keep",
-                               artifact_text="--- s.py ---\nPARAMS = {'risk': 0.9}\n")
+                               artifact_text="--- s.py ---\nPARAMS = {'risk': 0.9}\n",
+                               report_stats={"win_rate_pct": 40.0, "profit_factor": 4.9, "num_trades": 7})
     # never a scorer
     assert "do NOT assign or guess a number" in p
     # sees the whole system, not just the diff
     assert "FULL CURRENT SYSTEM" in p and "PARAMS = {'risk': 0.9}" in p
+    # gets report-only diagnostics (win rate, PF, trades) to reason about, not just the scored metrics
+    assert "Report stats" in p and "win_rate_pct=40.0" in p and "num_trades=7" in p
     # asked to flag fundamental design flaws
     assert "SYSTEM AS A WHOLE" in p
     assert "look-ahead" in p
@@ -93,5 +96,28 @@ def test_artifact_snapshot_includes_system_excludes_harness(home, tmp_path):
         assert "run_backtest.py ---" not in snap
         assert "SECRET_SCORING_FORMULA" not in snap
         assert "data.csv ---" not in snap
+    finally:
+        s.close()
+
+
+def test_format_harness_stats_reads_data_not_logs(home, tmp_path):
+    """The per-iteration 📊 line comes from the adapter's parsed `data`, so stderr noise in the
+    logs can't break it; scored metrics and null fields are excluded."""
+    from tyani_tolkai.metrics.base import MetricResult
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    rid = s.create_run("asymmetric")
+    orch = Orchestrator(_cfg(), s, rid, None, None, None)   # _cfg scores metric "r"
+    try:
+        mres = MetricResult(metrics=[{"name": "r", "value": 80.0}], logs="junk\nDeprecationWarning",
+                            ok=True, data={"r": 80.0, "win_rate_pct": 57.1, "num_trades": 7,
+                                           "profit_factor": None})
+        line = orch._format_harness_stats(mres)
+        assert line.startswith("📊")
+        assert "win_rate_pct=57.1" in line and "num_trades=7" in line
+        assert "r=" not in line              # scored metric excluded
+        assert "profit_factor" not in line   # None excluded
+        # no data → no line
+        assert orch._format_harness_stats(MetricResult(ok=True)) == ""
     finally:
         s.close()

@@ -28,6 +28,22 @@ def test_numeric_broken_artifact(tmp_path):
     assert not res.ok
 
 
+def test_numeric_data_carries_report_fields_and_survives_stderr(tmp_path):
+    # Harness prints its JSON to stdout AND a warning to stderr. Both the scored metric and the
+    # report-only fields must come through: `data` is parsed from stdout, never stdout+stderr.
+    h = tmp_path / "h.py"
+    h.write_text("import sys, json\n"
+                 "sys.stderr.write('DeprecationWarning: noise\\n')\n"
+                 "print(json.dumps({'r': 80.0, 'win_rate_pct': 57.1, 'num_trades': 7}))\n")
+    ev = _eval("numeric", f'{sys.executable} {h}',
+               [MetricCfg(name="r", dir="higher", weight=1, worst=0, target=100)])
+    res = get_metric_adapter("numeric").run(tmp_path, LocalBackend(), ev, timeout=10)
+    assert res.ok
+    assert {m["name"]: m["value"] for m in res.metrics} == {"r": 80.0}
+    assert res.data.get("win_rate_pct") == 57.1 and res.data.get("num_trades") == 7
+    assert "DeprecationWarning" in res.logs        # stderr still captured for display
+
+
 def test_command_exit(tmp_path):
     ev0 = _eval("command-exit", f'{sys.executable} -c "raise SystemExit(0)"',
                 [MetricCfg(name="passed", dir="higher", weight=1, worst=0, target=1)])

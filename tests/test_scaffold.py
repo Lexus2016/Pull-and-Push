@@ -137,3 +137,23 @@ def test_btc_template_scores_on_real_harness(home):
     vals, sc = _eval("score-btc")
     assert set(vals) == {"total_return_pct", "liquidations", "max_drawdown_pct", "max_drawdown_days"}
     assert 0.0 <= sc <= 100.0
+
+
+def test_btc_harness_reports_extra_stats(home):
+    # the operator-requested report-only fields (win rate, profit factor, trades, tested period)
+    # are emitted by the harness and surfaced via the adapter's parsed `data`, beyond the 4 scored
+    scaffold.scaffold_project("rep-btc", "btcusdt futures strategy", "btcusdt-futures")
+    base = project_dir("rep-btc")
+    cfg = load_config(base / "config.yaml")
+    state = StateStore(base)
+    try:
+        sb = get_backend(cfg.sandbox.backend, cfg.sandbox)
+        res = get_metric_adapter(cfg.evaluation.adapter).run(
+            state.artifact_dir, sb, cfg.evaluation, cfg.limits.step_seconds)
+        assert res.ok
+        for k in ("win_rate_pct", "profit_factor", "num_trades", "period_start", "period_end"):
+            assert k in res.data, f"harness did not report {k!r}"
+        assert isinstance(res.data["num_trades"], int)
+        assert res.data["period_start"] and res.data["period_end"]
+    finally:
+        state.close()
