@@ -26,7 +26,10 @@ _EXECUTOR_FOCUS = (
     "agent instructions, memory, and rituals (activation tokens, SSoT, cheap-read "
     "justifications, tqmemory/memory checks, consultants, language/style rules). Work only in "
     "the current working directory; do not explore the wider filesystem or unrelated tools. "
-    "Do exactly what the prompt asks by editing files, then stop. No meta-commentary.")
+    "Just WRITE/EDIT the files the prompt asks for, then STOP IMMEDIATELY. Do NOT run, execute, "
+    "test, backtest, or verify the code yourself, do NOT run shell commands or the metric "
+    "harness — the system scores it automatically after you stop. Finish in one short turn. "
+    "No meta-commentary.")
 
 
 def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
@@ -37,10 +40,16 @@ def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
         # then just sits in the executor phase until the step timeout). This boolean flag
         # is safe to place before the positional prompt. Read-only is still enforced by
         # the orchestrator reverting any edits the validator makes.
-        # --append-system-prompt: claude -p still loads the operator's ~/.claude/CLAUDE.md;
-        # this forces it to act as a confined executor and ignore those personal rituals
-        # (otherwise it spends the turn on SSoT/tqmemory/etc. and never edits → no_op).
+        # claude -p inherits the operator's FULL personal environment, which derails it from
+        # the task. Two strippers (auth is kept — we stay on the default config dir):
+        #  * --strict-mcp-config --mcp-config '{}': load NO MCP servers. Otherwise the agent
+        #    inherits the operator's MCP tools (web search, memory, etc.) and spends the turn
+        #    "researching" instead of writing code. (--mcp-config is variadic, so it is
+        #    followed by another flag to stop it swallowing the positional prompt.)
+        #  * --append-system-prompt: override ~/.claude/CLAUDE.md personal rituals so it acts
+        #    as a confined executor (write files, don't run/test, stop).
         cmd = ["claude", "-p", "--dangerously-skip-permissions",
+               "--mcp-config", '{"mcpServers":{}}', "--strict-mcp-config",
                "--append-system-prompt", _EXECUTOR_FOCUS]
         if model:
             cmd += ["--model", model]

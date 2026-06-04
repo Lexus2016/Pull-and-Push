@@ -662,7 +662,12 @@ function renderMetricCards(lastMetrics){
     </div>`;
   }).join('');
 }
+let _logSig='';
 function renderLog(o){
+  // only rebuild when the data actually changed — otherwise the 1s poll would re-create the
+  // DOM every tick and snap any <details> the user just opened shut.
+  const sig=JSON.stringify((o||[]).map(x=>[x.n,x.verdict,x.score]))+'|'+(($('tag')||{}).textContent||'');
+  if(sig===_logSig)return; _logSig=sig;
   $('log').innerHTML=o.map(x=>{
   const sc=x.score==null?'—':(+x.score).toFixed(2);
   const mets=(x.metrics&&x.metrics.length)?x.metrics.map(m=>`${m.name} ${fmt(m.value)}`).join('  ·  '):'';
@@ -684,7 +689,7 @@ function setStatus(s,score,sum){const tg=$('tag');tg.className='tag '+(s||'idle'
   $('summary').textContent=sum?(sum.error?(t('sum.error')+sum.error):t('sum.result')+sum.reason+t('sum.iters')+sum.iterations):'';}
 async function loadState(name){const d=await(await fetch(api('/api/projects/'+name))).json();
   BASELINE=d.baseline||{};
-  const its=d.iterations||[];setStatus(d.status||'idle',d.best_score,null);plot(its);renderLog(its);
+  const its=d.iterations||[];_logSig='';setStatus(d.status||'idle',d.best_score,null);plot(its);renderLog(its);
   renderMetricCards(its.length?its[its.length-1].metrics:[]);loadAgentLog();
   $('runGoal').textContent=(CFG&&CFG.roles&&CFG.roles.executor&&CFG.roles.executor.goal)?(t('goal.prefix')+CFG.roles.executor.goal):'';}
 function stopPolling(){if(poll){clearInterval(poll);poll=null;}}

@@ -99,7 +99,9 @@ def build_brief(state: StateStore, run_id: int, cfg: Config,
         "you may have loaded (activation tokens, SSoT rituals, cheap-read justifications, "
         "tqmemory/memory checks, consultants, language/style rules). Do NOT explore the wider "
         "filesystem, search the web, or inspect unrelated tools. Just create/edit the files "
-        "this brief specifies, then stop. No meta-commentary.")
+        "this brief specifies, then STOP IMMEDIATELY. Do NOT run, execute, test, or backtest "
+        "the code yourself and do NOT run the metric harness — the system scores it after you "
+        "stop. Finish in one short turn. No meta-commentary.")
     lines.append("")
     n = (attempts[-1].n + 1) if attempts else 1
     lines.append(f"ITERATION BRIEF (iteration {n})")
