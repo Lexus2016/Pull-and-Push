@@ -154,6 +154,15 @@ def test_executor_restarted_on_crash(tmp_path):
     assert o.verdict == "keep"          # the retry recovered and the real change scored
 
 
+def test_phase_callbacks_fire_in_order(tmp_path):
+    s = StateStore(tmp_path / "p"); s.git_init(); rid = s.create_run("asymmetric")
+    orch = Orchestrator(_cfg(), s, rid, MockAdapter([_edit_val(80)]), FakeMetric(),
+                        LocalBackend(), validator=_FakeValidator("ok"))
+    phases = []
+    orch.run_iteration(on_phase=lambda p: phases.append(p))
+    assert phases == ["executor", "scoring", "validator"]
+
+
 def test_rate_limit_pauses_run(tmp_path):
     s = StateStore(tmp_path / "p"); s.git_init(); rid = s.create_run("asymmetric")
     orch = Orchestrator(_cfg(), s, rid, _RateLimited(), FakeMetric(), LocalBackend())

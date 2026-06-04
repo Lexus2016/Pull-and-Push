@@ -56,6 +56,18 @@ def test_reset_clears_history(home):
     assert rows == 0
 
 
+def test_export_includes_docs_and_code(home, tmp_path):
+    import tarfile
+    _make_project("p")
+    tar = tmp_path / "p.tar.gz"
+    export_project("p", tar)
+    names = tarfile.open(tar).getnames()
+    assert any(n.endswith("/README.md") for n in names)        # how-to-run doc
+    assert any(n.endswith("/RESULTS.md") for n in names)        # metrics report
+    assert any(n.endswith("/artifact/code.py") for n in names)  # the actual result code
+    assert not any("__pycache__" in n for n in names)           # no junk
+
+
 def test_export_import_roundtrip(home, tmp_path):
     _make_project("p")
     tar = tmp_path / "p.tar.gz"
