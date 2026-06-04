@@ -105,7 +105,7 @@ def cmd_projects(args) -> int:
         dest = export_project(args.name, args.to)
         print(f"exported {args.name!r} → {dest}")
     elif action == "import":
-        new = import_project(args.name, args.to)   # name = tar path, --to = new name
+        new = import_project(args.name, args.to)   # name = .zip path, --to = new name
         print(f"imported → project {new!r}")
     return 0
 

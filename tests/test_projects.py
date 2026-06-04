@@ -57,11 +57,11 @@ def test_reset_clears_history(home):
 
 
 def test_export_includes_docs_and_code(home, tmp_path):
-    import tarfile
+    import zipfile
     _make_project("p")
-    tar = tmp_path / "p.tar.gz"
-    export_project("p", tar)
-    names = tarfile.open(tar).getnames()
+    zp = tmp_path / "p.zip"
+    export_project("p", zp)
+    names = zipfile.ZipFile(zp).namelist()
     assert any(n.endswith("/README.md") for n in names)        # how-to-run doc
     assert any(n.endswith("/RESULTS.md") for n in names)        # metrics report
     assert any(n.endswith("/artifact/code.py") for n in names)  # the actual result code
@@ -70,10 +70,10 @@ def test_export_includes_docs_and_code(home, tmp_path):
 
 def test_export_import_roundtrip(home, tmp_path):
     _make_project("p")
-    tar = tmp_path / "p.tar.gz"
-    export_project("p", tar)
-    assert tar.exists()
-    import_project(tar, "q")
+    zp = tmp_path / "p.zip"
+    export_project("p", zp)
+    assert zp.exists()
+    import_project(zp, "q")
     qd = project_dir("q")
     assert (qd / "state.db").exists()
     assert (qd / "artifact" / ".git").exists()

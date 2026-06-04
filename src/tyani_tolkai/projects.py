@@ -1,8 +1,9 @@
 """Project lifecycle: list / delete / rename / reset / export / import (spec §9).
 
 A project is a self-contained directory under the home root. Export bundles it into
-a single tar (the artifact's git history travels as a `git bundle`, all paths
-relative, secrets excluded) so a run can continue on another machine.
+a single ZIP — the deliverable RESULT (artifact code + README + RESULTS) plus the
+data needed to continue elsewhere (config, state, and the artifact's git history as
+a `git bundle`). ZIP so it opens with a double-click on any OS.
 """
 
 from __future__ import annotations
@@ -12,8 +13,8 @@ import re
 import shutil
 import sqlite3
 import subprocess
-import tarfile
 import tempfile
+import zipfile
 from pathlib import Path
 
 import yaml
@@ -162,11 +163,11 @@ port them into your own backtest or live pipeline.
     return readme, results
 
 
-def export_project(name: str, dest_tar: str | Path) -> Path:
+def export_project(name: str, dest_zip: str | Path) -> Path:
     d = project_dir(name)
     if not d.exists():
         raise FileNotFoundError(f"no such project: {name}")
-    dest = Path(dest_tar)
+    dest = Path(dest_zip)
     with tempfile.TemporaryDirectory() as tmp:
         stage = Path(tmp) / name
         stage.mkdir()
@@ -189,15 +190,17 @@ def export_project(name: str, dest_tar: str | Path) -> Path:
         readme, results = _build_docs(d, name)     # human-readable deliverable docs
         (stage / "README.md").write_text(readme, encoding="utf-8")
         (stage / "RESULTS.md").write_text(results, encoding="utf-8")
-        with tarfile.open(dest, "w:gz") as tar:
-            tar.add(stage, arcname=name)
+        with zipfile.ZipFile(dest, "w", zipfile.ZIP_DEFLATED) as z:
+            for p in sorted(stage.rglob("*")):
+                if p.is_file():
+                    z.write(p, arcname=str(Path(name) / p.relative_to(stage)))
     return dest
 
 
-def import_project(src_tar: str | Path, name: str | None = None) -> str:
+def import_project(src_zip: str | Path, name: str | None = None) -> str:
     with tempfile.TemporaryDirectory() as tmp:
-        with tarfile.open(src_tar, "r:gz") as tar:
-            tar.extractall(tmp, filter="data")   # safe extraction (no path escape)
+        with zipfile.ZipFile(src_zip) as z:
+            z.extractall(tmp)                    # zipfile sanitizes member paths (no escape)
         roots = [p for p in Path(tmp).iterdir() if p.is_dir()]
         if not roots:
             raise ValueError("empty archive")

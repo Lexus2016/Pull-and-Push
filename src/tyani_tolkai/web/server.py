@@ -530,8 +530,8 @@ def create_app(token: str | None = None) -> FastAPI:
     @app.get("/api/projects/{name}/export")
     def api_export(name: str, token: str | None = Query(None)):
         auth(token)
-        dest = Path(tempfile.mkdtemp()) / f"{name}.tar.gz"   # unique dir per request
+        dest = Path(tempfile.mkdtemp()) / f"{name}.zip"      # unique dir per request
         export_project(name, dest)
-        return FileResponse(dest, filename=f"{name}.tar.gz")
+        return FileResponse(dest, filename=f"{name}.zip", media_type="application/zip")
 
     return app
