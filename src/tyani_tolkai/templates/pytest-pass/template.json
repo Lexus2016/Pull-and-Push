@@ -1,0 +1,26 @@
+{
+  "id": "pytest-pass",
+  "name": "Make the tests pass (Python)",
+  "keywords": ["code", "python", "tests", "pytest", "implement", "function", "fix",
+               "bug", "algorithm", "kata", "correctness", "pass"],
+  "summary": "The executor edits solution.py until a hidden pytest suite passes. Score = percentage of tests passing. A good template for code-correctness tasks.",
+  "config": {
+    "mode": "asymmetric",
+    "agents": {"executor": {"engine": "claude", "timeout": 600},
+               "validator": {"engine": "claude", "timeout": 300}},
+    "roles": {
+      "executor": {"task": "Edit ONLY solution.py to make the hidden tests pass. Do not create other files. One focused change per step."},
+      "validator": {"goal": "Say which behaviour is still failing and suggest one concrete fix."}
+    },
+    "evaluation": {
+      "adapter": "pytest-pass",
+      "harness_dir": "metrics",
+      "target_score": 100,
+      "metrics": [
+        {"name": "pass_pct", "dir": "higher", "weight": 1.0, "target": 100}
+      ]
+    },
+    "limits": {"max_iterations": 30, "plateau_N": 6, "step_seconds": 600},
+    "sandbox": {"backend": "local"}
+  }
+}

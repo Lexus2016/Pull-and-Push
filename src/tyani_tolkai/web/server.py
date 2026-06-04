@@ -364,6 +364,39 @@ def create_app(token: str | None = None) -> FastAPI:
             "dirs": ["higher", "lower"],
         }
 
+    # ---- research + scaffold phase: vetted templates → runnable project ----
+    @app.get("/api/templates")
+    def api_templates(token: str | None = Query(None)):
+        auth(token)
+        from ..scaffold import list_templates
+        return {"templates": list_templates()}
+
+    @app.post("/api/scaffold")
+    def api_scaffold(payload: dict = Body(...), token: str | None = Query(None)):
+        """Build a ready-to-run project from a template (the scoring harness ships vetted,
+        never generated). Description becomes the executor goal; if no template is given it
+        is inferred from the description."""
+        auth(token)
+        from ..scaffold import pick_template, scaffold_project
+        name = (payload.get("project") or "").strip()
+        desc = (payload.get("description") or "").strip()
+        tid = (payload.get("template_id") or "").strip() or None
+        if not name:
+            raise HTTPException(400, "project name required")
+        if not desc:
+            raise HTTPException(400, "description required")
+        if tid is None:
+            tid = pick_template(desc)
+            if tid is None:
+                raise HTTPException(422, "could not infer a template from the description; "
+                                         "pick one explicitly")
+        try:
+            return scaffold_project(name, desc, tid)
+        except FileExistsError as e:
+            raise HTTPException(409, str(e))
+        except (ValueError, FileNotFoundError) as e:
+            raise HTTPException(422, str(e))
+
     # ---- configurator agent: description → draft config ----
     @app.post("/api/configure")
     def api_configure(payload: dict = Body(...), token: str | None = Query(None)):

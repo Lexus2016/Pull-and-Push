@@ -38,6 +38,12 @@ python3.12 -m venv .venv
 .venv/bin/pull-and-push web            # open the printed URL (tyani-tolkai also works)
 ```
 
+- 🚀 **Start from a template** *(recommended)* — the research + scaffold phase. Pick a vetted
+  template (or let it auto-detect from your description), name the project, and it is created
+  **ready to run**: a real, committed scoring harness lands in `metrics/` (outside the artifact,
+  so the executor can't see or edit it), your description becomes the executor's goal. No
+  hand-authored scorer, nothing to fix before the first **Run**. Templates today:
+  `btcusdt-futures` (leveraged BTCUSDT 5m backtest) and `pytest-pass` (make a hidden test suite pass).
 - 🪄 **Generate from a description** — describe the task in plain language; a configurator
   agent drafts the whole project, you review it in the form, then **Create**.
 - ▶ **Run** drives the real agents; the quality curve, metric cards, iteration log and the

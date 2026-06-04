@@ -33,6 +33,9 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 "tyani_tolkai.web" = ["static/*.html"]
+# Vetted scaffold templates (manifest + seed + harness) ship with the package so the
+# research/scaffold phase works from an installed wheel, not just an editable checkout.
+"tyani_tolkai" = ["templates/**/*", "templates/**/*.csv", "templates/**/*.py", "templates/**/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
