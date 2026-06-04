@@ -464,13 +464,13 @@ def create_app(token: str | None = None) -> FastAPI:
                    "metrics": [{"name": m["name"], "value": m["value"]} for m in res.metrics]}
             preview = False
             if res.ok:
-                from ..scorer import score
+                from ..scorer import resolve_worst, score
                 values = {m["name"]: m["value"] for m in res.metrics}
-                # for any zero-point not yet pinned, preview it as the current measurement
-                # (so the score computes — it will read ~0, i.e. "this is your starting point")
+                # preview any unpinned zero-point the same way the orchestrator does (with the
+                # already-at-goal guard) so test-eval scores identically to a real run.
                 for m in cfg.evaluation.metrics:
                     if m.worst is None and m.name in values:
-                        m.worst = values[m.name]
+                        m.worst = resolve_worst(m.dir, m.target, values[m.name])
                         preview = True
                 out["preview_baseline"] = preview
                 out["metric_specs"] = [{"name": m.name, "dir": m.dir, "weight": m.weight,

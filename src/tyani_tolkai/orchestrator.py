@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 
 from .brief import build_brief, build_validator_prompt
 from .config import Config
-from .scorer import decide, score
+from .scorer import decide, resolve_worst, score
 from .state import StateStore
 
 _DIFF_KEEP_CHARS = 2000
@@ -89,14 +89,7 @@ class Orchestrator:
         for m in self.cfg.evaluation.metrics:
             if m.worst is not None or m.name not in values:
                 continue
-            v = float(values[m.name])
-            already_at_goal = (m.dir == "higher" and v >= m.target) or \
-                              (m.dir == "lower" and v <= m.target)
-            if already_at_goal:        # seed is at/beyond goal → keep a valid range; reads ~100
-                span = max(abs(m.target) * 0.1, 1.0)
-                m.worst = m.target - span if m.dir == "higher" else m.target + span
-            else:
-                m.worst = v
+            m.worst = resolve_worst(m.dir, m.target, float(values[m.name]))
             self._baseline[m.name] = m.worst
             changed = True
         if changed:

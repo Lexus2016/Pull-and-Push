@@ -15,6 +15,18 @@ from .config import MetricCfg
 Verdict = Literal["keep", "discard"]
 
 
+def resolve_worst(dir: str, target: float, value: float) -> float:
+    """Pin a metric's zero-point (worst) to its first measured ``value``. If that value
+    already meets or beats the target, keep a hair of range so worst != target (the seed
+    then reads ~100 = 'already there'). Used by the orchestrator AND test-eval so both
+    score identically."""
+    at_goal = (dir == "higher" and value >= target) or (dir == "lower" and value <= target)
+    if at_goal:
+        span = max(abs(target) * 0.1, 1.0)
+        return target - span if dir == "higher" else target + span
+    return value
+
+
 def normalize(value: float, worst: float, target: float, dir: str = "higher") -> float:
     """Map ``value`` onto 0–100 via the worst→target range, clamped.
 
