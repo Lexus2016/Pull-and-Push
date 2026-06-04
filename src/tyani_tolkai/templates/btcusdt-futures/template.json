@@ -10,7 +10,7 @@
                "validator": {"engine": "claude", "timeout": 300}},
     "roles": {
       "executor": {"task": "Edit ONLY strategy.py — tune the PARAMS dict values. Do NOT modify or run anything under metrics/. One focused change per step."},
-      "validator": {"goal": "Say why the score moved and suggest one concrete PARAMS change."}
+      "validator": {"goal": "Review the change: your honest opinion on whether the idea was sound, why the score moved, and one or two concrete PARAMS ideas to try next."}
     },
     "evaluation": {
       "adapter": "numeric",

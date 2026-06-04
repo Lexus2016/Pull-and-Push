@@ -10,7 +10,7 @@
                "validator": {"engine": "claude", "timeout": 300}},
     "roles": {
       "executor": {"task": "Edit ONLY solution.py to make the hidden tests pass. Do not create other files. One focused change per step."},
-      "validator": {"goal": "Say which behaviour is still failing and suggest one concrete fix."}
+      "validator": {"goal": "Review the change: your opinion on the approach, which behaviour is still failing and why, and one or two concrete fixes to try next."}
     },
     "evaluation": {
       "adapter": "pytest-pass",

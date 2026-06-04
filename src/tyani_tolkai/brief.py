@@ -58,17 +58,20 @@ def _attempt_diff(state: StateStore, verdict: str | None, git_hash: str | None,
 
 def build_validator_prompt(cfg: Config, candidate_diff: str, metrics_values: dict,
                            new_score: float | None, verdict: str, prev_feedback: str = "") -> str:
-    """Prompt for the read-only Validator (spec §4): it sees the candidate diff, the
-    metrics, the verdict — and, when rejected, its own prior advice — then returns one
-    concrete next step. It never assigns the number."""
+    """Prompt for the read-only Reviewer (spec §4). The score is deterministic, so this agent
+    is NOT a scorer — it sees the candidate diff, the metrics and the verdict (and, when rejected,
+    its own prior advice) and returns the judgement the number can't give: an assessment of the
+    change, why the score moved, and concrete ideas to try next. It never assigns the number."""
     role = cfg.roles.get("validator")
-    goal = role.goal if role else "Diagnose why the score moved; give one concrete next step."
+    goal = role.goal if role else ("Review the change, give your honest opinion on it, and "
+                                   "suggest concrete improvements.")
     score_txt = "n/a (did not run)" if new_score is None else f"{new_score:.2f}"
     lines = [
-        "You are the read-only VALIDATOR. Do NOT edit files. Return only short, concrete advice.",
+        "You are the read-only REVIEWER. A deterministic harness already computed the score, so do "
+        "NOT assign or guess a number — give the judgement the score can't. Do NOT edit files.",
         f"- Goal: {goal}",
         f"- This candidate scored {score_txt} → verdict: {verdict.upper()}",
-        f"- Metrics: " + (", ".join(f"{k}={v}" for k, v in metrics_values.items()) or "(none)"),
+        "- Metrics: " + (", ".join(f"{k}={v}" for k, v in metrics_values.items()) or "(none)"),
     ]
     if verdict in ("discard", "fail"):
         lines.append("- This attempt was REJECTED (it did not clear the best score + noise band).")
@@ -76,7 +79,13 @@ def build_validator_prompt(cfg: Config, candidate_diff: str, metrics_values: dic
             lines.append(f"- Your PREVIOUS advice was: {prev_feedback!r} — it did not work; change direction.")
     lines.append("- Candidate diff:")
     lines.append(_truncate(candidate_diff, 40))
-    lines.append("Give ONE concrete next change to raise the weighted score (<=3 sentences).")
+    lines.append("")
+    lines.append("Reply in three short, labelled parts:")
+    lines.append("1. ASSESSMENT — what this change actually did and whether it was a sound idea "
+                 "(call out risks or side-effects the score alone hides).")
+    lines.append("2. WHY — why the score moved the way it did.")
+    lines.append("3. IDEAS — one or two concrete changes to try next, plus any higher-level idea "
+                 "worth exploring. Keep each part to a sentence or two.")
     return "\n".join(lines)
 
 

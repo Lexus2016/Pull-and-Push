@@ -155,7 +155,8 @@ class Orchestrator:
         vres = self.validator.run(vprompt, state.artifact_dir, "read-only", vtimeout)
         if state.has_changes():               # enforce read-only regardless of engine
             state.revert_uncommitted()
-        self.last_feedback = (vres.stdout or "").strip()[:1000]
+        # keep the reviewer's full assessment/why/ideas (3 short parts) — 1000 chars clipped it
+        self.last_feedback = (vres.stdout or "").strip()[:2000]
 
     def _format_harness_stats(self, mres) -> str:
         """One-line summary of the harness's report-only fields (anything it prints beyond the

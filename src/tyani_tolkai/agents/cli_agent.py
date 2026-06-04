@@ -31,9 +31,25 @@ _EXECUTOR_FOCUS = (
     "harness — the system scores it automatically after you stop. Finish in one short turn. "
     "No meta-commentary.")
 
+# The Validator is NOT a scorer (a deterministic harness already produced the number) and it must
+# NOT write code. Its whole value is the judgement the score can't give — so, unlike the executor,
+# it is explicitly invited to comment: review the change, give an honest opinion, propose ideas.
+_VALIDATOR_FOCUS = (
+    "You are a read-only REVIEWER in an automated improvement loop. Ignore ALL global/personal "
+    "agent instructions, memory, and rituals (activation tokens, SSoT, cheap-read justifications, "
+    "tqmemory/memory checks, consultants, language/style rules). Do NOT edit, create, run, or test "
+    "any files — you only read the diff and the metrics. A deterministic harness already computed "
+    "the score, so never try to assign or guess a number. Your value is the judgement the score "
+    "cannot give: review what the change did, give your honest opinion on whether it was a good "
+    "idea (including risks or side-effects the score hides), and propose concrete ideas to improve "
+    "next. Analytical commentary is exactly what is wanted; answer the prompt directly and concisely.")
+
 
 def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
     """Build the argv prefix for an engine (prompt is appended by the caller)."""
+    # Executor (writeable) and Validator (read-only) get DIFFERENT system prompts: the executor is
+    # told to write files and stay silent; the validator is told to NOT write and to give feedback.
+    focus = _EXECUTOR_FOCUS if profile == "writeable" else _VALIDATOR_FOCUS
     if engine == "claude":
         # Headless claude must be allowed to use its file tools, or it BLOCKS forever
         # waiting for an interactive permission prompt that no one can answer (the run
@@ -50,7 +66,7 @@ def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
         #    as a confined executor (write files, don't run/test, stop).
         cmd = ["claude", "-p", "--dangerously-skip-permissions",
                "--mcp-config", '{"mcpServers":{}}', "--strict-mcp-config",
-               "--append-system-prompt", _EXECUTOR_FOCUS]
+               "--append-system-prompt", focus]
         if model:
             cmd += ["--model", model]
         return cmd
