@@ -120,6 +120,7 @@
     color:var(--mut);font-size:13px;font-weight:600;letter-spacing:1.5px;text-transform:uppercase;cursor:pointer;
     border-radius:var(--radius) var(--radius) 0 0;transition:color .15s,background .15s}
   .tab:hover{color:var(--ink)}
+  .tab:disabled,.tab.locked{opacity:.38;cursor:not-allowed;pointer-events:none}
   .tab.active{color:var(--cold);background:var(--panel);border-color:var(--line);
     box-shadow:0 2px 0 0 var(--panel),inset 0 2px 0 0 var(--cold)}
 
@@ -456,7 +457,7 @@ function blankForm(){current=null;$('cfgTitle').textContent='Новий проє
   $('f_va_engine').value='';$('f_target').value=100;$('f_maxiter').value=30;
   $('f_plateau').value=6;$('f_step').value=600;$('f_seed').value='empty';$('f_sandbox').value='local';$('f_adapter').value='numeric';
   $('metrics').innerHTML='';$('metrics').appendChild(metricRow({name:'score',dir:'higher',weight:1,target:100}));
-  $('f_project').disabled=false;enableControls(false);vis();highlight();showView('config');
+  $('f_project').disabled=false;enableControls(false);lockProgressTab(true);vis();highlight();showView('config');
   try{$('manualForm').open=false;}catch(e){}}
 function setFields(cfg){
   const a=cfg.agents||{},r=cfg.roles||{},ev=cfg.evaluation||{},lim=cfg.limits||{},sd=cfg.seed||{},sb=cfg.sandbox||{};
@@ -475,7 +476,7 @@ function setFields(cfg){
   $('f_maxiter').value=lim.max_iterations??30;$('f_plateau').value=lim.plateau_N??6;$('f_step').value=lim.step_seconds??600;
   $('f_sandbox').value=sb.backend||'local';vis();}
 function fillForm(name,cfg){current=name;$('cfgTitle').textContent='Проєкт: '+name;$('saveBtn').textContent='💾 Зберегти зміни';
-  setFields({...cfg,project:name});$('f_project').disabled=true;enableControls(true);
+  setFields({...cfg,project:name});$('f_project').disabled=true;enableControls(true);lockProgressTab(false);
   try{$('manualForm').open=true;}catch(e){}}
 function applyGenerated(cfg){blankForm();setFields(cfg);$('f_project').disabled=false;current=null;
   $('cfgTitle').textContent='Новий проєкт (згенеровано) — перевір і натисни «Створити»';$('saveBtn').textContent='💾 Створити';
@@ -578,12 +579,16 @@ function startPolling(name){if(poll)clearInterval(poll);
 
 $('helpBtn').onclick=()=>$('helpCard').classList.toggle('hidden');
 $('navBtn').onclick=()=>document.body.classList.toggle('nav-collapsed');
-function showView(v){$('view-config').classList.toggle('hidden',v!=='config');
+function lockProgressTab(lock){const t=$('tabProgress');t.disabled=lock;t.classList.toggle('locked',lock);
+  t.title=lock?'Спершу обери або створи проєкт':'';}
+function showView(v){
+  if(v==='progress'&&!current){v='config';}        // no project → Progress is meaningless
+  $('view-config').classList.toggle('hidden',v!=='config');
   $('view-progress').classList.toggle('hidden',v!=='progress');
   $('tabConfig').classList.toggle('active',v==='config');
   $('tabProgress').classList.toggle('active',v==='progress');}
 $('tabConfig').onclick=()=>showView('config');
-$('tabProgress').onclick=()=>showView('progress');
+$('tabProgress').onclick=()=>{if(current)showView('progress');};
 $('newBtn').onclick=()=>{blankForm();showView('config');};
 $('addMetric').onclick=()=>$('metrics').appendChild(metricRow());
 $('f_adapter').onchange=vis;$('f_seed').onchange=vis;$('f_va_engine').onchange=vis;
