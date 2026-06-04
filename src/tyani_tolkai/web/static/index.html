@@ -287,23 +287,36 @@
           <div class="field"><label>min_delta <small>(шум-смуга)</small></label><input id="f_mindelta" type="number" value="1">
             <div class="hint">Тримати зміну, лише якщо бал виріс більше за це.</div></div>
         </div>
-        <label style="margin-top:14px">Метрики <span class="hint" style="display:inline">— worst→target нормалізується у 0→100, потім зважується</span></label>
+        <label style="margin-top:14px">Метрики <span class="hint" style="display:inline">— кожна нормалізується worst→target у 0–100 за своїм напрямом; бал = зважена сума. Для «менше=краще» (напр. drawdown) worst &gt; target.</span></label>
         <div class="mhead"><span>name</span><span>напрям</span><span>weight</span><span>worst</span><span>target</span><span></span></div>
         <div id="metrics"></div>
         <button class="btn sec" id="addMetric" style="width:auto;padding:9px 14px;margin-top:6px">＋ метрика</button>
       </fieldset>
 
-      <fieldset><legend>Seed · Ліміти · Sandbox</legend>
+      <fieldset><legend>Стартовий код <small>з чого починає виконавець</small></legend>
         <div class="grid">
-          <div class="field"><label>Seed <small>(стартовий артефакт)</small></label><select id="f_seed"></select>
-            <div class="hint"><b>empty</b>: з нуля · <b>copy</b>: наявний код · <b>generate</b>: агент згенерує.</div></div>
-          <div class="field" id="seedpath_wrap"><label>Seed path</label><input id="f_seedpath" placeholder="~/code/baseline">
-            <div class="hint">Тека для копіювання (оригінал недоторканий).</div></div>
-          <div class="field"><label>max_iterations</label><input id="f_maxiter" type="number" value="30"></div>
-          <div class="field"><label>plateau_N</label><input id="f_plateau" type="number" value="6"></div>
-          <div class="field"><label>step_seconds</label><input id="f_step" type="number" value="600"></div>
+          <div class="field"><label>Seed — стартовий артефакт</label><select id="f_seed"></select>
+            <div class="hint"><b>empty</b>: створити з нуля · <b>copy</b>: скопіювати наявний код · <b>generate</b>: агент згенерує початкову версію.</div></div>
+          <div class="field" id="seedpath_wrap"><label>Шлях для copy</label><input id="f_seedpath" placeholder="~/code/baseline">
+            <div class="hint">Тека, яку скопіювати в артефакт як старт (оригінал недоторканий).</div></div>
+        </div>
+      </fieldset>
+
+      <fieldset><legend>Коли зупиняти прогін <small>будь-яка умова зупиняє цикл</small></legend>
+        <div class="grid">
+          <div class="field"><label>Макс. ітерацій <small>(max_iterations)</small></label><input id="f_maxiter" type="number" value="30">
+            <div class="hint">Жорсткий стоп: найбільше кроків, навіть якщо ціль ще не досягнута.</div></div>
+          <div class="field"><label>Плато, N кроків <small>(plateau_N)</small></label><input id="f_plateau" type="number" value="6">
+            <div class="hint">Стоп, якщо N змістовних змін поспіль НЕ покращили бал (застрягли).</div></div>
+          <div class="field"><label>Таймаут кроку, сек <small>(step_seconds)</small></label><input id="f_step" type="number" value="600">
+            <div class="hint">Скільки чекати один прогін агента, перш ніж перервати його.</div></div>
+        </div>
+      </fieldset>
+
+      <fieldset><legend>Пісочниця виконання <small>де запускається код стратегії</small></legend>
+        <div class="grid">
           <div class="field"><label>Sandbox</label><select id="f_sandbox"><option value="local">local</option><option value="docker">docker</option></select>
-            <div class="hint"><b>docker</b>: ізоляція · <b>local</b>: швидше.</div></div>
+            <div class="hint"><b>docker</b>: ізольоване й безпечне виконання згенерованого коду · <b>local</b>: швидше, без ізоляції.</div></div>
         </div>
       </fieldset>
 
@@ -369,11 +382,12 @@ function vis(){const ad=$('f_adapter').value;
   $('va_goal_wrap').classList.toggle('hidden',!hasVa);}
 
 function metricRow(m={}){const d=document.createElement('div');d.className='mrow';
+  const dlbl={higher:'↑ більше = краще',lower:'↓ менше = краще'};
   d.innerHTML=`<input placeholder="sharpe" value="${m.name||''}">
-    <select>${META.dirs.map(x=>`<option ${m.dir===x?'selected':''}>${x}</option>`).join('')}</select>
-    <input type="number" step="any" value="${m.weight??1}">
-    <input type="number" step="any" value="${m.worst??0}">
-    <input type="number" step="any" value="${m.target??100}">
+    <select>${META.dirs.map(x=>`<option value="${x}" ${m.dir===x?'selected':''}>${dlbl[x]||x}</option>`).join('')}</select>
+    <input type="number" step="any" placeholder="вага" value="${m.weight??1}">
+    <input type="number" step="any" placeholder="worst" value="${m.worst??0}">
+    <input type="number" step="any" placeholder="target" value="${m.target??100}">
     <button title="видалити метрику">✕</button>`;
   d.querySelector('button').onclick=()=>d.remove();return d;}
 function getMetrics(){return[...$('metrics').children].map(r=>{const i=r.querySelectorAll('input'),s=r.querySelector('select');
@@ -445,7 +459,7 @@ function renderMetricCards(lastMetrics){
     const v=by[s.name], has=Number.isFinite(v);
     let pct=0,reached=false;
     if(has && s.target!==s.worst){pct=((v-s.worst)/(s.target-s.worst))*100;pct=Math.max(0,Math.min(100,pct));reached=pct>=99.999;}
-    const arrow=s.dir==='higher'?'▲':'▼';
+    const arrow=s.dir==='higher'?'▲ макс':'▼ мін';
     return `<div class="mcard${reached?' reached':''}">
       <div class="mc-top"><span class="mc-name">${esc(s.name)}</span><span class="mc-dir">${arrow}</span></div>
       <div class="mc-val">${has?fmt(v):'—'}</div>
