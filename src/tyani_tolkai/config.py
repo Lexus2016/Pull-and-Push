@@ -82,6 +82,15 @@ class LimitsCfg(BaseModel):
     agent_retries: int = 2          # restart a crashed/timed-out agent this many times
     max_agent_failures: int = 3     # consecutive hard failures → halt the run (escalate)
 
+    @model_validator(mode="after")
+    def _budget_needs_price(self) -> "LimitsCfg":
+        if self.budget_usd is not None and (self.usd_per_mtok or 0) <= 0:
+            warnings.warn(
+                "budget_usd is set but usd_per_mtok is 0 — the cost stays 0, so the budget cap will "
+                "NOT be enforced. Set usd_per_mtok (price per 1M tokens) to enable the hard stop.",
+                UserWarning, stacklevel=2)
+        return self
+
 
 class HistoryCfg(BaseModel):
     depth_k: int = 6

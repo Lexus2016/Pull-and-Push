@@ -124,3 +124,14 @@ def test_different_engines_no_warning():
         warnings.simplefilter("error")  # any warning becomes an error
         cfg = load_config(FIXTURE)  # claude vs codex → no warning
     assert cfg.agents["validator"].engine == "codex"
+
+
+def test_budget_without_price_warns():
+    # a budget_usd with no price (usd_per_mtok=0) silently wouldn't be enforced — warn the operator
+    base = dict(project="p", agents={"executor": {"engine": "mock"}},
+                roles={"executor": {"goal": "g"}},
+                evaluation={"adapter": "numeric", "command": "true",
+                            "metrics": [{"name": "s", "dir": "higher", "weight": 1,
+                                         "worst": 0, "target": 100}]})
+    with pytest.warns(UserWarning, match="usd_per_mtok"):
+        Config(**base, limits={"budget_usd": 5.0})
