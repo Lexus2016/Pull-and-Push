@@ -1,14 +1,44 @@
-.env
-.env.*
+# ─── Python ───
 __pycache__/
 *.pyc
 *.egg-info/
 .venv/
+venv/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ─── Node / web tooling ───
 node_modules/
-~/.tyani-tolkai/
+
+# ─── Secrets & local credentials — NEVER commit ───
+.env
+.env.*
 *.tqv
+*.key
+*.pem
+secrets/
+
+# ─── Runtime / local state (machine-specific) ───
+.tyani-tolkai/
+cache/
+.claude/
+*.log
+*.zip
+
+# ─── OS / editor ───
+.DS_Store
+.idea/
+.vscode/
+
+# ─── Tooling scratch ───
 .playwright-mcp/
-*.png
+
+# ─── Scratch experiment dirs ───
 1/
 2/
-.claude/
+
+# ─── Scratch screenshots in the repo root (README images live in docs/assets/) ───
+/*.png
