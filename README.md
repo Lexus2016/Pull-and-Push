@@ -12,6 +12,42 @@ Inspired by GANs, Karpathy's `autoresearch`, and the `consilium` adapter pattern
 - **Design spec:** `docs/superpowers/specs/2026-06-03-tyani-tolkai-design.md`
 - **Plan:** `docs/superpowers/plans/2026-06-03-tyani-tolkai-core-mvp.md`
 
+![A live run climbing the quality curve](docs/assets/quality-curve.png)
+
+> A real run: the deterministic scorer measures each candidate on a 0–100 scale, the
+> executor keeps improving, and **keep-if-better** ratchets the score from a baseline up
+> toward the target. The dip near iteration #33 is the loop escaping a local optimum.
+
+## How it works
+
+```mermaid
+flowchart LR
+    E["🛠 Executor (LLM)<br/>edits the artifact"] --> S["📐 Scorer (code)<br/>0–100 from real metrics"]
+    S --> K{"Better than<br/>the best so far?"}
+    K -- yes --> G["✅ git keep<br/>(new best)"]
+    K -- no --> R["↩ git revert"]
+    G --> V["🔎 Validator (LLM)<br/>feedback + ideas"]
+    R --> V
+    V -- "curated brief<br/>(diffs, deltas)" --> E
+```
+
+The **artifact** (the thing being improved) lives in git; the **scorer/harness** lives
+*outside* it so the executor can't grade its own exam. Every iteration: edit → score →
+keep-if-better → review → repeat, until the score hits the target or plateaus. The
+hardened artifact is the deliverable.
+
+## Screenshots
+
+| Live control & progress | Activity feed (newest-first) |
+|---|---|
+| ![Dashboard](docs/assets/dashboard.png) | ![Activity feed](docs/assets/activity-iterations.png) |
+| Composite score, per-metric cards (with their goals), and the quality curve. | A collapsible right rail: every iteration is a card (verdict-coloured), the validator's review and the executor's output render as Markdown. |
+
+| Start a project in one step | Whole workspace |
+|---|---|
+| ![New project](docs/assets/new-project.png) | ![Overview](docs/assets/progress-overview.png) |
+| Pick a vetted template (ships a working scorer) **or** generate a project from a plain-language description. | Sidebar of projects, the live dashboard, and the activity rail — all in one screen. |
+
 ## Core ideas
 
 - **Two axes:** competition mode (*asymmetric* Executor↔Validator | *symmetric* Rival↔Rival —
@@ -23,6 +59,10 @@ Inspired by GANs, Karpathy's `autoresearch`, and the `consilium` adapter pattern
 - **Hill-climbing via git** + a curated *iteration brief* with the real diff of past attempts.
 - **You never invent a zero-point.** Give each metric a *direction* and a *target*; the
   system pins the scale's zero to the first measurement (0 = where you started, 100 = goal).
+- **Walk-forward scoring (anti-overfit).** Where it matters — e.g. the trading template —
+  the scorer measures on a *held-out out-of-sample tail*, not the data the executor tuned
+  on, and reports the in-sample↔OOS gap. The loop optimises for generalisation, not
+  memorisation — the line between a professional result and an overfit one.
 
 ## Install
 
