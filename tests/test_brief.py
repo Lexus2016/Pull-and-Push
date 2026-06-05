@@ -75,3 +75,34 @@ def test_history_depth_respected(tmp_path):
         s.record_iteration(run_id, n=n, git_hash=h, score=float(70 + n), verdict="keep", metrics=[])
     brief = build_brief(s, run_id, _cfg(depth_k=1))
     assert "#3" in brief and "#2" not in brief   # only the newest attempt shown
+
+
+def _store_with_iters(tmp_path, count, tag):
+    s = StateStore(tmp_path / f"proj_{tag}")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    for n in range(1, count + 1):
+        (s.artifact_dir / "code.py").write_text(f"x = {n}\n")
+        h = s.commit(f"iter {n}")
+        s.record_iteration(run_id, n=n, git_hash=h, score=float(n), verdict="keep", metrics=[])
+    return s, run_id
+
+
+def test_fresh_look_executor_every_fifth_iteration(tmp_path):
+    # SSoT-style "look from the other side" nudge fires on every FRESH_LOOK_EVERY-th iteration
+    from tyani_tolkai.brief import FRESH_LOOK_EVERY
+    # the NEXT brief is iteration count+1; count = N-1 → next iteration is the checkpoint
+    s, rid = _store_with_iters(tmp_path, FRESH_LOOK_EVERY - 1, "on")
+    b = build_brief(s, rid, _cfg())
+    assert "FRESH-LOOK" in b and "OTHER SIDE" in b
+    # one before → no nudge
+    s2, rid2 = _store_with_iters(tmp_path, FRESH_LOOK_EVERY - 2, "off")
+    assert "FRESH-LOOK" not in build_brief(s2, rid2, _cfg())
+
+
+def test_fresh_look_validator_every_fifth_iteration():
+    from tyani_tolkai.brief import build_validator_prompt, FRESH_LOOK_EVERY
+    on = build_validator_prompt(_cfg(), "+x = 1", {"s": 1}, 1.0, "keep", iteration=FRESH_LOOK_EVERY)
+    off = build_validator_prompt(_cfg(), "+x = 1", {"s": 1}, 1.0, "keep", iteration=FRESH_LOOK_EVERY - 1)
+    assert "FRESH-LOOK" in on and "OTHER SIDE" in on
+    assert "FRESH-LOOK" not in off

@@ -209,7 +209,7 @@ class Orchestrator:
         cfg, state = self.cfg, self.state
         vprompt = build_validator_prompt(cfg, candidate_diff, values, new_score, verdict,
                                          self.last_feedback, artifact_text=self._artifact_snapshot(),
-                                         report_stats=report_stats)
+                                         report_stats=report_stats, iteration=self.n)
         vtimeout = cfg.agents["validator"].timeout if "validator" in cfg.agents else 300
         vres = self.validator.run(vprompt, state.artifact_dir, "read-only", vtimeout)
         self._charge(vprompt, vres.stdout if vres else "")   # estimate reviewer cost

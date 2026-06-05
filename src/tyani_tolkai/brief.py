@@ -12,6 +12,27 @@ from .config import Config
 from .state import StateStore
 
 _MAX_DIFF_LINES = 15
+FRESH_LOOK_EVERY = 5   # every Nth iteration BOTH agents deliberately re-examine from the other side
+
+
+def _fresh_look(role: str, n: int) -> str:
+    """An SSoT-style 'fresh-look' nudge injected every FRESH_LOOK_EVERY iterations so the loop does
+    not grind down a single path: the agent steps back and re-examines the problem FROM THE OTHER
+    SIDE, breaking inertia / a local optimum. Returns '' on non-checkpoint iterations."""
+    if n <= 0 or n % FRESH_LOOK_EVERY != 0:
+        return ""
+    if role == "validator":
+        return (f"⟳ FRESH-LOOK CHECKPOINT (every {FRESH_LOOK_EVERY} iterations): step back and "
+                "look from the OTHER SIDE. Has the loop converged on one idea and stopped exploring? "
+                "Challenge the PREMISE, not just the last diff — name a fundamentally different "
+                "approach or a blind spot the recent iterations ignore (a wrong assumption, an "
+                "unmodelled real-world factor, overfitting), even if the latest change was fine.")
+    return (f"⟳ FRESH-LOOK CHECKPOINT (every {FRESH_LOOK_EVERY} iterations): step back from "
+            "incremental tweaks. You may be stuck in a local optimum or circling one theme. "
+            "Re-examine the problem FROM THE OTHER SIDE: question the core assumption behind the "
+            "current approach and consider a STRUCTURALLY different strategy this step (not another "
+            "small tweak). If the current direction is genuinely sound, say why in one line and "
+            "proceed; otherwise pivot.")
 
 
 def _truncate(text: str, n: int = _MAX_DIFF_LINES) -> str:
@@ -58,7 +79,8 @@ def _attempt_diff(state: StateStore, verdict: str | None, git_hash: str | None,
 
 def build_validator_prompt(cfg: Config, candidate_diff: str, metrics_values: dict,
                            new_score: float | None, verdict: str, prev_feedback: str = "",
-                           artifact_text: str = "", report_stats: dict | None = None) -> str:
+                           artifact_text: str = "", report_stats: dict | None = None,
+                           iteration: int = 0) -> str:
     """Prompt for the read-only Reviewer (spec §4). The score is deterministic, so this agent
     is NOT a scorer — it sees the WHOLE current system (the artifact), the latest diff, the metrics
     and the verdict (and, when rejected, its own prior advice) and returns the judgement the number
@@ -88,6 +110,10 @@ def build_validator_prompt(cfg: Config, candidate_diff: str, metrics_values: dic
         lines.append(_truncate(artifact_text, 260))
     lines.append("- Latest change (diff):")
     lines.append(_truncate(candidate_diff, 40))
+    fl = _fresh_look("validator", iteration)
+    if fl:
+        lines.append("")
+        lines.append(fl)
     lines.append("")
     lines.append("Reply in three short, labelled parts:")
     lines.append("1. ASSESSMENT — judge the SYSTEM AS A WHOLE: is the overall approach soundly "
@@ -154,6 +180,11 @@ def build_brief(state: StateStore, run_id: int, cfg: Config,
 
     lines.append(f"- Oscillation flag: {'YES' if detect_oscillation(diffs) else 'no'}")
     lines.append(f"- Live operator instructions: {context_text.strip() or '(none)'}")
+    fl = _fresh_look(role, n)
+    if fl:
+        lines.append("")
+        lines.append(fl)
+        lines.append("")
     if state.is_artifact_empty():
         lines.append("- The artifact is EMPTY. CREATE the initial working implementation NOW: "
                      "write the actual files the goal and the evaluation command need (real, "
