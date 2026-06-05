@@ -445,6 +445,18 @@ class Orchestrator:
 
     # ---- loop ----
 
+    def _checkpoint_reason(self, best) -> str | None:
+        """Which (enabled) human-checkpoint condition is due, if any — to PAUSE for the operator
+        instead of silently finishing. Disabled conditions fall through to the normal stop logic."""
+        cp = self.cfg.checkpoints
+        if cp.on_target and best is not None and best >= self.cfg.evaluation.target_score:
+            return "target"
+        if cp.on_plateau and self.plateau_count >= self.cfg.limits.plateau_N:
+            return "plateau"
+        if cp.every_n and self.n > 0 and self.n % cp.every_n == 0:
+            return "periodic"
+        return None
+
     def run_loop(self, on_iteration=None, should_stop=None, on_phase=None) -> LoopSummary:
         cfg = self.cfg
         while True:
@@ -470,6 +482,11 @@ class Orchestrator:
                 self.state.set_status(self.run_id, "finished")
                 return LoopSummary("budget", best, self.n)
             best = self.state.best_score(self.run_id)
+            cp = self._checkpoint_reason(best)
+            if cp:                              # PAUSE for the operator instead of finishing
+                self.state.add_checkpoint(self.run_id, self.n, cp)
+                self.state.set_status(self.run_id, "awaiting_review")
+                return LoopSummary("checkpoint", best, self.n)
             if best is not None and best >= cfg.evaluation.target_score:
                 self.state.set_status(self.run_id, "finished")
                 return LoopSummary("target", best, self.n)

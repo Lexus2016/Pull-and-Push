@@ -110,6 +110,28 @@ def test_cost_tracking_off_by_default(tmp_path):
     assert orch.cost_total == 0.0
 
 
+def test_checkpoint_pauses_on_plateau(tmp_path):
+    # with checkpoints.on_plateau, hitting the plateau PAUSES for the operator (awaiting_review)
+    # and records a checkpoint, instead of silently finishing.
+    cfg = Config(
+        project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "g"}},
+        evaluation={"adapter": "numeric", "command": "true",
+                    "metrics": [{"name": "s", "dir": "higher", "weight": 1, "worst": 0, "target": 100}],
+                    "target_score": 1000, "min_delta": 1.0},
+        limits={"max_iterations": 20, "plateau_N": 2},
+        checkpoints={"on_plateau": True, "manual": False})
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    orch = Orchestrator(cfg, s, run_id, MockAdapter([_edit_val(v) for v in (70, 60, 60, 60)]),
+                        FakeMetric(), LocalBackend())
+    summary = orch.run_loop()
+    assert summary.reason == "checkpoint"
+    assert s.get_run(run_id)["status"] == "awaiting_review"
+    cp = s.open_checkpoint(run_id)
+    assert cp is not None and cp["reason"] == "plateau"
+
+
 def test_improving_run_reaches_target(tmp_path):
     edits = [_edit_val(v) for v in (70, 80, 90, 100)]
     orch, s, run_id = _orch(tmp_path, edits, _cfg())

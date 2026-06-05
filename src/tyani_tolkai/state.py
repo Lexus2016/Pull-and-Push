@@ -230,6 +230,24 @@ class StateStore:
     def get_run(self, run_id: int) -> sqlite3.Row:
         return self.conn.execute("SELECT * FROM run WHERE id = ?", (run_id,)).fetchone()
 
+    # ---- human checkpoints ----
+    def add_checkpoint(self, run_id: int, iteration: int, reason: str) -> None:
+        self.conn.execute(
+            "INSERT INTO checkpoint (run_id, iter, reason, ts) VALUES (?, ?, ?, ?)",
+            (run_id, iteration, reason, _now()))
+        self.conn.commit()
+
+    def open_checkpoint(self, run_id: int) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM checkpoint WHERE run_id = ? AND decision IS NULL ORDER BY id DESC LIMIT 1",
+            (run_id,)).fetchone()
+
+    def resolve_checkpoint(self, run_id: int, decision: str) -> None:
+        self.conn.execute(
+            "UPDATE checkpoint SET decision = ? WHERE run_id = ? AND decision IS NULL",
+            (decision, run_id))
+        self.conn.commit()
+
     def set_status(self, run_id: int, status: str) -> None:
         self.update_run(run_id, status=status)
 

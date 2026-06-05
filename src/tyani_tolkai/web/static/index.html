@@ -416,6 +416,13 @@
       <h3 data-i18n="prog.title">Control & progress</h3>
       <p class="desc" data-i18n="prog.desc">Start, stop and steer the run. The chart is the quality curve; the log is the keep/discard decision each step.</p>
       <div id="runGoal" class="hint" style="margin:-6px 0 14px"></div>
+      <div id="cpPanel" class="why hidden" style="border:1px solid #6a5a1f;border-radius:6px;margin:0 0 14px;padding:10px">
+        <b>⏸ <span data-i18n="cp.title">Checkpoint — your decision</span></b>
+        <div class="hint" id="cpMsg" style="display:block;margin:4px 0 8px"></div>
+        <button class="btn" id="cpContinueBtn" style="width:auto" data-i18n="cp.continue">▶ Continue</button>
+        <button class="btn" id="cpAcceptBtn" style="width:auto" data-i18n="cp.accept">✓ Accept & finish</button>
+        <span class="hint" data-i18n="cp.hint">For a “target” checkpoint, raise Target score in Configuration first, then Continue.</span>
+      </div>
       <div class="controls" style="margin-bottom:18px">
         <button class="btn" id="runBtn" disabled data-i18n="prog.run" data-i18n-title="prog.runTitle" title="Start the loop with real agents">▶ Run</button>
         <button class="btn sec" id="stopBtn" disabled data-i18n="prog.stop" data-i18n-title="prog.stopTitle" title="Stop at the current iteration boundary (waits for the step)">⏹ Stop</button>
@@ -495,7 +502,7 @@ const I18N={en:{
  "toast.scaffolded":"Runnable project created ✓ — press ▶ Run","toast.scaffoldCustom":"No matching template — created the generic skeleton ✓ Edit metrics/evaluate.py for your task, then ▶ Run","toast.scaffoldNeed":"Enter a name and a task description","toast.scaffoldNoTpl":"Couldn't infer a template — pick one explicitly",
  "toast.created":"Project created ✓","toast.saved":"Saved ✓","toast.deleted":"Deleted","toast.renamed":"Renamed","toast.stopping":"Stopping at the iteration boundary…","toast.forceStopped":"Agent stopped immediately ⛔","toast.forceMarked":"No active process — marked as stop","toast.cmdAdded":"Command queued — applies on the next iteration","toast.genOk":"Generated ✓ — review and press “Create”","toast.unavailable":"Project unavailable — refreshing the list","toast.runDone":"Run finished: ","toast.describeFirst":"Describe the task","toast.nameFirst":"Enter a project name","toast.metricFirst":"Add at least one metric","toast.testing":"testing the evaluation…","toast.evalOk":"✓ evaluation works","toast.evalFail":"✗ evaluation failed",
  "confirm.run":"Run starts a REAL agent (%s). Each iteration may cost tokens. The run works in the background — refresh the page to see progress. Continue?","confirm.runFinished":"This run already finished (e.g. it reached the target score). Starting Run begins a NEW run from iteration 1 on the current best code — your finished result stays saved. Start a new run?","confirm.forceStop":"Force Stop will kill the agent processes immediately (the current step is lost). Continue?","confirm.delete":"Delete project %s?","confirm.reset":"Reset progress to seed?","prompt.rename":"New name:",
- "toast.started":"Started ▶","toast.reset":"Reset to seed","gen.generating":"🪄 Generating…","err.prefix":"Error: ","cfg.failPrefix":"Configurator: ","gen.warnPrefix":"Generated, with notes: ","toast.renameFail":"Rename failed","te.zero":"zero",
+ "toast.started":"Started ▶","toast.reset":"Reset to seed","gen.generating":"🪄 Generating…","err.prefix":"Error: ","cfg.failPrefix":"Configurator: ","gen.warnPrefix":"Generated, with notes: ","toast.renameFail":"Rename failed","te.zero":"zero","cp.title":"Checkpoint — your decision","cp.continue":"▶ Continue","cp.accept":"✓ Accept & finish","cp.hint":"For a “target” checkpoint, raise Target score in Configuration first, then Continue.","cp.target":"Target score reached","cp.plateau":"Plateau — no improvement for a while","cp.periodic":"Periodic review","cp.accepted":"Accepted — run finished",
  "files.loading":"loading…","files.empty":"artifact is empty — start a run so the agent creates files","side.statusPrefix":"status: ","mc.max":"▲ max","mc.min":"▼ min","mc.target":"target","mc.weight":"weight","mc.reached":"✓ reached","sum.error":"error: ","sum.result":"result: ","sum.iters":" · iterations: ","tab.lockHint":"Pick or create a project first","pk.empty":"empty or no access"
 }};
 I18N.uk={
@@ -515,7 +522,7 @@ I18N.uk={
  "toast.scaffolded":"Готовий проєкт створено ✓ — натисни ▶ Запуск","toast.scaffoldCustom":"Доменний шаблон не підійшов — створено загальний скелет ✓ Відредагуй metrics/evaluate.py під свою задачу, тоді ▶ Запуск","toast.scaffoldNeed":"Вкажи назву та опис завдання","toast.scaffoldNoTpl":"Не вдалося визначити шаблон — обери явно",
  "toast.created":"Проєкт створено ✓","toast.saved":"Збережено ✓","toast.deleted":"Видалено","toast.renamed":"Перейменовано","toast.stopping":"Зупиняю на межі ітерації…","toast.forceStopped":"Агента зупинено негайно ⛔","toast.forceMarked":"Активного процесу не було — позначено стоп","toast.cmdAdded":"Команду додано — застосується на наступній ітерації","toast.genOk":"Згенеровано ✓ — перевір і натисни «Створити»","toast.unavailable":"Проєкт недоступний — оновлюю список","toast.runDone":"Прогін завершено: ","toast.describeFirst":"Опиши завдання","toast.nameFirst":"Вкажи назву проєкту","toast.metricFirst":"Додай хоча б одну метрику","toast.testing":"тестую оцінку…","toast.evalOk":"✓ оцінка працює","toast.evalFail":"✗ оцінка не вдалась",
  "confirm.run":"Run запускає РЕАЛЬНИЙ агент (%s). Кожна ітерація може коштувати токени. Прогін працює у фоні — онови сторінку, щоб бачити прогрес. Продовжити?","confirm.runFinished":"Цей прогін уже завершено (напр., досягнуто цільового балу). Run запустить НОВИЙ прогін з ітерації 1 на поточному найкращому коді — завершений результат лишається збереженим. Запустити новий прогін?","confirm.forceStop":"Force Stop негайно вб'є процеси агента (поточний крок втратиться). Продовжити?","confirm.delete":"Видалити проєкт %s?","confirm.reset":"Скинути прогрес до seed?","prompt.rename":"Нова назва:",
- "toast.started":"Запущено ▶","toast.reset":"Скинуто","gen.generating":"🪄 Генерую…","err.prefix":"Помилка: ","cfg.failPrefix":"Налаштовувач: ","gen.warnPrefix":"Згенеровано, але є зауваження: ","toast.renameFail":"Rename не вдалося","te.zero":"нуль",
+ "toast.started":"Запущено ▶","toast.reset":"Скинуто","gen.generating":"🪄 Генерую…","err.prefix":"Помилка: ","cfg.failPrefix":"Налаштовувач: ","gen.warnPrefix":"Згенеровано, але є зауваження: ","toast.renameFail":"Rename не вдалося","te.zero":"нуль","cp.title":"Контрольна точка — твоє рішення","cp.continue":"▶ Продовжити","cp.accept":"✓ Прийняти й завершити","cp.hint":"Для точки «target» спершу підніми Цільовий бал у Конфігурації, тоді Продовжити.","cp.target":"Досягнуто цільовий бал","cp.plateau":"Плато — давно без покращень","cp.periodic":"Періодичний огляд","cp.accepted":"Прийнято — прогін завершено",
  "files.loading":"завантаження…","files.empty":"артефакт порожній — запусти прогін, щоб агент створив файли","side.statusPrefix":"статус: ","mc.max":"▲ макс","mc.min":"▼ мін","mc.target":"ціль","mc.weight":"вага","mc.reached":"✓ досягнуто","sum.error":"помилка: ","sum.result":"результат: ","sum.iters":" · ітерацій: ","tab.lockHint":"Спершу обери або створи проєкт","pk.empty":"порожньо або немає доступу"
 };
 I18N.ru={
@@ -535,7 +542,7 @@ I18N.ru={
  "toast.scaffolded":"Готовый проект создан ✓ — нажми ▶ Запуск","toast.scaffoldCustom":"Доменный шаблон не подошёл — создан общий скелет ✓ Отредактируй metrics/evaluate.py под свою задачу, затем ▶ Запуск","toast.scaffoldNeed":"Укажи название и описание задачи","toast.scaffoldNoTpl":"Не удалось определить шаблон — выбери явно",
  "toast.created":"Проект создан ✓","toast.saved":"Сохранено ✓","toast.deleted":"Удалено","toast.renamed":"Переименовано","toast.stopping":"Останавливаю на границе итерации…","toast.forceStopped":"Агент остановлен немедленно ⛔","toast.forceMarked":"Активного процесса не было — отмечено стоп","toast.cmdAdded":"Команда добавлена — применится на следующей итерации","toast.genOk":"Сгенерировано ✓ — проверь и нажми «Создать»","toast.unavailable":"Проект недоступен — обновляю список","toast.runDone":"Прогон завершён: ","toast.describeFirst":"Опиши задачу","toast.nameFirst":"Укажи название проекта","toast.metricFirst":"Добавь хотя бы одну метрику","toast.testing":"тестирую оценку…","toast.evalOk":"✓ оценка работает","toast.evalFail":"✗ оценка не удалась",
  "confirm.run":"Run запускает РЕАЛЬНОГО агента (%s). Каждая итерация может стоить токенов. Прогон работает в фоне — обнови страницу, чтобы видеть прогресс. Продолжить?","confirm.runFinished":"Этот прогон уже завершён (напр., достигнут целевой балл). Run запустит НОВЫЙ прогон с итерации 1 на текущем лучшем коде — завершённый результат остаётся сохранённым. Запустить новый прогон?","confirm.forceStop":"Force Stop немедленно убьёт процессы агента (текущий шаг потеряется). Продолжить?","confirm.delete":"Удалить проект %s?","confirm.reset":"Сбросить прогресс к seed?","prompt.rename":"Новое имя:",
- "toast.started":"Запущено ▶","toast.reset":"Сброшено","gen.generating":"🪄 Генерирую…","err.prefix":"Ошибка: ","cfg.failPrefix":"Настройщик: ","gen.warnPrefix":"Сгенерировано, есть замечания: ","toast.renameFail":"Rename не удался","te.zero":"ноль",
+ "toast.started":"Запущено ▶","toast.reset":"Сброшено","gen.generating":"🪄 Генерирую…","err.prefix":"Ошибка: ","cfg.failPrefix":"Настройщик: ","gen.warnPrefix":"Сгенерировано, есть замечания: ","toast.renameFail":"Rename не удался","te.zero":"ноль","cp.title":"Контрольная точка — твоё решение","cp.continue":"▶ Продолжить","cp.accept":"✓ Принять и завершить","cp.hint":"Для точки «target» сначала подними Целевой балл в Конфигурации, затем Продолжить.","cp.target":"Достигнут целевой балл","cp.plateau":"Плато — давно без улучшений","cp.periodic":"Периодический обзор","cp.accepted":"Принято — прогон завершён",
  "files.loading":"загрузка…","files.empty":"артефакт пуст — запусти прогон, чтобы агент создал файлы","side.statusPrefix":"статус: ","mc.max":"▲ макс","mc.min":"▼ мин","mc.target":"цель","mc.weight":"вес","mc.reached":"✓ достигнуто","sum.error":"ошибка: ","sum.result":"результат: ","sum.iters":" · итераций: ","tab.lockHint":"Сначала выбери или создай проект","pk.empty":"пусто или нет доступа"
 };
 let LANG=(()=>{try{return localStorage.getItem('tt_lang')||'en';}catch(e){return 'en';}})();
@@ -721,7 +728,7 @@ function setStatus(s,score,sum,cost){const tg=$('tag');tg.className='tag '+(s||'
   $('summary').textContent=(sum?(sum.error?(t('sum.error')+sum.error):t('sum.result')+sum.reason+t('sum.iters')+sum.iterations):'')+c;}
 async function loadState(name){const d=await(await fetch(api('/api/projects/'+name))).json();
   BASELINE=d.baseline||{};
-  const its=d.iterations||[];RUN_STATUS=d.status||'idle';_logSig='';setStatus(d.status||'idle',d.best_score,null,d.cost);plot(its);renderLog(its);
+  const its=d.iterations||[];RUN_STATUS=d.status||'idle';_logSig='';setStatus(d.status||'idle',d.best_score,null,d.cost);plot(its);renderLog(its);renderCheckpoint(d);
   renderMetricCards(its.length?its[its.length-1].metrics:[]);loadAgentLog();
   $('runGoal').textContent=(CFG&&CFG.roles&&CFG.roles.executor&&CFG.roles.executor.goal)?(t('goal.prefix')+CFG.roles.executor.goal):'';}
 function stopPolling(){if(poll){clearInterval(poll);poll=null;}}
@@ -729,7 +736,7 @@ function startPolling(name){if(poll)clearInterval(poll);
   poll=setInterval(async()=>{const d=await(await fetch(api('/api/projects/'+name+'/live'))).json();
     if(d.baseline&&Object.keys(d.baseline).length)BASELINE=d.baseline;   // live zero-points
     const best=(d.outcomes||[]).reduce((m,o)=>o.score!=null&&o.score>m?o.score:m,0)||null;
-    const oc=d.outcomes||[];RUN_STATUS=d.status;setStatus(d.status,best,d.summary,d.cost);plot(oc);renderLog(oc);
+    const oc=d.outcomes||[];RUN_STATUS=d.status;setStatus(d.status,best,d.summary,d.cost);plot(oc);renderLog(oc);renderCheckpoint(d);
     renderMetricCards(oc.length?oc[oc.length-1].metrics:[]);
     if(d.status==='running')loadAgentLog();        // live tail of the executor's output
     if(d.status==='running'&&d.phase){
@@ -827,6 +834,18 @@ $('testEvalBtn').onclick=async()=>{if(!current)return;
       `<span class="hint" style="display:inline">${esc(mets)}</span>`+(zero?`<br><span class="hint" style="display:inline">${zero}</span>`:'')+
       (extra?`<br><span class="hint" style="display:inline">📊 ${extra}</span>`:'')+`</div>`;}
   else{$('testResult').innerHTML=`<div class="why" style="border:1px solid #5a2a2a;border-radius:6px;margin-top:8px"><b style="color:var(--bad)">${t('toast.evalFail')}</b></div><pre class="diff">`+esc(d.logs||'')+`</pre>`;}};
+function renderCheckpoint(d){
+  const show=!!(d&&d.status==='awaiting_review'&&d.checkpoint);
+  $('cpPanel').classList.toggle('hidden',!show);
+  if(show){const r=d.checkpoint.reason;
+    const lbl={target:t('cp.target'),plateau:t('cp.plateau'),periodic:t('cp.periodic')}[r]||r;
+    $('cpMsg').textContent=lbl+' · '+t('phase.iter')+' '+(d.checkpoint.iter||'');}}
+$('cpContinueBtn').onclick=async()=>{if(!current)return;
+  await fetch(api('/api/projects/'+current+'/checkpoint/continue'),{method:'POST'});
+  $('cpPanel').classList.add('hidden');setStatus('running',null,null);startPolling(current);toast(t('toast.started'),'ok');};
+$('cpAcceptBtn').onclick=async()=>{if(!current)return;
+  await fetch(api('/api/projects/'+current+'/checkpoint/accept'),{method:'POST'});
+  $('cpPanel').classList.add('hidden');toast(t('cp.accepted'),'ok');loadState(current);};
 $('runBtn').onclick=async()=>{if(!current)return;
   if(RUN_STATUS==='finished'&&!confirm(t('confirm.runFinished')))return;   // don't silently restart a won run
   if(!localStorage.getItem('tt_run_ack')){

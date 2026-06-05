@@ -69,6 +69,14 @@ class RunManager:
     def stop(self, name: str) -> None:
         self._stop.add(name)
 
+    def mark(self, name: str, status: str) -> None:
+        """Set the in-memory status (e.g. resolve a checkpoint to 'finished') so /live agrees with
+        the DB without waiting for a restart."""
+        with self._lock:
+            if name in self._runs:
+                self._runs[name]["status"] = status
+                self._runs[name]["checkpoint"] = None
+
     def force_stop(self, name: str) -> bool:
         """Kill the live agent and abort the loop NOW, without waiting for the boundary."""
         with self._lock:
@@ -87,7 +95,8 @@ class RunManager:
                 return None          # no in-memory run → caller falls back to idle
             return {"status": r["status"], "summary": r["summary"],
                     "outcomes": list(r["outcomes"]), "phase": r.get("phase"),
-                    "baseline": dict(r.get("baseline") or {}), "cost": r.get("cost", 0.0)}
+                    "baseline": dict(r.get("baseline") or {}), "cost": r.get("cost", 0.0),
+                    "checkpoint": r.get("checkpoint")}
 
     def is_running(self, name: str) -> bool:
         with self._lock:
@@ -100,7 +109,7 @@ class RunManager:
                 raise HTTPException(409, "run already in progress")
             self._stop.discard(name)   # clear inside the lock so a racing /stop isn't lost
             self._runs[name] = {"status": "running", "summary": None, "outcomes": [],
-                                "phase": None, "baseline": {}, "cost": 0.0}
+                                "phase": None, "baseline": {}, "cost": 0.0, "checkpoint": None}
         threading.Thread(target=self._run, args=(name,), daemon=True).start()
 
     def _run(self, name: str) -> None:
@@ -162,12 +171,15 @@ class RunManager:
 
             summary = orch.run_loop(on_iteration=on_iter, on_phase=on_ph,
                                     should_stop=lambda: name in self._stop)
-            st = {"stopped": "stopped", "rate_limited": "error",
-                  "agent_error": "error"}.get(summary.reason, "finished")
+            st = {"stopped": "stopped", "rate_limited": "error", "agent_error": "error",
+                  "checkpoint": "awaiting_review"}.get(summary.reason, "finished")
+            cp_row = state.open_checkpoint(run_id) if summary.reason == "checkpoint" else None
             with self._lock:
                 self._runs[name]["status"] = st
                 self._runs[name]["summary"] = {"reason": summary.reason,
                     "best_score": summary.best_score, "iterations": summary.iterations}
+                self._runs[name]["checkpoint"] = ({"reason": cp_row["reason"], "iter": cp_row["iter"]}
+                                                  if cp_row else None)
             _fire_webhook(cfg, name, {"project": name, "status": st, "reason": summary.reason,
                                       "best_score": summary.best_score,
                                       "iterations": summary.iterations})
@@ -208,9 +220,11 @@ def _persisted_state(name: str) -> dict:
             except ValueError:
                 baseline = {}
         cost = run["cost_total"] if "cost_total" in run.keys() else 0.0
+        cp = state.open_checkpoint(run["id"])
         return {
             "status": run["status"], "best_score": run["best_score"], "baseline": baseline,
             "cost": cost or 0.0,
+            "checkpoint": ({"reason": cp["reason"], "iter": cp["iter"]} if cp else None),
             "iterations": [{"n": it.n, "score": it.score, "verdict": it.verdict,
                             "change": it.change_summary, "feedback": it.feedback,
                             "metrics": [{"name": m["name"], "value": m["value"]} for m in it.metrics]}
@@ -327,6 +341,44 @@ def create_app(token: str | None = None) -> FastAPI:
             raise HTTPException(404, "project has no config.yaml; create it via `tyani-tolkai run`")
         app.state.runs.start_run(name)
         return {"started": name}
+
+    @app.post("/api/projects/{name}/checkpoint/continue")
+    def api_cp_continue(name: str, token: str | None = Query(None)):
+        """Operator chose to keep going at a human checkpoint: resolve it, give a fresh plateau
+        budget, and resume the run. (For a 'target' checkpoint, raise target_score first via the
+        config, otherwise it will pause again next boundary.)"""
+        auth(token)
+        base = project_dir(name)
+        if not (base / "config.yaml").exists():
+            raise HTTPException(404, "no such project")
+        state = StateStore(base)
+        try:
+            last = state.conn.execute("SELECT id FROM run ORDER BY id DESC LIMIT 1").fetchone()
+            if last:
+                state.resolve_checkpoint(last["id"], "continue")
+                state.update_run(last["id"], plateau_count=0)   # fresh attempts before next plateau
+        finally:
+            state.close()
+        app.state.runs.start_run(name)                          # resume (awaiting_review != finished)
+        return {"continued": name}
+
+    @app.post("/api/projects/{name}/checkpoint/accept")
+    def api_cp_accept(name: str, token: str | None = Query(None)):
+        """Operator accepted the result at a checkpoint: resolve it and finish the run."""
+        auth(token)
+        base = project_dir(name)
+        if not (base / "config.yaml").exists():
+            raise HTTPException(404, "no such project")
+        state = StateStore(base)
+        try:
+            last = state.conn.execute("SELECT id FROM run ORDER BY id DESC LIMIT 1").fetchone()
+            if last:
+                state.resolve_checkpoint(last["id"], "accept")
+                state.set_status(last["id"], "finished")
+        finally:
+            state.close()
+        app.state.runs.mark(name, "finished")
+        return {"accepted": name}
 
     @app.post("/api/projects/{name}/command")
     def api_command(name: str, text: str = Query(...), role: str = Query("executor"),
