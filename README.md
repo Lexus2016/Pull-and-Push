@@ -2,21 +2,28 @@
 
 # Pull-and-Push
 
-An **adversarial co-evolution orchestrator**: it runs two off-the-shelf agent CLIs in
-opposition to drive a project to maximum quality. One agent improves an artifact; the
-other evaluates it. They iterate — keep-if-better — until quality plateaus or hits a
-target. The hardened artifact is the deliverable; the loop is the engine.
+**Two AIs push each other to make your work better — automatically.**
 
-Inspired by GANs, Karpathy's `autoresearch`, and the `consilium` adapter pattern.
+One AI rewrites the thing you want improved. A small piece of code grades the result from
+0 to 100 — honestly, from real numbers, not opinions. A second AI reads the result and
+points out what's weak and what to try next. Then the loop runs again. Every round it keeps
+the best version so far and throws the rest away. After a few hundred rounds you get
+something far better than the first try — and you can watch every step happen live.
 
-- **Design spec:** `docs/superpowers/specs/2026-06-03-tyani-tolkai-design.md`
-- **Plan:** `docs/superpowers/plans/2026-06-03-tyani-tolkai-core-mvp.md`
+**Where it helps** — anything you can put a number on:
+
+- a trading strategy that should earn more without getting wiped out,
+- code that has to make a hidden test suite pass,
+- a piece of writing you want to score higher against a rubric.
+
+You bring the goal and a way to measure it. Pull-and-Push runs the thousands of small
+attempts for you and hands back the best one.
 
 ![A live run climbing the quality curve](docs/assets/quality-curve.png)
 
-> A real run: the deterministic scorer measures each candidate on a 0–100 scale, the
-> executor keeps improving, and **keep-if-better** ratchets the score from a baseline up
-> toward the target. The dip near iteration #33 is the loop escaping a local optimum.
+> A real run. The score starts low; the loop keeps improving and climbs toward the target,
+> keeping the best version at every step. The dip near step #33 is the loop breaking out of
+> a dead end and finding a better idea.
 
 ## How it works
 
@@ -31,10 +38,10 @@ flowchart LR
     V -- "curated brief<br/>(diffs, deltas)" --> E
 ```
 
-The **artifact** (the thing being improved) lives in git; the **scorer/harness** lives
-*outside* it so the executor can't grade its own exam. Every iteration: edit → score →
-keep-if-better → review → repeat, until the score hits the target or plateaus. The
-hardened artifact is the deliverable.
+The thing being improved lives in git, so any change can be undone instantly. The grader
+lives *outside* it, so the AI can't peek at the answer key or mark its own homework. The
+loop is plain: **edit → grade → keep if better → get feedback → repeat**, until the score
+hits your target or stops improving. The best version is what you take away.
 
 ## Screenshots
 
@@ -48,21 +55,26 @@ hardened artifact is the deliverable.
 | ![New project](docs/assets/new-project.png) | ![Overview](docs/assets/progress-overview.png) |
 | Pick a vetted template (ships a working scorer) **or** generate a project from a plain-language description. | Sidebar of projects, the live dashboard, and the activity rail — all in one screen. |
 
-## Core ideas
+## Under the hood (for builders)
 
-- **Two axes:** competition mode (*asymmetric* Executor↔Validator | *symmetric* Rival↔Rival —
-  later) × pluggable agent engine per role (`claude` / `codex` / `opencode` / `agy`).
-- **No bespoke agents.** Every role is an off-the-shelf CLI agent; we only build code we
-  control (orchestrator, scorer, metric runner, state, web).
-- **The number comes from code, the LLM only advises.** A deterministic Scorer computes
-  the 0–100 score from objective metrics; the Validator LLM gives text feedback only.
-- **Hill-climbing via git** + a curated *iteration brief* with the real diff of past attempts.
-- **You never invent a zero-point.** Give each metric a *direction* and a *target*; the
-  system pins the scale's zero to the first measurement (0 = where you started, 100 = goal).
-- **Walk-forward scoring (anti-overfit).** Where it matters — e.g. the trading template —
-  the scorer measures on a *held-out out-of-sample tail*, not the data the executor tuned
-  on, and reports the in-sample↔OOS gap. The loop optimises for generalisation, not
-  memorisation — the line between a professional result and an overfit one.
+The technical name is an **adversarial co-evolution orchestrator** — in the spirit of GANs,
+Karpathy's `autoresearch`, and the `consilium` adapter pattern.
+
+- **Off-the-shelf agents, no custom models.** Each role is an existing CLI agent
+  (`claude` / `codex` / `opencode` / `agy`). We only write the parts we fully control: the
+  loop, the grader, the metric runner, the state store, and the web UI.
+- **The number comes from code; the AI only advises.** A deterministic scorer computes the
+  0–100 from objective metrics. The reviewer AI gives words and ideas — never the number.
+- **Keep-if-better, tracked in git** — plus a short brief each round carrying the real diffs
+  of past attempts, so the next try builds on the last instead of starting blind.
+- **You never invent a zero-point.** Give each metric a direction and a target; the scale's
+  0 is pinned to your first measurement (0 = where you started, 100 = the goal).
+- **Walk-forward scoring (no overfitting).** Where it matters — like the trading template —
+  the grader measures on data the AI never tuned on, and shows the in-sample↔out-of-sample
+  gap. That's the line between a result that holds up and one that only looked good on paper.
+
+- **Design spec:** `docs/superpowers/specs/2026-06-03-tyani-tolkai-design.md`
+- **Plan:** `docs/superpowers/plans/2026-06-03-tyani-tolkai-core-mvp.md`
 
 ## Install
 
