@@ -1,0 +1,25 @@
+{
+  "id": "custom",
+  "name": "Custom — any task (bring your own scorer)",
+  "keywords": [],
+  "summary": "The general on-ramp: optimize ANY artifact against ANY deterministic scorer (not just trading or tests). Ships a tiny runnable example — improve a tagline by a text rubric — that you replace: edit metrics/evaluate.py to read your artifact and print {\"score\": N}, and edit the seed to be the thing you optimize.",
+  "config": {
+    "mode": "asymmetric",
+    "agents": {"executor": {"engine": "claude", "timeout": 600},
+               "validator": {"engine": "claude", "timeout": 300}},
+    "roles": {
+      "executor": {"task": "Edit solution.txt to maximize the score — rewrite it freely. Do NOT modify or run anything under ../metrics/ (the scorer). One focused change per step."},
+      "validator": {"goal": "Review the artifact and the change: your honest opinion on the approach, why the score moved, and one or two concrete ideas to try next."}
+    },
+    "evaluation": {
+      "adapter": "numeric",
+      "command": "python ../metrics/evaluate.py",
+      "target_score": 80,
+      "metrics": [
+        {"name": "score", "dir": "higher", "weight": 1.0, "target": 100}
+      ]
+    },
+    "limits": {"max_iterations": 30, "plateau_N": 6, "step_seconds": 600},
+    "sandbox": {"backend": "local"}
+  }
+}

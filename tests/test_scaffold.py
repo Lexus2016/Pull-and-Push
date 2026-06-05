@@ -139,6 +139,39 @@ def test_btc_template_scores_on_real_harness(home):
     assert 0.0 <= sc <= 100.0
 
 
+def test_custom_template_is_general_on_ramp(home):
+    # The engine is NOT trading-specific: the 'custom' template scaffolds a runnable project for an
+    # arbitrary task (here: optimize a text artifact by a deterministic rubric), proving generality.
+    res = scaffold.scaffold_project("c1", "optimize a marketing tagline", "custom")
+    assert res["template"] == "custom"
+    base = project_dir("c1")
+    assert (base / "artifact" / "solution.txt").exists()      # the artifact being optimized
+    assert (base / "metrics" / "evaluate.py").exists()        # the scorer, outside the artifact
+    cfg = load_config(base / "config.yaml")
+    state = StateStore(base)
+    try:
+        sb = get_backend(cfg.sandbox.backend, cfg.sandbox)
+        res2 = get_metric_adapter(cfg.evaluation.adapter).run(
+            state.artifact_dir, sb, cfg.evaluation, cfg.limits.step_seconds)
+        assert res2.ok
+        vals = {m["name"]: m["value"] for m in res2.metrics}
+        assert "score" in vals and 0.0 <= vals["score"] <= 100.0
+        # report-only extras flow through the generic pipeline too (not a trading-only feature)
+        assert "keyword_hits" in res2.data and "length" in res2.data
+    finally:
+        state.close()
+
+
+def test_custom_template_is_opt_in_only(home):
+    # 'custom' must never be auto-picked (empty keywords) — it's the explicit/fallback choice,
+    # so it can't hijack a description meant for a domain template.
+    ids = {t["id"] for t in scaffold.list_templates()}
+    assert "custom" in ids                                    # visible in the dropdown
+    assert scaffold.pick_template("btcusdt futures strategy") == "btcusdt-futures"
+    assert scaffold.pick_template("make the hidden pytest tests pass") == "pytest-pass"
+    assert scaffold.pick_template("optimize a marketing tagline") is None   # no domain match → not custom
+
+
 def test_btc_strategy_owns_signals_logic(home):
     # the player/judge split: strategy.py is a REAL strategy (signals() logic + PARAMS), not just
     # params. The executor can rewrite signals(); the harness imports and executes it.
