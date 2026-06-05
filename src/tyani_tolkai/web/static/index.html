@@ -270,10 +270,21 @@
   .feed-mini:hover{color:var(--cold);border-color:var(--cold)}
   .feed-x{background:none;border:0;color:var(--mut);cursor:pointer;font-size:19px;line-height:1;padding:2px 6px;width:auto}
   .feed-x:hover{color:var(--cold)}
-  .feed-body{flex:1;overflow-y:auto;padding:16px 16px 30px;display:flex;flex-direction:column;gap:24px}
-  .feed-sec h4{margin:0 0 11px;font-family:var(--mono);font-size:11px;letter-spacing:1.8px;text-transform:uppercase;
-    color:var(--mut);display:flex;align-items:center;gap:8px}
-  .feed-sec h4::before{content:"";width:14px;height:1px;background:var(--cold)}
+  .feed-body{flex:1;min-height:0;overflow:hidden;padding:14px 14px 16px;display:flex;flex-direction:column;gap:10px}
+  /* accordion: exactly ONE section open at a time; the open one fills the rail and scrolls inside */
+  .acc{display:flex;flex-direction:column;flex:none;border:1px solid var(--line);border-radius:var(--radius);
+    background:rgba(13,21,31,.45);overflow:hidden;transition:flex-grow .2s}
+  .acc.open{flex:1;min-height:0}
+  .acc-head{display:flex;align-items:center;gap:9px;padding:12px 13px;cursor:pointer;user-select:none;
+    font-family:var(--mono);font-size:11px;letter-spacing:1.6px;text-transform:uppercase;color:var(--mut);
+    background:linear-gradient(180deg,rgba(70,224,208,.05),transparent);transition:color .15s}
+  .acc.open>.acc-head{color:var(--ink);border-bottom:1px solid var(--line)}
+  .acc-head:hover{color:var(--ink)}
+  .acc-chev{color:var(--mut);font-size:10px;transition:transform .2s}
+  .acc.open>.acc-head .acc-chev{transform:rotate(90deg);color:var(--cold)}
+  .acc-title{flex:1}
+  .acc-body{display:none;min-height:0}
+  .acc.open>.acc-body{display:block;flex:1;overflow-y:auto;padding:12px 13px}
   .feed #log{border:0;background:transparent;padding:0;max-height:none;overflow:visible;font-family:var(--ui)}
   /* an iteration = a message card, newest first; left edge encodes the verdict */
   .feed-item{border:1px solid var(--line);border-left:3px solid var(--line-2);border-radius:0 var(--radius) var(--radius) 0;
@@ -292,7 +303,9 @@
   details.feed-item[open] .fi-mets{color:var(--cold)}
   .fi-why{padding:9px 13px;border-top:1px solid var(--line);color:var(--ink-dim);font-size:13px;line-height:1.58}
   .fi-why b{color:var(--warm)}
-  .feed #agentLog{max-height:38vh;background:var(--field)}
+  .feed #agentLog{display:flex;flex-direction:column}
+  .agent-pre{margin:0;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;
+    color:var(--ink-dim);background:var(--field);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px}
   @keyframes feedin{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}
   /* edge tab — visible only while the rail is closed */
   .feed-tab{position:fixed;top:50%;right:0;transform:translateY(-50%);z-index:54;
@@ -533,19 +546,18 @@
     <span class="feed-dot" id="feedDot"></span>
     <span class="feed-title" data-i18n="feed.title">Activity</span>
     <div class="feed-actions">
-      <button class="feed-mini" id="feedRefresh" data-i18n-title="prog.agentLogBtn" title="Refresh agent log">↻</button>
       <button class="feed-x" id="feedClose" data-i18n-title="feed.close" title="Close">✕</button>
     </div>
   </div>
   <div class="feed-body">
-    <section class="feed-sec">
-      <h4 data-i18n="prog.log">Iteration log</h4>
-      <div id="log">—</div>
+    <section class="acc open" id="accIters">
+      <div class="acc-head" data-acc="accIters"><span class="acc-chev">▸</span><span class="acc-title" data-i18n="prog.log">Iteration log</span></div>
+      <div class="acc-body"><div id="log">—</div></div>
     </section>
-    <section class="feed-sec">
-      <h4 data-i18n="prog.agentLog">🔎 Agent log</h4>
-      <pre class="diff" id="agentLog">—</pre>
-      <button class="btn sec" id="agentLogBtn" style="width:auto;margin-top:8px" disabled data-i18n="prog.agentLogBtn">↻ Refresh log</button>
+    <section class="acc" id="accAgent">
+      <div class="acc-head" data-acc="accAgent"><span class="acc-chev">▸</span><span class="acc-title" data-i18n="prog.agentLog">🔎 Agent log</span>
+        <button class="feed-mini" id="agentLogBtn" data-i18n-title="prog.agentLogBtn" title="Refresh agent log" disabled>↻</button></div>
+      <div class="acc-body"><div id="agentLog">—</div></div>
     </section>
   </div>
 </div>
@@ -731,9 +743,24 @@ function buildConfig(){const c={project:$('f_project').value.trim(),mode:$('f_mo
 function enableControls(on){['runBtn','stopBtn','forceStopBtn','resetBtn','renameBtn','exportBtn','deleteBtn','steerBtn','filesBtn','testEvalBtn','agentLogBtn'].forEach(b=>$(b).disabled=!on);}
 async function loadAgentLog(){if(!current)return;
   const d=await(await fetch(api('/api/projects/'+current+'/agent-log'))).json().catch(()=>({log:''}));
-  const el=$('agentLog');const atBottom=el.scrollTop+el.clientHeight>=el.scrollHeight-30;
-  el.textContent=d.log||t('agentLog.empty');
-  if(atBottom)el.scrollTop=el.scrollHeight;}            // follow the tail unless user scrolled up
+  renderAgentLog(d.log||'');}
+let _agentSig='';
+function renderAgentLog(text){
+  const el=$('agentLog');if(!el)return;
+  text=(text||'').replace(/[─━]{3,}/g,'').replace(/\n{3,}/g,'\n\n').trim();  // drop ─── rules
+  const sig=String(text.length);if(sig===_agentSig)return;_agentSig=sig;              // rebuild only on change
+  // split the executor's tee'd output into per-iteration segments → cards like the iteration log
+  const re=/▼\s*ITERATION\s+(\d+)\s*·\s*executor/g;const heads=[];let m;
+  while((m=re.exec(text)))heads.push({n:m[1],end:re.lastIndex,start:m.index});
+  if(!heads.length){
+    el.innerHTML=text?`<pre class="agent-pre">${esc(text)}</pre>`:`<div class="empty">${t('agentLog.empty')}</div>`;return;}
+  const segs=heads.map((h,i)=>({n:h.n,body:text.slice(h.end,(heads[i+1]||{}).start??text.length).trim()}));
+  el.innerHTML=segs.reverse().map((s,i)=>                                            // newest on top
+    `<details class="feed-item v-no_op"${i===0?' open':''}><summary>`+
+    `<div class="fi-head"><span class="fi-chev">▸</span><span class="fi-n">#${s.n}</span>`+
+    `<span class="fi-verd" style="color:var(--cold-dim)">executor</span></div></summary>`+
+    `<pre class="agent-pre">${esc(s.body)||'—'}</pre></details>`).join('');
+}
 async function loadFiles(){if(!current)return;
   $('files').innerHTML=`<div class="hint">${t('files.loading')}</div>`;
   const d=await(await fetch(api('/api/projects/'+current+'/files'))).json().catch(()=>({files:[]}));
@@ -854,8 +881,14 @@ $('feedBtn').onclick=()=>setFeed(!document.body.classList.contains('feed-open'))
 $('feedClose').onclick=()=>setFeed(false);
 $('feedTab').onclick=()=>setFeed(true);
 $('feedScrim').onclick=()=>setFeed(false);
-$('feedRefresh').onclick=()=>loadAgentLog();
 {const fol=$('feedOpenLink');if(fol)fol.onclick=e=>{e.preventDefault();setFeed(true);};}
+// accordion: clicking a section head opens it and collapses the other (exactly one open)
+function setAcc(id){document.querySelectorAll('.feed .acc').forEach(s=>s.classList.toggle('open',s.id===id));
+  try{localStorage.setItem('tt_acc',id)}catch(e){}}
+document.querySelectorAll('.feed .acc-head').forEach(h=>h.addEventListener('click',e=>{
+  if(e.target.closest('#agentLogBtn'))return;            // the ↻ refresh button isn't a section toggle
+  setAcc(h.getAttribute('data-acc'));}));
+{let a=null;try{a=localStorage.getItem('tt_acc')}catch(e){}setAcc(a||'accIters');}
 document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('feed-open')&&window.innerWidth<1280)setFeed(false);});
 (function(){let v=null;try{v=localStorage.getItem('tt_feed')}catch(e){}
   setFeed(v===null?(window.innerWidth>=1280):(v==='1'));})();   // open by default on wide, else remember
