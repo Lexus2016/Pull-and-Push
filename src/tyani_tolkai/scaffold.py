@@ -72,22 +72,27 @@ def list_templates() -> list[dict]:
 
 
 def pick_template(description: str) -> str | None:
-    """Best-matching template id for a description by keyword overlap, or None.
+    """Best-matching template id for a description, falling back to the generic 'custom' skeleton.
 
-    Deterministic, no model call: lowercase the description, count how many of each
-    template's keywords appear as whole words, return the highest scorer. Ties break
-    by template id (alphabetical) for reproducibility.
+    Deterministic, no model call: lowercase the description, count how many of each template's
+    keywords appear, return the highest scorer (ties break by id, alphabetical, for reproducibility).
+    If NO domain template matches, fall back to 'custom' (when present) so the auto-detect path never
+    dead-ends — the user always gets a runnable project to refine, not an error. Returns None only
+    for an empty description or when no template (not even 'custom') exists.
     """
     text = (description or "").lower()
     if not text.strip():
         return None
+    templates = list_templates()
     best_id, best_score = None, 0
-    for tpl in list_templates():
+    for tpl in templates:
         score = sum(1 for kw in tpl.get("keywords", []) if str(kw).lower() in text)
         if score > best_score or (score == best_score and score > 0
                                   and (best_id is None or tpl["id"] < best_id)):
             best_id, best_score = tpl["id"], score
-    return best_id if best_score > 0 else None
+    if best_score > 0:
+        return best_id
+    return "custom" if any(t["id"] == "custom" for t in templates) else None
 
 
 def _build_config(name: str, description: str, template: dict) -> dict:

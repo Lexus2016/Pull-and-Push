@@ -36,9 +36,11 @@ def test_pick_template_matches_by_keywords():
     assert scaffold.pick_template("implement a python function to pass the pytest tests") == "pytest-pass"
 
 
-def test_pick_template_none_on_no_match():
-    assert scaffold.pick_template("xyzzy foobar qux") is None
-    assert scaffold.pick_template("") is None
+def test_pick_template_falls_back_to_custom_not_dead_end():
+    # auto-detect must never dead-end: a description that matches no domain template falls back to
+    # the generic 'custom' skeleton (so the user gets a runnable project, not an error).
+    assert scaffold.pick_template("xyzzy foobar qux") == "custom"
+    assert scaffold.pick_template("") is None          # empty description infers nothing
 
 
 def test_load_template_rejects_traversal_and_missing():
@@ -98,9 +100,12 @@ def test_scaffold_requires_description(home):
         scaffold.scaffold_project("nodesc", "   ", "pytest-pass")
 
 
-def test_scaffold_uninferrable_description_raises(home):
-    with pytest.raises(ValueError):
-        scaffold.scaffold_project("noinfer", "xyzzy foobar", None)
+def test_scaffold_unmatched_description_uses_custom(home):
+    # a non-empty description that matches no domain template no longer raises — it scaffolds the
+    # generic 'custom' skeleton so the auto path always yields a runnable project to refine.
+    res = scaffold.scaffold_project("noinfer", "xyzzy foobar qux", None)
+    assert res["template"] == "custom"
+    assert (project_dir("noinfer") / "metrics" / "evaluate.py").exists()
 
 
 # ---------------- the created project actually scores ----------------
@@ -162,14 +167,14 @@ def test_custom_template_is_general_on_ramp(home):
         state.close()
 
 
-def test_custom_template_is_opt_in_only(home):
-    # 'custom' must never be auto-picked (empty keywords) — it's the explicit/fallback choice,
-    # so it can't hijack a description meant for a domain template.
+def test_custom_is_fallback_not_a_hijacker(home):
+    # 'custom' has empty keywords so it never out-scores a domain template — domain descriptions
+    # still route correctly — but it IS the fallback when nothing else matches (no dead-end).
     ids = {t["id"] for t in scaffold.list_templates()}
     assert "custom" in ids                                    # visible in the dropdown
-    assert scaffold.pick_template("btcusdt futures strategy") == "btcusdt-futures"
-    assert scaffold.pick_template("make the hidden pytest tests pass") == "pytest-pass"
-    assert scaffold.pick_template("optimize a marketing tagline") is None   # no domain match → not custom
+    assert scaffold.pick_template("btcusdt futures strategy") == "btcusdt-futures"   # not hijacked
+    assert scaffold.pick_template("make the hidden pytest tests pass") == "pytest-pass"  # not hijacked
+    assert scaffold.pick_template("optimize a marketing tagline") == "custom"        # fallback
 
 
 def test_btc_strategy_owns_signals_logic(home):
