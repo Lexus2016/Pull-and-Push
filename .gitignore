@@ -11,3 +11,4 @@ node_modules/
 *.png
 1/
 2/
+.claude/
