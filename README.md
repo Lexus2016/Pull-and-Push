@@ -130,6 +130,7 @@ projects run on hosts that only have `python3` (not a bare `python`).
 | `FileNotFoundError: 'python'` | The scorer command hardcodes `python` — use `{python}` (auto-substituted). |
 | Dashboard empty after a restart | Select the project — its history loads from `state.db`. |
 | Noisy/flaky scorer | Set `evaluation.runs: 3` — the runner takes the median of N measurements. |
+| Score dropped after I changed the metrics | Expected — the loop **re-baselined**: it re-measured the current best under the *new* objective so comparisons stay fair (a genuine improvement on the new scale won't be discarded against the old bar). The artifact didn't get worse; the scale did. Logged in the agent log. |
 
 ## Quick start — the dashboard
 

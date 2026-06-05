@@ -41,6 +41,12 @@ class LoopSummary:
     iterations: int
 
 
+def metrics_signature(metrics) -> str:
+    """Stable signature of the scoring OBJECTIVE — changes whenever a metric is added/removed or
+    its direction/target/weight changes. Used to detect a mid-run objective change → re-baseline."""
+    return json.dumps(sorted((m.name, m.dir, float(m.target), float(m.weight)) for m in metrics))
+
+
 class Orchestrator:
     def __init__(self, cfg: Config, state: StateStore, run_id: int,
                  executor, metric_adapter, sandbox, validator=None):
@@ -98,6 +104,42 @@ class Orchestrator:
             changed = True
         if changed:
             self.state.update_run(self.run_id, baseline_json=json.dumps(self._baseline))
+
+    def _rebaseline_if_metrics_changed(self, ph) -> None:
+        """If the scoring OBJECTIVE changed since this run last ran (metric added/removed, or a
+        target/weight/direction edited), the stored best_score is on the OLD scale — so a genuinely
+        better artifact can read lower and be wrongly discarded. Re-measure the current best under
+        the NEW objective and make THAT the bar: pin any new metric's zero-point (keep existing ones
+        for continuity), set best_score to the fresh measurement, and log it. Runs once per run."""
+        cfg, state = self.cfg, self.state
+        run = state.get_run(self.run_id)
+        stored = run["metrics_sig"] if (run and "metrics_sig" in run.keys()) else None
+        cur = metrics_signature(cfg.evaluation.metrics)
+        if stored == cur:
+            return
+        best = state.best_score(self.run_id)
+        if stored is None or best is None or state.is_artifact_empty():
+            state.update_run(self.run_id, metrics_sig=cur)     # nothing to re-baseline yet — just record
+            return
+        ph("scoring")
+        mres = self._run_metrics()                             # re-score the current best (HEAD)
+        state.revert_uncommitted()
+        if not mres.ok:
+            return                                             # can't re-measure now → retry next run
+        values = {m["name"]: m["value"] for m in mres.metrics}
+        if any(m.name not in values for m in cfg.evaluation.metrics):
+            return
+        self._resolve_baseline(values)                         # pin zero-points for any NEW metric
+        fresh = score(values, cfg.evaluation.metrics)
+        state.update_run(self.run_id, best_score=fresh, metrics_sig=cur)
+        try:
+            sep = "─" * 60
+            with (state.project_dir / "agent.log").open("a", encoding="utf-8") as f:
+                f.write(f"\n{sep}\n♻ metrics changed → re-baselined: current best re-measured under "
+                        f"the new objective = {fresh:.2f} (was {best:.2f} on the old scale). The loop "
+                        f"now keeps improvements measured the same way.\n{sep}\n")
+        except OSError:
+            pass
 
     def _run_executor(self, brief: str):
         """Run the executor, restarting it on a crash/timeout up to agent_retries.
@@ -459,6 +501,7 @@ class Orchestrator:
 
     def run_loop(self, on_iteration=None, should_stop=None, on_phase=None) -> LoopSummary:
         cfg = self.cfg
+        self._rebaseline_if_metrics_changed(on_phase or (lambda *_: None))   # objective changed? rescore the bar
         while True:
             if self.aborted or (should_stop and should_stop()):
                 best = self.state.best_score(self.run_id)

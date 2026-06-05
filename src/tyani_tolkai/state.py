@@ -97,7 +97,8 @@ class StateStore:
         self.conn.execute("PRAGMA journal_mode=WAL")   # concurrent web read + run write
         self.conn.executescript(SCHEMA)
         for _mig in ("ALTER TABLE iteration ADD COLUMN feedback TEXT",
-                     "ALTER TABLE run ADD COLUMN baseline_json TEXT"):
+                     "ALTER TABLE run ADD COLUMN baseline_json TEXT",
+                     "ALTER TABLE run ADD COLUMN metrics_sig TEXT"):
             try:                                        # migrate older DBs in place
                 self.conn.execute(_mig)
             except sqlite3.OperationalError:

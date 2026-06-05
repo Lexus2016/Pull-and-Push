@@ -507,3 +507,34 @@ def test_baseline_worst_restored_on_resume(tmp_path):
     cfg = _cfg_no_worst()
     orch = Orchestrator(cfg, s, run_id, MockAdapter([]), FakeMetric(), LocalBackend())
     assert cfg.evaluation.metrics[0].worst == 10.0     # restored from the persisted baseline
+
+
+def test_rebaseline_on_metric_objective_change(tmp_path):
+    # changing the objective mid-run must re-measure the current best on the NEW scale, so genuine
+    # improvements aren't discarded against an old-scale bar (the user's reported problem).
+    from tyani_tolkai.orchestrator import metrics_signature
+    s = StateStore(tmp_path / "proj"); s.git_init()
+    run_id = s.create_run("asymmetric")
+    (s.artifact_dir / "val.txt").write_text("50\n")          # current best artifact: s = 50
+    h = s.commit("best")
+    cfgA = _cfg(target=100)                                   # under objective A: score = 50
+    s.record_iteration(run_id, n=1, git_hash=h, score=50.0, verdict="keep",
+                       metrics=[{"name": "s", "value": 50.0, "dir": "higher", "weight": 1}])
+    s.update_run(run_id, best_score=50.0, iter_count=1,
+                 metrics_sig=metrics_signature(cfgA.evaluation.metrics))
+    # user lowers the metric's target 100 → 50: the SAME artifact now meets it → re-baseline to 100
+    cfgB = Config(
+        project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "raise s"}},
+        evaluation={"adapter": "numeric", "command": "true",
+                    "metrics": [{"name": "s", "dir": "higher", "weight": 1, "worst": 0, "target": 50}],
+                    "target_score": 100, "min_delta": 1.0},
+        limits={"max_iterations": 20, "plateau_N": 3})
+    Orchestrator(cfgB, s, run_id, MockAdapter([]), FakeMetric(), LocalBackend()) \
+        ._rebaseline_if_metrics_changed(lambda *_: None)
+    assert s.best_score(run_id) == 100.0                      # bar re-measured under the NEW objective
+    assert s.get_run(run_id)["metrics_sig"] == metrics_signature(cfgB.evaluation.metrics)
+    # unchanged objective → idempotent (does not move the bar again)
+    Orchestrator(cfgB, s, run_id, MockAdapter([]), FakeMetric(), LocalBackend()) \
+        ._rebaseline_if_metrics_changed(lambda *_: None)
+    assert s.best_score(run_id) == 100.0
+    s.close()
