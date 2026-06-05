@@ -29,7 +29,7 @@
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install -e ".[dev]"      # включно з веб-залежностями (fastapi/uvicorn/httpx)
-.venv/bin/pytest                       # 105 passed, 1 skipped (docker)
+.venv/bin/pytest                       # весь набір проходить (1 docker-тест пропущено)
 ```
 
 ## Швидкий старт — панель
@@ -112,7 +112,7 @@ pull-and-push projects delete renamed
 
 ## Тести
 
-`105 passed, 1 skipped` — модульні (скорер, конфіг, стан, метрики, брифінг, реєстр, пісочниця),
+Весь набір проходить (1 docker-тест пропущено), у CI на Python 3.10 і 3.12 — модульні (скорер, конфіг, стан, метрики, брифінг, реєстр, пісочниця),
 інтеграційні (оркестратор з mock + валідатором, baseline-нуль, force-stop, обробка відсутньої
 метрики), CLI-адаптер (вкл. headless-прапорці + kill), round-trip проєктів (zip),
 ендпоінти WebUI (вкл. force-stop, agent-log, webhook) і «золотий прогін», що доводить

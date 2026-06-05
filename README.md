@@ -29,7 +29,7 @@ Inspired by GANs, Karpathy's `autoresearch`, and the `consilium` adapter pattern
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install -e ".[dev]"      # includes web deps (fastapi/uvicorn/httpx)
-.venv/bin/pytest                       # 130 passed, 1 skipped (docker)
+.venv/bin/pytest                       # full suite passes (1 docker test skipped)
 ```
 
 ## Configuration & troubleshooting
@@ -156,7 +156,7 @@ pull-and-push projects delete renamed
 
 ## Tests
 
-`105 passed, 1 skipped` — unit (scorer, config, state, metrics, brief, registry, sandbox),
+The full suite passes (1 docker test skipped), run on Python 3.10 & 3.12 in CI — unit (scorer, config, state, metrics, brief, registry, sandbox),
 integration (orchestrator with mock + validator, baseline zero-point, force-stop, missing-
 metric handling), CLI adapter (incl. headless flags + kill), projects round-trip (zip),
 WebUI endpoints (incl. force-stop, agent-log, webhook), and a golden run proving
