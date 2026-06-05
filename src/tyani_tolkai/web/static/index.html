@@ -680,6 +680,10 @@ function plot(o){const c=ensureChart();if(!c)return;const p=o.filter(x=>x.score!
   c.data.labels=p.map(x=>'#'+x.n);c.data.datasets[0].data=p.map(x=>x.score);
   c.data.datasets[0].pointBackgroundColor=p.map(x=>x.verdict==='keep'?'#46e0a0':(x.verdict==='discard'?'#ffd166':'#75899e'));
   c.update();}
+// the most recent iteration that actually carries metric values — a fail/no_op iteration (or one
+// still mid-flight) has empty metrics, and we must NOT blank the KPI cards just because the latest
+// step produced no score. Fall back to the last step that did.
+function lastMetricsOf(list){for(let i=(list||[]).length-1;i>=0;i--){const m=list[i]&&list[i].metrics;if(m&&m.length)return m;}return [];}
 function renderMetricCards(lastMetrics){
   const specs=(CFG&&CFG.evaluation&&CFG.evaluation.metrics)||[];
   const el=$('metricCards'); if(!el) return;
@@ -729,7 +733,7 @@ function setStatus(s,score,sum,cost){const tg=$('tag');tg.className='tag '+(s||'
 async function loadState(name){const d=await(await fetch(api('/api/projects/'+name))).json();
   BASELINE=d.baseline||{};
   const its=d.iterations||[];RUN_STATUS=d.status||'idle';_logSig='';setStatus(d.status||'idle',d.best_score,null,d.cost);plot(its);renderLog(its);renderCheckpoint(d);
-  renderMetricCards(its.length?its[its.length-1].metrics:[]);loadAgentLog();
+  renderMetricCards(lastMetricsOf(its));loadAgentLog();
   $('runGoal').textContent=(CFG&&CFG.roles&&CFG.roles.executor&&CFG.roles.executor.goal)?(t('goal.prefix')+CFG.roles.executor.goal):'';}
 function stopPolling(){if(poll){clearInterval(poll);poll=null;}}
 function startPolling(name){if(poll)clearInterval(poll);
@@ -737,7 +741,7 @@ function startPolling(name){if(poll)clearInterval(poll);
     if(d.baseline&&Object.keys(d.baseline).length)BASELINE=d.baseline;   // live zero-points
     const best=(d.outcomes||[]).reduce((m,o)=>o.score!=null&&o.score>m?o.score:m,0)||null;
     const oc=d.outcomes||[];RUN_STATUS=d.status;setStatus(d.status,best,d.summary,d.cost);plot(oc);renderLog(oc);renderCheckpoint(d);
-    renderMetricCards(oc.length?oc[oc.length-1].metrics:[]);
+    renderMetricCards(lastMetricsOf(oc));
     if(d.status==='running')loadAgentLog();        // live tail of the executor's output
     if(d.status==='running'&&d.phase){
       const pl={executor:t('phase.executor'),scoring:t('phase.scoring'),validator:t('phase.validator')};
