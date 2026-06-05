@@ -67,6 +67,9 @@ Karpathy's `autoresearch`, and the `consilium` adapter pattern.
   0–100 from objective metrics. The reviewer AI gives words and ideas — never the number.
 - **Keep-if-better, tracked in git** — plus a short brief each round carrying the real diffs
   of past attempts, so the next try builds on the last instead of starting blind.
+- **Fresh-look checkpoints.** Every 5th iteration both agents get a nudge to step back and
+  re-examine the problem from the other side — questioning the core assumption instead of
+  grinding one path into a local optimum.
 - **You never invent a zero-point.** Give each metric a direction and a target; the scale's
   0 is pinned to your first measurement (0 = where you started, 100 = the goal).
 - **Walk-forward scoring (no overfitting).** Where it matters — like the trading template —
@@ -142,13 +145,32 @@ projects run on hosts that only have `python3` (not a bare `python`).
   `btcusdt-futures` (leveraged BTCUSDT 5m backtest) and `pytest-pass` (make a hidden test suite pass).
 - 🪄 **Generate from a description** — describe the task in plain language; a configurator
   agent drafts the whole project, you review it in the form, then **Create**.
-- ▶ **Run** drives the real agents; the quality curve, metric cards, iteration log and the
-  **🔎 agent log** (the executor's real output) update live.
+- ▶ **Run** drives the real agents. The quality curve and metric cards update live, alongside a
+  collapsible **activity feed** (right rail, newest iteration on top): the validator's review and
+  the executor's output render as **Markdown**. Your layout — feed open/closed, sidebar, current
+  project and tab — is remembered across reloads.
 - ⛔ **Force Stop** kills the agent instantly; **Stop** waits for the iteration boundary.
-- ⬇ **Export** downloads the **result as a `.zip`** (artifact code + `README.md` + `RESULTS.md`).
-- **UI languages:** English (default) · Ukrainian · Russian — switch in the header; the
-  choice and your place in the UI are remembered across reloads.
+- ⬇ **Export** downloads the current best **result as a `.zip`** (artifact code + `README.md` + `RESULTS.md`).
+- **UI languages:** English (default) · Ukrainian · Russian — switch in the header (with styled,
+  in-design tooltips on every control). The choice and your place in the UI persist across reloads.
 - Optional **completion webhook**: call your URL (GET/POST) when a run finishes.
+
+### Snapshots — download, rewind to, or fork any iteration
+
+The highest composite score isn't always the version you want; an intermediate iteration can be
+more interesting (say, higher `return_oos_pct` at a slightly lower weighted score). Every **kept**
+iteration in the activity feed is a real git commit, so each keep card carries three actions:
+
+- **⬇ Download this version** — a runnable zip of the artifact *at that iteration* (with the
+  harness, config and a `SNAPSHOT.txt` noting that iteration's own score) — not just the latest.
+- **↻ Continue from here** — rewind the project to that iteration: it becomes the current best, and
+  the next **Run** continues from it (with whatever you refine). The dropped tail is tagged in git,
+  so nothing is truly lost.
+- **⑂ Fork to a new project** — branch that iteration into a separate project; the original stays
+  untouched, so you can optimise both directions independently.
+
+Snapshots are offered for **kept** iterations (each is a committed checkpoint); discarded
+candidates are reverted and not stored. Rewind/fork are disabled while a run is in progress.
 
 ## Real run (your own task, real agents)
 
