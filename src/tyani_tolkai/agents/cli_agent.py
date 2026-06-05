@@ -93,13 +93,20 @@ def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
             cmd += ["-m", model]
         return cmd
     if engine == "opencode":
-        cmd = ["opencode", "run", "--dangerously-skip-permissions"]  # auto-approve, never block
+        # `opencode run` is already non-interactive/auto-approving — it has no
+        # --dangerously-skip-permissions flag. The working dir is passed via --dir in run()
+        # (opencode ignores the process cwd and otherwise resolves the ENCLOSING git repo).
+        cmd = ["opencode", "run"]
         if model:
             cmd += ["-m", model]
         return cmd
     if engine == "agy":
         # -p = non-interactive print; auto-approve tools so it can't stall on a prompt.
-        return ["agy", "-p", "--dangerously-skip-permissions"]
+        # The workspace dir is added via --add-dir in run() (agy doesn't use the process cwd).
+        cmd = ["agy", "-p", "--dangerously-skip-permissions"]
+        if model:
+            cmd += ["--model", model]
+        return cmd
     raise ValueError(f"no CLI prefix for engine {engine!r}")
 
 
@@ -145,12 +152,16 @@ class CLIAgentAdapter:
     def run(self, brief: str, workdir: str | Path, profile: str, timeout: int) -> RunResult:
         self._killed = False
         cmd = list(self.prefix)
-        # The subprocess runs with cwd=workdir, so the agent already has the working
-        # directory. Only codex needs it stated explicitly via -C (a single-path flag).
-        # claude/agy use --add-dir, which is GREEDY (variadic) and swallows the prompt
-        # argument that follows it. So we do NOT pass --add-dir; cwd is sufficient.
+        # The subprocess runs with cwd=workdir. claude respects that. The others resolve their
+        # own working root (and would otherwise edit the ENCLOSING git repo), so state it
+        # explicitly with each one's single-path flag — placed BEFORE the positional prompt:
+        #   codex -C <dir> · opencode --dir <dir> · agy --add-dir <dir>
         if self.engine == "codex":
             cmd += ["-C", str(workdir)]
+        elif self.engine == "opencode":
+            cmd += ["--dir", str(workdir)]
+        elif self.engine == "agy":
+            cmd += ["--add-dir", str(workdir)]
         argv = [*cmd, brief]
         if profile == "writeable":
             return self._run_logged(argv, workdir, timeout)   # executor → live agent.log

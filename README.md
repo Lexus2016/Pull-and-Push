@@ -220,9 +220,12 @@ pull-and-push projects delete renamed
   they can't hang on an interactive prompt (`claude`/`opencode`/`agy` get
   `--dangerously-skip-permissions`; `codex exec` is sandboxed and non-interactive). A
   per-step timeout is the final backstop.
-- **Executor engine compatibility:** the loop runs each agent with `cwd = artifact/`.
-  `claude` and `codex` respect that; `opencode`/`agy` currently resolve their own root and
-  may edit the enclosing repo — **use `claude` or `codex` as the Executor** for now.
+- **Executor engine compatibility** (verified by smoke-test): the loop pins each engine to the
+  artifact dir with its own flag — `claude` (cwd) · `codex -C` · `opencode --dir` · `agy --add-dir`.
+  **`claude`, `codex` and `opencode` work** as Executor/Validator (each edits only the artifact).
+  **`agy` is not recommended**: headless `agy -p` either blocks on an interactive permission prompt
+  or, with auto-approve, answers conversationally instead of reliably editing files. Use
+  `claude` / `codex` / `opencode`.
 - **Symmetric mode** (Rival↔Rival + arena) — designed, not yet built.
 - **Docker backend** is implemented; the `local` backend is fully tested. Keep metric
   commands simple (avoid shell pipes) for cross-backend parity.

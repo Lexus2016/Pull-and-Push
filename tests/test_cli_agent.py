@@ -15,11 +15,12 @@ def test_build_cli_prefix_engines():
 
 
 def test_headless_agents_auto_approve_to_never_hang():
-    # claude/opencode/agy must auto-approve tool permissions, or headless runs block
-    # forever on an interactive prompt. codex exec is non-interactive via its sandbox.
+    # claude/agy must auto-approve tool permissions, or headless runs block forever on an
+    # interactive prompt. `opencode run` is non-interactive by default (no such flag) and
+    # `codex exec` is non-interactive via its sandbox.
     assert "--dangerously-skip-permissions" in build_cli_prefix("claude", None, "writeable")
-    assert "--dangerously-skip-permissions" in build_cli_prefix("opencode", None, "writeable")
     assert "--dangerously-skip-permissions" in build_cli_prefix("agy", None, "writeable")
+    assert "--dangerously-skip-permissions" not in build_cli_prefix("opencode", None, "writeable")
     assert "--sandbox" in build_cli_prefix("codex", None, "writeable")
 
 
@@ -79,8 +80,8 @@ def test_cli_adapter_missing_binary(tmp_path):
 
 
 def test_cli_adapter_dir_handling(tmp_path):
-    """Prompt must be the final positional arg; cwd carries the working dir.
-    claude/agy must NOT get a greedy --add-dir (it swallows the prompt). codex gets -C."""
+    """Prompt must be the final positional arg, after each engine's single-path working-dir flag.
+    claude relies on cwd (no flag); codex gets -C, opencode --dir, agy --add-dir."""
     import subprocess
     from unittest.mock import patch
 
@@ -95,13 +96,13 @@ def test_cli_adapter_dir_handling(tmp_path):
             return m.call_args[0][0], m.call_args[1]["cwd"]
 
     av, cwd = argv_for("claude", ["claude", "-p"])
-    assert av == ["claude", "-p", "PROMPT"] and cwd == str(tmp_path)   # no --add-dir
+    assert av == ["claude", "-p", "PROMPT"] and cwd == str(tmp_path)   # claude: cwd only, no flag
     av, _ = argv_for("agy", ["agy", "-p"])
-    assert av == ["agy", "-p", "PROMPT"]
+    assert av == ["agy", "-p", "--add-dir", str(tmp_path), "PROMPT"]   # agy: --add-dir workspace
     av, _ = argv_for("codex", ["codex", "exec"])
-    assert av == ["codex", "exec", "-C", str(tmp_path), "PROMPT"]      # single-path flag
+    assert av == ["codex", "exec", "-C", str(tmp_path), "PROMPT"]      # codex: -C single-path
     av, _ = argv_for("opencode", ["opencode", "run"])
-    assert av == ["opencode", "run", "PROMPT"]
+    assert av == ["opencode", "run", "--dir", str(tmp_path), "PROMPT"] # opencode: --dir (else edits enclosing repo)
 
 
 def test_ansi_stripper_removes_tty_control_noise():
