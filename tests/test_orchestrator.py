@@ -132,6 +132,51 @@ def test_checkpoint_pauses_on_plateau(tmp_path):
     assert cp is not None and cp["reason"] == "plateau"
 
 
+def test_resume_after_checkpoint_gets_a_fresh_budget(tmp_path):
+    # the risky path: after a plateau checkpoint, the operator continues (resolve + reset
+    # plateau_count). The resumed run must make progress and only re-pause after FRESH attempts,
+    # not immediately re-fire at the old plateau count.
+    cfg = Config(
+        project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "g"}},
+        evaluation={"adapter": "numeric", "command": "true",
+                    "metrics": [{"name": "s", "dir": "higher", "weight": 1, "worst": 0, "target": 100}],
+                    "target_score": 1000, "min_delta": 1.0},
+        limits={"max_iterations": 50, "plateau_N": 2},
+        checkpoints={"on_plateau": True, "manual": False})
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    Orchestrator(cfg, s, run_id, MockAdapter([_edit_val(v) for v in (70, 60, 60)]),
+                 FakeMetric(), LocalBackend()).run_loop()
+    assert s.get_run(run_id)["status"] == "awaiting_review"
+    # operator: Continue (what the endpoint does)
+    s.resolve_checkpoint(run_id, "continue")
+    s.update_run(run_id, plateau_count=0)
+    # resume: improve (80 keep) then plateau again
+    summary2 = Orchestrator(cfg, s, run_id, MockAdapter([_edit_val(v) for v in (80, 70, 70)]),
+                            FakeMetric(), LocalBackend()).run_loop()
+    assert summary2.reason == "checkpoint"        # paused again — but only after fresh attempts
+    assert s.best_score(run_id) == 80.0           # progress WAS made on resume (fresh budget worked)
+
+
+def test_cost_restored_on_resume(tmp_path):
+    # the budget cap must survive a restart: cost_total is persisted and a resumed orchestrator
+    # picks it up (otherwise the cap resets to 0 every restart).
+    cfg = Config(
+        project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "g"}},
+        evaluation={"adapter": "numeric", "command": "true",
+                    "metrics": [{"name": "s", "dir": "higher", "weight": 1, "worst": 0, "target": 100}],
+                    "target_score": 1000, "min_delta": 1.0},
+        limits={"max_iterations": 1, "plateau_N": 5, "usd_per_mtok": 1_000_000.0})
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    Orchestrator(cfg, s, run_id, MockAdapter([_edit_val(70)]), FakeMetric(), LocalBackend()).run_loop()
+    persisted = s.get_run(run_id)["cost_total"]
+    assert persisted > 0
+    assert Orchestrator(cfg, s, run_id, MockAdapter([]), FakeMetric(), LocalBackend()).cost_total == persisted
+
+
 def test_improving_run_reaches_target(tmp_path):
     edits = [_edit_val(v) for v in (70, 80, 90, 100)]
     orch, s, run_id = _orch(tmp_path, edits, _cfg())

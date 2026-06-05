@@ -421,7 +421,7 @@
         <div class="hint" id="cpMsg" style="display:block;margin:4px 0 8px"></div>
         <button class="btn" id="cpContinueBtn" style="width:auto" data-i18n="cp.continue">▶ Continue</button>
         <button class="btn" id="cpAcceptBtn" style="width:auto" data-i18n="cp.accept">✓ Accept & finish</button>
-        <span class="hint" data-i18n="cp.hint">For a “target” checkpoint, raise Target score in Configuration first, then Continue.</span>
+        <span class="hint" id="cpHint" data-i18n="cp.hint">For a “target” checkpoint, raise Target score in Configuration first, then Continue.</span>
       </div>
       <div class="controls" style="margin-bottom:18px">
         <button class="btn" id="runBtn" disabled data-i18n="prog.run" data-i18n-title="prog.runTitle" title="Start the loop with real agents">▶ Run</button>
@@ -839,7 +839,8 @@ function renderCheckpoint(d){
   $('cpPanel').classList.toggle('hidden',!show);
   if(show){const r=d.checkpoint.reason;
     const lbl={target:t('cp.target'),plateau:t('cp.plateau'),periodic:t('cp.periodic')}[r]||r;
-    $('cpMsg').textContent=lbl+' · '+t('phase.iter')+' '+(d.checkpoint.iter||'');}}
+    $('cpMsg').textContent=lbl+' · '+t('phase.iter')+' '+(d.checkpoint.iter||'');
+    $('cpHint').style.display=(r==='target')?'inline':'none';}}   // hint only applies to target
 $('cpContinueBtn').onclick=async()=>{if(!current)return;
   await fetch(api('/api/projects/'+current+'/checkpoint/continue'),{method:'POST'});
   $('cpPanel').classList.add('hidden');setStatus('running',null,null);startPolling(current);toast(t('toast.started'),'ok');};
@@ -847,6 +848,7 @@ $('cpAcceptBtn').onclick=async()=>{if(!current)return;
   await fetch(api('/api/projects/'+current+'/checkpoint/accept'),{method:'POST'});
   $('cpPanel').classList.add('hidden');toast(t('cp.accepted'),'ok');loadState(current);};
 $('runBtn').onclick=async()=>{if(!current)return;
+  if(RUN_STATUS==='awaiting_review')return $('cpContinueBtn').onclick();   // at a checkpoint, Run = Continue
   if(RUN_STATUS==='finished'&&!confirm(t('confirm.runFinished')))return;   // don't silently restart a won run
   if(!localStorage.getItem('tt_run_ack')){
     const eng=(CFG&&CFG.agents&&CFG.agents.executor&&CFG.agents.executor.engine)||$('f_ex_engine').value||'CLI';
