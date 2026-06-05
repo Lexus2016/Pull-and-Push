@@ -912,7 +912,10 @@ function startPolling(name){if(poll)clearInterval(poll);
       toast(t('toast.runDone')+r+(best!=null?(' · '+(+best).toFixed(1)):''), d.status==='error'?'err':'ok');}},1000);}
 
 $('helpBtn').onclick=()=>$('helpCard').classList.toggle('hidden');
-$('navBtn').onclick=()=>document.body.classList.toggle('nav-collapsed');
+function setNav(collapsed){document.body.classList.toggle('nav-collapsed',!!collapsed);try{localStorage.setItem('tt_nav',collapsed?'1':'0')}catch(e){}}
+function navRestore(){let v=null;try{v=localStorage.getItem('tt_nav')}catch(e){}setNav(v==='1');}
+$('navBtn').onclick=()=>setNav(!document.body.classList.contains('nav-collapsed'));
+navRestore();
 // ── activity feed (right rail) ──
 function setFeed(open){document.body.classList.toggle('feed-open',!!open);try{localStorage.setItem('tt_feed',open?'1':'0')}catch(e){}}
 function feedRestore(){let v=null;try{v=localStorage.getItem('tt_feed')}catch(e){}
@@ -1068,7 +1071,7 @@ $('steerBtn').onclick=async()=>{const txt=$('steerText').value.trim();if(!curren
   let last=null,view=null; try{last=localStorage.getItem('tt_current');view=localStorage.getItem('tt_view');}catch(e){}
   const exists=[...$('projects').children].some(li=>li.textContent===last);
   if(last&&exists){ await selectProject(last); if(view==='config')showView('config'); }
-  feedRestore();   // last word: restore the rail's open/closed choice after project/tab restore
+  feedRestore(); navRestore();   // last word: restore rail + left-nav collapsed state after project/tab restore
 })();
 </script>
 </body>
