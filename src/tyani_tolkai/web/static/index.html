@@ -308,6 +308,7 @@
   .fi-chev{color:var(--mut);font-size:10px;transition:transform .2s}
   details.feed-item[open] .fi-chev{transform:rotate(90deg);color:var(--cold)}
   .fi-n{font-family:var(--mono);font-size:12px;color:var(--mut)}
+  .fi-time{font-family:var(--mono);font-size:10.5px;color:var(--mut);opacity:.85;white-space:nowrap}
   .fi-score{font-family:var(--mono);font-size:16px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
   .fi-verd{font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-left:auto}
   .fi-mets{padding:0 13px 10px;font-family:var(--mono);font-size:11.5px;color:var(--cold-dim);line-height:1.65;word-break:break-word}
@@ -835,11 +836,13 @@ function renderAgentLog(text){
   if(!heads.length){
     el.innerHTML=text?`<div class="md agent-md">${md(text)}</div>`:`<div class="empty">${t('agentLog.empty')}</div>`;hl(el);return;}
   const segs=heads.map((h,i)=>({n:h.n,body:text.slice(h.end,(heads[i+1]||{}).start??text.length).trim()}));
-  el.innerHTML=segs.reverse().map((s,i)=>                                            // newest on top
-    `<details class="feed-item v-no_op"${i===0?' open':''}><summary>`+
+  el.innerHTML=segs.reverse().map((s,i)=>{                                           // newest on top
+    const tm=fmtTime(ITER_TS[s.n]);
+    return `<details class="feed-item v-no_op"${i===0?' open':''}><summary>`+
     `<div class="fi-head"><span class="fi-chev">▸</span><span class="fi-n">#${s.n}</span>`+
+    `${tm?`<span class="fi-time">${tm}</span>`:''}`+
     `<span class="fi-verd" style="color:var(--cold-dim)">executor</span></div></summary>`+
-    `<div class="md agent-md">${md(s.body)||'—'}</div></details>`).join('');
+    `<div class="md agent-md">${md(s.body)||'—'}</div></details>`;}).join('');
   hl(el);
 }
 async function loadFiles(){if(!current)return;
@@ -902,8 +905,14 @@ function renderMetricCards(lastMetrics){
     </div>`;
   }).join('');
 }
+// format an ISO timestamp as a compact local date+time, in the current UI language
+function fmtTime(iso){if(!iso)return'';const d=new Date(iso);if(isNaN(d.getTime()))return'';
+  const loc=LANG==='uk'?'uk-UA':(LANG==='ru'?'ru-RU':'en-GB');
+  return d.toLocaleString(loc,{day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit'});}
+let ITER_TS={};        // n → iteration timestamp, shared with the agent-log cards
 let _logSig='';
 function renderLog(o){
+  (o||[]).forEach(x=>{if(x.ts)ITER_TS[x.n]=x.ts;});       // keep n→ts fresh even if the DOM isn't rebuilt
   // only rebuild when the data actually changed — otherwise the 1s poll would re-create the
   // DOM every tick and snap any <details> the user just opened shut.
   const sig=JSON.stringify((o||[]).map(x=>[x.n,x.verdict,x.score]))+'|'+(($('tag')||{}).textContent||'');
@@ -912,8 +921,9 @@ function renderLog(o){
     const sc=x.score==null?'—':(+x.score).toFixed(2);
     const mets=(x.metrics&&x.metrics.length)?x.metrics.map(m=>`${m.name} ${fmt(m.value)}`).join('  ·  '):'';
     const metsHtml=mets?`<div class="fi-mets">${esc(mets)}</div>`:'';
+    const tm=fmtTime(x.ts);
     const mk=open=>`<div class="fi-head"><span class="fi-chev"${open?'':' style="visibility:hidden"'}>▸</span>`+
-      `<span class="fi-n">#${x.n}</span><span class="fi-score">${sc}</span>`+
+      `<span class="fi-n">#${x.n}</span>${tm?`<span class="fi-time">${tm}</span>`:''}<span class="fi-score">${sc}</span>`+
       `<span class="fi-verd v-${x.verdict}">${esc(x.verdict)}</span></div>${metsHtml}`;
     // every kept iteration is a git commit → it can be downloaded, rewound to, or forked
     const tip=k=>{const v=esc(t(k));return `data-tip="${v}" aria-label="${v}"`;};

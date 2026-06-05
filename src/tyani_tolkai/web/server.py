@@ -31,7 +31,7 @@ from ..projects import (
 )
 from ..registry import build_adapter
 from ..sandbox import get_backend
-from ..state import StateStore
+from ..state import StateStore, _now
 
 STATIC = Path(__file__).parent / "static"
 
@@ -141,7 +141,7 @@ class RunManager:
                     if name in self._runs:
                         self._runs[name]["outcomes"] = [
                             {"n": it.n, "verdict": it.verdict, "score": it.score,
-                             "feedback": it.feedback, "change": it.change_summary,
+                             "feedback": it.feedback, "change": it.change_summary, "ts": it.ts,
                              "metrics": [{"name": m["name"], "value": m["value"]} for m in it.metrics]}
                             for it in hist]
             else:
@@ -164,7 +164,7 @@ class RunManager:
                 with self._lock:
                     self._runs[name]["outcomes"].append(
                         {"n": o.n, "verdict": o.verdict, "score": o.score,
-                         "feedback": o.feedback, "change": o.change,
+                         "feedback": o.feedback, "change": o.change, "ts": _now(),
                          "metrics": [{"name": m["name"], "value": m["value"]} for m in (o.metrics or [])]})
                     self._runs[name]["baseline"] = dict(orch._baseline)   # resolved zero-points (live cards)
                     self._runs[name]["cost"] = orch.cost_total            # estimated spend so far
@@ -256,7 +256,7 @@ def _persisted_state(name: str) -> dict:
             "cost": cost or 0.0,
             "checkpoint": ({"reason": cp["reason"], "iter": cp["iter"]} if cp else None),
             "iterations": [{"n": it.n, "score": it.score, "verdict": it.verdict,
-                            "change": it.change_summary, "feedback": it.feedback,
+                            "change": it.change_summary, "feedback": it.feedback, "ts": it.ts,
                             "metrics": [{"name": m["name"], "value": m["value"]} for m in it.metrics]}
                            for it in iters],
         }

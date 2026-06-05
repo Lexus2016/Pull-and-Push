@@ -82,6 +82,7 @@ class IterationRow:
     change_summary: str | None
     metrics: list[dict]
     feedback: str | None = None
+    ts: str | None = None
 
 
 class StateStore:
@@ -321,6 +322,7 @@ class StateStore:
                     change_summary=r["change_summary"],
                     metrics=[dict(m) for m in metrics],
                     feedback=r["feedback"] if "feedback" in r.keys() else None,
+                    ts=r["ts"] if "ts" in r.keys() else None,
                 )
             )
         return result
