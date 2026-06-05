@@ -40,6 +40,36 @@ def test_projects_list_has_status(client):
     assert items and items[0]["name"] == "webtest" and "status" in items[0]
 
 
+def test_create_rejects_project_without_a_scorer(client):
+    # a config whose eval command names a *.py harness that doesn't exist must NOT create a
+    # silently-broken project — reject and roll back (systemic: no project born non-runnable).
+    bad = dict(_VALID)
+    bad["project"] = "noscorer"
+    bad["evaluation"] = {"adapter": "numeric",
+                         "command": "python metrics/backtest.py --strategy strategy.py",
+                         "metrics": [{"name": "s", "dir": "higher", "weight": 1, "worst": 0, "target": 100}],
+                         "target_score": 100}
+    r = client.post("/api/projects/create", json=bad)
+    assert r.status_code == 422
+    assert "scorer" in r.json()["detail"].lower()
+    # rolled back — the half-created project is gone
+    assert "noscorer" not in [i["name"] for i in client.get("/api/projects").json().get("items", [])]
+
+
+def test_create_allows_project_with_existing_scorer(client, tmp_path):
+    # if the scorer file IS present (seed=copy brings it in), creation succeeds
+    src = tmp_path / "seedsrc" / "metrics"
+    src.mkdir(parents=True)
+    (src / "backtest.py").write_text("print('{\"s\": 1.0}')\n")
+    ok = dict(_VALID)
+    ok["project"] = "withscorer"
+    ok["seed"] = {"mode": "copy", "path": str(tmp_path / "seedsrc")}
+    ok["evaluation"] = {"adapter": "numeric", "command": "python metrics/backtest.py",
+                        "metrics": [{"name": "s", "dir": "higher", "weight": 1, "worst": 0, "target": 100}],
+                        "target_score": 100}
+    assert client.post("/api/projects/create", json=ok).status_code == 200
+
+
 def test_auth_enforced(tmp_path, monkeypatch):
     monkeypatch.setenv("TYANI_TOLKAI_HOME", str(tmp_path / "home"))
     c = TestClient(create_app(token="secret"))

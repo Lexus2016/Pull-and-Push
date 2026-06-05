@@ -206,6 +206,28 @@ class RunManager:
                 state.close()                            # never leak the connection
 
 
+def _assert_scorer_exists(base: Path, cfg) -> None:
+    """A project must ship a working SCORER from the start — the loop can't run without one. Verify
+    the harness the eval references actually exists, so a project can NEVER be created non-runnable
+    (e.g. a generated config naming a backtest.py that nobody wrote). Raises HTTPException(422)."""
+    ev = cfg.evaluation
+    artifact = base / "artifact"
+    if ev.adapter in ("numeric", "command-exit"):
+        # the scorer is the first *.py token in the command (the script; later .py are arg values).
+        script = next((tk for tk in (ev.command or "").split() if tk.endswith(".py")), None)
+        if script and not (artifact / script).resolve().exists():   # command cwd = artifact
+            raise HTTPException(422,
+                f"this project has no scorer: the eval command points to {script!r}, which does not "
+                f"exist. A project must create everything it needs and run from the start — use "
+                f"'Start from a template' (it ships a vetted scorer), or add the harness yourself.")
+    elif ev.adapter == "pytest-pass":
+        hd = base / (ev.harness_dir or "tests")
+        if not hd.is_dir() or not any(hd.glob("*.py")):
+            raise HTTPException(422,
+                f"this project has no tests: harness_dir '{ev.harness_dir or 'tests'}' has no test "
+                f"files. Use 'Start from a template', or add the hidden test suite.")
+
+
 def _persisted_state(name: str) -> dict:
     base = project_dir(name)
     if not (base / "state.db").exists():
@@ -513,6 +535,11 @@ def create_app(token: str | None = None) -> FastAPI:
         (base / "config.yaml").write_text(
             yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
         state.close()
+        try:
+            _assert_scorer_exists(base, cfg)      # a project MUST be runnable from the start
+        except HTTPException:
+            delete_project(name)                  # roll back the half-created, non-runnable project
+            raise
         return {"created": name}
 
     @app.get("/api/projects/{name}/config")
