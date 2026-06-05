@@ -288,3 +288,10 @@ def test_rewind_fork_blocked_while_running(client, monkeypatch):
     monkeypatch.setattr(client.app.state.runs, "is_running", lambda n: True)
     assert client.post("/api/projects/busy2/rewind?iter=1").status_code == 409
     assert client.post("/api/projects/busy2/fork?iter=1&to=x").status_code == 409
+
+
+def test_export_missing_project_404_no_orphan(client):
+    from tyani_tolkai.projects import projects_root
+    assert client.get("/api/projects/ghost/export?iter=1").status_code == 404
+    assert client.get("/api/projects/ghost/export").status_code == 404
+    assert not (projects_root() / "ghost").exists()    # StateStore must not mkdir an orphan

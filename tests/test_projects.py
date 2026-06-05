@@ -106,7 +106,9 @@ def test_export_at_hash_snapshots_that_iteration(home, tmp_path):
         names = z.namelist()
         code = next(n for n in names if n.endswith("artifact/code.py"))
         assert z.read(code).decode() == "v1\n"            # iteration 1's tree, not the latest v3
-        assert any(n.endswith("SNAPSHOT.txt") for n in names)
+        snap = z.read(next(n for n in names if n.endswith("SNAPSHOT.txt"))).decode()
+        assert "iteration 1" in snap and "71.0" in snap   # THIS iteration's own score (not best 73)
+        assert "overall BEST" in snap                     # disambiguation vs README/RESULTS
 
 
 def test_fork_project_positions_copy_and_leaves_original(home):
@@ -126,3 +128,12 @@ def test_fork_project_positions_copy_and_leaves_original(home):
         assert (ost.artifact_dir / "code.py").read_text() == "v3\n"
     finally:
         ost.close()
+
+
+def test_fork_with_bad_iteration_leaves_no_orphan(home):
+    import pytest
+    from tyani_tolkai.projects import fork_project
+    _make_multi("orig2", 2)
+    with pytest.raises(ValueError):
+        fork_project("orig2", "fork_bad", 99)      # 99 is not a kept iteration
+    assert "fork_bad" not in list_projects()        # the half-copy must be cleaned up

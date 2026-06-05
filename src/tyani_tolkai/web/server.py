@@ -671,6 +671,8 @@ def create_app(token: str | None = None) -> FastAPI:
     def api_export(name: str, n: int | None = Query(None, alias="iter"),
                    token: str | None = Query(None)):
         auth(token)
+        if not project_dir(name).exists():                   # don't let StateStore mkdir an orphan
+            raise HTTPException(404, f"no such project: {name}")
         at_hash = None
         if n is not None:                                    # snapshot a specific kept iteration
             state = StateStore(project_dir(name))

@@ -195,9 +195,23 @@ def export_project(name: str, dest_zip: str | Path, at_hash: str | None = None,
                     tf.extractall(stage / "artifact", filter="data")   # safe extraction (3.12+)
                 except TypeError:
                     tf.extractall(stage / "artifact")                  # 3.10 has no filter kwarg
-            (stage / "SNAPSHOT.txt").write_text(
-                f"Artifact snapshot at iteration {at_label} (commit {at_hash}).\n",
-                encoding="utf-8")
+            snap = f"Artifact snapshot at iteration {at_label} (commit {at_hash}).\n"
+            if (d / "state.db").exists() and at_label is not None:   # this iteration's OWN numbers
+                con = sqlite3.connect(str(d / "state.db")); con.row_factory = sqlite3.Row
+                try:
+                    row = con.execute("SELECT id, score FROM iteration WHERE n=? AND verdict='keep' "
+                                      "ORDER BY id DESC LIMIT 1", (at_label,)).fetchone()
+                    if row:
+                        snap += f"Composite score at this iteration: {row['score']}\n"
+                        mets = con.execute("SELECT name, value FROM metric WHERE iteration_id=?",
+                                           (row["id"],)).fetchall()
+                        if mets:
+                            snap += "Metrics: " + ", ".join(f"{m['name']}={m['value']}" for m in mets) + "\n"
+                finally:
+                    con.close()
+            snap += ("\nNote: README.md and RESULTS.md describe the project's overall BEST result, "
+                     "which may be a different iteration than this snapshot.\n")
+            (stage / "SNAPSHOT.txt").write_text(snap, encoding="utf-8")
         elif art.exists():                         # the current best (working tree, without .git)
             shutil.copytree(art, stage / "artifact",
                             ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
@@ -231,11 +245,13 @@ def fork_project(name: str, new_name: str, n: int) -> Path:
     try:
         run_id = state.latest_run_id()
         if run_id is None:
-            shutil.rmtree(dst, ignore_errors=True)
             raise ValueError("project has no run history to fork from")
         state.rewind_to(run_id, n)                  # position the copy at iteration n
-    finally:
+    except Exception:                               # never leave a half-forked project behind
         state.close()
+        shutil.rmtree(dst, ignore_errors=True)
+        raise
+    state.close()
     return dst
 
 
