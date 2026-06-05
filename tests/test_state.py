@@ -61,3 +61,28 @@ def test_reconcile_drops_phantom_kept_row(tmp_path):
     assert removed == 1
     remaining = s.last_iterations(run_id, 10)
     assert [r.n for r in remaining] == [1]
+
+
+def test_rewind_to_rolls_back_artifact_and_state(tmp_path):
+    import pytest
+    s = _new_store(tmp_path)
+    run_id = s.create_run("asymmetric")
+    hashes = {}
+    for n in range(1, 5):                           # 4 kept iterations
+        (s.artifact_dir / "code.py").write_text(f"x = {n}\n")
+        h = s.commit(f"iter {n}")
+        hashes[n] = h
+        s.record_iteration(run_id, n=n, git_hash=h, score=float(70 + n), verdict="keep",
+                           metrics=[{"name": "s", "value": float(n), "dir": "higher", "weight": 1.0}])
+        s.update_run(run_id, best_score=float(70 + n), iter_count=n)
+    # rewind to iteration 2
+    assert s.rewind_to(run_id, 2) == hashes[2]
+    assert s.head() == hashes[2]
+    assert (s.artifact_dir / "code.py").read_text() == "x = 2\n"      # the tree at iter 2
+    run = s.get_run(run_id)
+    assert run["best_score"] == 72.0 and run["iter_count"] == 2
+    assert [it.n for it in s.last_iterations(run_id, 100)] == [1, 2]  # 3 & 4 truncated
+    assert s.commit_exists(hashes[4])               # dropped tail kept (tagged), recoverable
+    with pytest.raises(ValueError):                 # a non-kept iteration is not restorable
+        s.rewind_to(run_id, 99)
+    s.close()

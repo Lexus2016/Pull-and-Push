@@ -78,3 +78,51 @@ def test_export_import_roundtrip(home, tmp_path):
     assert (qd / "state.db").exists()
     assert (qd / "artifact" / ".git").exists()
     assert (qd / "artifact" / "code.py").read_text() == "x=1\n"
+
+
+def _make_multi(name="p", iters=3):
+    d = project_dir(name)
+    st = StateStore(d)
+    st.git_init()
+    (d / "config.yaml").write_text(f"project: {name}\n")
+    rid = st.create_run("asymmetric")
+    hashes = {}
+    for n in range(1, iters + 1):
+        (st.artifact_dir / "code.py").write_text(f"v{n}\n")
+        h = st.commit(f"iter {n}")
+        hashes[n] = h
+        st.record_iteration(rid, n=n, git_hash=h, score=float(70 + n), verdict="keep", metrics=[])
+        st.update_run(rid, best_score=float(70 + n), iter_count=n)
+    st.close()
+    return d, hashes
+
+
+def test_export_at_hash_snapshots_that_iteration(home, tmp_path):
+    import zipfile
+    _, hashes = _make_multi("p", 3)
+    dest = tmp_path / "snap.zip"
+    export_project("p", dest, at_hash=hashes[1], at_label=1)
+    with zipfile.ZipFile(dest) as z:
+        names = z.namelist()
+        code = next(n for n in names if n.endswith("artifact/code.py"))
+        assert z.read(code).decode() == "v1\n"            # iteration 1's tree, not the latest v3
+        assert any(n.endswith("SNAPSHOT.txt") for n in names)
+
+
+def test_fork_project_positions_copy_and_leaves_original(home):
+    from tyani_tolkai.projects import fork_project
+    _, hashes = _make_multi("orig", 3)
+    fork_project("orig", "fork1", 1)
+    assert "fork1" in list_projects()
+    fst = StateStore(project_dir("fork1"))
+    try:
+        assert fst.head() == hashes[1]
+        assert (fst.artifact_dir / "code.py").read_text() == "v1\n"
+    finally:
+        fst.close()
+    ost = StateStore(project_dir("orig"))                 # original untouched (still at iter 3)
+    try:
+        assert ost.head() == hashes[3]
+        assert (ost.artifact_dir / "code.py").read_text() == "v3\n"
+    finally:
+        ost.close()

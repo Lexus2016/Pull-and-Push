@@ -8,11 +8,13 @@ a `git bundle`). ZIP so it opens with a double-click on any OS.
 
 from __future__ import annotations
 
+import io
 import os
 import re
 import shutil
 import sqlite3
 import subprocess
+import tarfile
 import tempfile
 import zipfile
 from pathlib import Path
@@ -163,7 +165,11 @@ port them into your own backtest or live pipeline.
     return readme, results
 
 
-def export_project(name: str, dest_zip: str | Path) -> Path:
+def export_project(name: str, dest_zip: str | Path, at_hash: str | None = None,
+                   at_label=None) -> Path:
+    """Zip the deliverable. By default the current best (working tree); when ``at_hash`` is
+    given, the artifact is the tree at that commit (a past iteration's snapshot) — still
+    bundled with metrics/config/docs so the zip stays runnable."""
     d = project_dir(name)
     if not d.exists():
         raise FileNotFoundError(f"no such project: {name}")
@@ -179,14 +185,26 @@ def export_project(name: str, dest_zip: str | Path) -> Path:
         for sub in ("context", "metrics"):
             if (d / sub).exists():
                 shutil.copytree(d / sub, stage / sub, ignore=_skip)
-        # the actual result code, ready to read/run (working tree, without .git)
-        if (d / "artifact").exists():
-            shutil.copytree(d / "artifact", stage / "artifact",
+        art = d / "artifact"
+        if at_hash:                                # snapshot a specific past iteration's tree
+            (stage / "artifact").mkdir()
+            raw = subprocess.run(["git", "-C", str(art), "archive", at_hash],
+                                 check=True, capture_output=True).stdout
+            with tarfile.open(fileobj=io.BytesIO(raw)) as tf:
+                try:
+                    tf.extractall(stage / "artifact", filter="data")   # safe extraction (3.12+)
+                except TypeError:
+                    tf.extractall(stage / "artifact")                  # 3.10 has no filter kwarg
+            (stage / "SNAPSHOT.txt").write_text(
+                f"Artifact snapshot at iteration {at_label} (commit {at_hash}).\n",
+                encoding="utf-8")
+        elif art.exists():                         # the current best (working tree, without .git)
+            shutil.copytree(art, stage / "artifact",
                             ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
-        if (d / "artifact" / ".git").exists():     # + full history as a portable bundle
-            subprocess.run(["git", "-C", str(d / "artifact"), "bundle", "create",
-                            str(stage / "artifact.bundle"), "--all"], check=True,
-                           capture_output=True)
+            if (art / ".git").exists():            # + full history as a portable bundle
+                subprocess.run(["git", "-C", str(art), "bundle", "create",
+                                str(stage / "artifact.bundle"), "--all"], check=True,
+                               capture_output=True)
         readme, results = _build_docs(d, name)     # human-readable deliverable docs
         (stage / "README.md").write_text(readme, encoding="utf-8")
         (stage / "RESULTS.md").write_text(results, encoding="utf-8")
@@ -195,6 +213,30 @@ def export_project(name: str, dest_zip: str | Path) -> Path:
                 if p.is_file():
                     z.write(p, arcname=str(Path(name) / p.relative_to(stage)))
     return dest
+
+
+def fork_project(name: str, new_name: str, n: int) -> Path:
+    """Branch a project at keep-iteration n into a new, independent project — the original is
+    untouched. The copy is positioned at iteration n (artifact + run state), ready to Run on."""
+    valid_name(new_name)
+    src = project_dir(name)
+    if not src.exists():
+        raise FileNotFoundError(f"no such project: {name}")
+    dst = project_dir(new_name)
+    if dst.exists():
+        raise FileExistsError(f"target name already exists: {new_name}")
+    _skip = shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache")
+    shutil.copytree(src, dst, ignore=_skip)        # full copy incl. artifact/.git + state.db
+    state = StateStore(dst)
+    try:
+        run_id = state.latest_run_id()
+        if run_id is None:
+            shutil.rmtree(dst, ignore_errors=True)
+            raise ValueError("project has no run history to fork from")
+        state.rewind_to(run_id, n)                  # position the copy at iteration n
+    finally:
+        state.close()
+    return dst
 
 
 def import_project(src_zip: str | Path, name: str | None = None) -> str:

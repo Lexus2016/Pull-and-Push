@@ -230,6 +230,50 @@ class StateStore:
     def get_run(self, run_id: int) -> sqlite3.Row:
         return self.conn.execute("SELECT * FROM run WHERE id = ?", (run_id,)).fetchone()
 
+    def latest_run_id(self) -> int | None:
+        """The most recent run that has iteration history (fallback: the most recent run)."""
+        r = self.conn.execute(
+            "SELECT id FROM run WHERE id IN (SELECT DISTINCT run_id FROM iteration) "
+            "ORDER BY id DESC LIMIT 1").fetchone()
+        if r is None:
+            r = self.conn.execute("SELECT id FROM run ORDER BY id DESC LIMIT 1").fetchone()
+        return int(r["id"]) if r else None
+
+    def iteration_hash(self, run_id: int, n: int) -> str | None:
+        """The git commit of keep-iteration n (None if n isn't a restorable kept iteration)."""
+        r = self.conn.execute(
+            "SELECT git_hash FROM iteration WHERE run_id=? AND n=? AND verdict='keep' "
+            "ORDER BY id DESC LIMIT 1", (run_id, n)).fetchone()
+        return r["git_hash"] if r and r["git_hash"] else None
+
+    def rewind_to(self, run_id: int, n: int) -> str:
+        """Roll the artifact AND run state back to keep-iteration n, so the next Run continues
+        from there. Recoverable: the current HEAD is tagged before the reset, so the dropped
+        tail stays reachable in git. Returns the commit hash rewound to."""
+        h = self.iteration_hash(run_id, n)
+        if not h:
+            raise ValueError(f"iteration {n} is not a restorable (kept) iteration")
+        row = self.conn.execute(
+            "SELECT score FROM iteration WHERE run_id=? AND n=? ORDER BY id DESC LIMIT 1",
+            (run_id, n)).fetchone()
+        score_n = row["score"] if row else None
+        try:
+            self._git("tag", "-f", f"backup/pre-rewind-{n}", "HEAD")   # keep the tail reachable
+        except RuntimeError:
+            pass
+        self.reset_hard(h)
+        cur = self.conn.cursor()                # explicit cursor (PyPy-safe)
+        try:
+            cur.execute("DELETE FROM metric WHERE iteration_id IN "
+                        "(SELECT id FROM iteration WHERE run_id=? AND n>?)", (run_id, n))
+            cur.execute("DELETE FROM iteration WHERE run_id=? AND n>?", (run_id, n))
+            self.conn.commit()
+        finally:
+            cur.close()
+        self.update_run(run_id, best_score=score_n, iter_count=n,
+                        plateau_count=0, no_op_count=0, status="idle")
+        return h
+
     # ---- human checkpoints ----
     def add_checkpoint(self, run_id: int, iteration: int, reason: str) -> None:
         self.conn.execute(

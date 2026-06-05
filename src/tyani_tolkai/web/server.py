@@ -26,8 +26,8 @@ from ..config import Config, load_config
 from ..metrics import get_metric_adapter
 from ..orchestrator import Orchestrator
 from ..projects import (
-    delete_project, export_project, list_projects, project_dir,
-    rename_project, reset_project,
+    delete_project, export_project, fork_project, list_projects, project_dir,
+    rename_project, reset_project, valid_name,
 )
 from ..registry import build_adapter
 from ..sandbox import get_backend
@@ -668,10 +668,61 @@ def create_app(token: str | None = None) -> FastAPI:
         return {"reset": name}
 
     @app.get("/api/projects/{name}/export")
-    def api_export(name: str, token: str | None = Query(None)):
+    def api_export(name: str, n: int | None = Query(None, alias="iter"),
+                   token: str | None = Query(None)):
         auth(token)
+        at_hash = None
+        if n is not None:                                    # snapshot a specific kept iteration
+            state = StateStore(project_dir(name))
+            try:
+                run_id = state.latest_run_id()
+                at_hash = state.iteration_hash(run_id, n) if run_id is not None else None
+            finally:
+                state.close()
+            if not at_hash:
+                raise HTTPException(404, f"iteration {n} is not a restorable (kept) iteration")
         dest = Path(tempfile.mkdtemp()) / f"{name}.zip"      # unique dir per request
-        export_project(name, dest)
-        return FileResponse(dest, filename=f"{name}.zip", media_type="application/zip")
+        export_project(name, dest, at_hash=at_hash, at_label=n)
+        fn = f"{name}.zip" if n is None else f"{name}-iter{n}.zip"
+        return FileResponse(dest, filename=fn, media_type="application/zip")
+
+    @app.post("/api/projects/{name}/rewind")
+    def api_rewind(name: str, n: int = Query(..., alias="iter"),
+                   token: str | None = Query(None)):
+        auth(token)
+        _not_while_running(name)
+        if not project_dir(name).exists():
+            raise HTTPException(404, f"no such project: {name}")
+        state = StateStore(project_dir(name))
+        try:
+            run_id = state.latest_run_id()
+            if run_id is None:
+                raise HTTPException(404, "no run history to rewind")
+            try:
+                state.rewind_to(run_id, n)
+            except ValueError as e:
+                raise HTTPException(422, str(e))
+        finally:
+            state.close()
+        return {"rewound": n}
+
+    @app.post("/api/projects/{name}/fork")
+    def api_fork(name: str, n: int = Query(..., alias="iter"), to: str = Query(...),
+                 token: str | None = Query(None)):
+        auth(token)
+        _not_while_running(name)
+        try:
+            valid_name(to)
+        except ValueError:
+            raise HTTPException(400, f"invalid project name: {to!r}")
+        try:
+            fork_project(name, to, n)
+        except FileNotFoundError:
+            raise HTTPException(404, f"no such project: {name}")
+        except FileExistsError:
+            raise HTTPException(409, f"target name already exists: {to}")
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        return {"forked": to}
 
     return app

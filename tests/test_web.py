@@ -242,3 +242,49 @@ def test_lifecycle_endpoints(client):
     assert "lc2" in client.get("/api/projects").json()["projects"]
     assert client.post("/api/projects/lc2/delete").status_code == 200
     assert "lc2" not in client.get("/api/projects").json()["projects"]
+
+
+def _seed_kept_iters(name, iters=2):
+    """Give an existing project N kept git-committed iterations (so snapshots exist)."""
+    from tyani_tolkai.state import StateStore
+    from tyani_tolkai.projects import project_dir
+    st = StateStore(project_dir(name))
+    rid = st.create_run("asymmetric")
+    hs = {}
+    for n in range(1, iters + 1):
+        (st.artifact_dir / "code.py").write_text(f"v{n}\n")
+        h = st.commit(f"i{n}")
+        hs[n] = h
+        st.record_iteration(rid, n=n, git_hash=h, score=float(70 + n), verdict="keep", metrics=[])
+        st.update_run(rid, best_score=float(70 + n), iter_count=n)
+    st.close()
+    return hs
+
+
+def test_export_iter_rewind_fork(client):
+    from tyani_tolkai.state import StateStore
+    from tyani_tolkai.projects import project_dir
+    client.post("/api/projects/create", json=dict(_VALID, project="snap"))
+    hs = _seed_kept_iters("snap", 2)
+    # download a specific iteration's artifact
+    r = client.get("/api/projects/snap/export?iter=1")
+    assert r.status_code == 200 and r.headers["content-type"] == "application/zip"
+    # a non-kept iteration cannot be snapshotted
+    assert client.get("/api/projects/snap/export?iter=99").status_code == 404
+    # rewind in place
+    assert client.post("/api/projects/snap/rewind?iter=1").status_code == 200
+    st = StateStore(project_dir("snap"))
+    try:
+        assert st.head() == hs[1]
+    finally:
+        st.close()
+    # fork to a new project
+    assert client.post("/api/projects/snap/fork?iter=1&to=snapfork").status_code == 200
+    assert "snapfork" in client.get("/api/projects").json()["projects"]
+
+
+def test_rewind_fork_blocked_while_running(client, monkeypatch):
+    client.post("/api/projects/create", json=dict(_VALID, project="busy2"))
+    monkeypatch.setattr(client.app.state.runs, "is_running", lambda n: True)
+    assert client.post("/api/projects/busy2/rewind?iter=1").status_code == 409
+    assert client.post("/api/projects/busy2/fork?iter=1&to=x").status_code == 409
