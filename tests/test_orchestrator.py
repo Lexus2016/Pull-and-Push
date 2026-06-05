@@ -131,6 +131,55 @@ def test_validator_feedback_flows_into_next_brief(tmp_path):
     assert "Validator feedback: reduce leverage" in ex.briefs[1]
 
 
+class _VerdictValidator:
+    """Returns distinct advice for keep vs discard, so a test can tell WHICH review fired."""
+
+    def __init__(self):
+        self.seen = []
+
+    def run(self, prompt, workdir, profile, timeout):
+        from tyani_tolkai.agents.base import RunResult
+        self.seen.append(prompt)
+        txt = "DISCARD-RETHINK" if "verdict: DISCARD" in prompt else "KEEP-ADVICE"
+        return RunResult(status="success", stdout=txt)
+
+
+def test_reviewer_is_event_triggered_and_actionable(tmp_path):
+    # Token efficiency: the reviewer (2nd expensive LLM call) must NOT run on every iteration —
+    # only on a keep, plus ONE rethink per stuck streak, fired EARLY enough that the executor still
+    # has iterations left to use it (not wasted on the last step before the loop gives up).
+    val = _VerdictValidator()
+    ex = _RecordingExecutor([_edit_val(v) for v in (70, 60, 60, 60, 60)])
+    cfg = _cfg(plateau_N=4, min_delta=1.0, max_iterations=20)
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    orch = Orchestrator(cfg, s, run_id, ex, FakeMetric(), LocalBackend(), validator=val)
+    verdicts = [orch.run_iteration().verdict for _ in range(5)]
+    assert verdicts == ["keep", "discard", "discard", "discard", "discard"]
+    # 2 reviews over 5 iterations: the keep (#1) and exactly ONE discard rethink — not every step
+    assert len(val.seen) == 2
+    # ACTIONABLE: the discard rethink reached a LATER executor brief (iters remained to use it),
+    # and did NOT fire only on the final, wasted step
+    assert any("DISCARD-RETHINK" in b for b in ex.briefs[3:])
+
+
+def test_reviewed_streak_resets_after_a_keep(tmp_path):
+    # ONE rethink per discard streak — a keep must RESET the streak so the next stuck run gets its
+    # own rethink (else all rethinks after the first streak would be silently disabled).
+    val = _FakeValidator("rethink")
+    cfg = _cfg(plateau_N=4, min_delta=1.0, max_iterations=50)
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    edits = [_edit_val(v) for v in (70, 60, 60, 80, 70, 70)]   # keep, 2 discards, keep, 2 discards
+    orch = Orchestrator(cfg, s, run_id, MockAdapter(edits), FakeMetric(), LocalBackend(), validator=val)
+    verdicts = [orch.run_iteration().verdict for _ in range(6)]
+    assert verdicts == ["keep", "discard", "discard", "keep", "discard", "discard"]
+    # 4 reviews: keep #1, one rethink in streak A (#3), keep #4, one rethink in streak B (#6)
+    assert len(val.seen) == 4
+
+
 def test_iteration_records_change_and_feedback(tmp_path):
     val = _FakeValidator("reduce leverage")
     s = StateStore(tmp_path / "proj")

@@ -60,6 +60,7 @@ class Orchestrator:
         self.last_feedback = ""
         self.halt = None              # None | "rate_limited" | "agent_error"
         self.consecutive_fail = 0     # consecutive hard agent failures (for escalation)
+        self._reviewed_streak = False  # did the reviewer already give a rethink in this discard streak?
         self.aborted = False          # set by force_kill() — stop NOW, kill the live agent
         # Baseline zero-points: metric.worst the user never has to invent. Pinned to the
         # first measured value, persisted so a resumed run keeps the same 0–100 scale.
@@ -176,6 +177,25 @@ class Orchestrator:
             return {}
         scored = {m.name for m in self.cfg.evaluation.metrics}
         return {k: v for k, v in data.items() if k not in scored and v is not None}
+
+    def _should_review(self, verdict: str) -> bool:
+        """Event-triggered reviewer: spend an LLM review only where it adds value, not on every
+        step (the reviewer is the second expensive call per iteration). General across task types:
+          - keep    → always (a new best: understand why it worked and propose the next move),
+          - discard → ONCE per stuck streak, fired at ~half the plateau budget so the executor
+            still has iterations left to act on the rethink (NOT on the last step before the loop
+            gives up, where the advice would be wasted),
+          - fail / no_op → never (the harness error or 'no change' is the signal; prose won't help).
+        Between reviews the executor keeps the last real review (advice for the current best) plus
+        the attempt history + scores, so it still has guidance without paying for a call each step."""
+        if self.validator is None:
+            return False
+        if verdict == "keep":
+            return True
+        if verdict == "discard" and not self._reviewed_streak:
+            threshold = max(2, (self.cfg.limits.plateau_N + 1) // 2)
+            return self.plateau_count + 1 >= threshold
+        return False
 
     def _consult_validator(self, values: dict, new_score, verdict: str, candidate_diff: str,
                            report_stats: dict | None = None) -> None:
@@ -305,13 +325,12 @@ class Orchestrator:
         state.revert_uncommitted()            # drop metric side-effects (tree → candidate)
 
         if not mres.ok:
-            self._consult_validator({}, None, "fail", candidate_diff)  # advise before reset/record
-            # persist the ACTUAL evaluation error (stdout/stderr of the metric command), not
-            # just the validator's guess — otherwise a broken/missing harness is invisible.
+            # No LLM review on a broken harness — the ACTUAL error is the feedback the executor
+            # needs to fix it (prose can't), so we persist stdout/stderr and skip the call.
             err = (mres.logs or "").strip()
             fb = ("evaluation error:\n" + err[:1500]) if err else ""
             if self.last_feedback:
-                fb = (fb + "\n\nvalidator: " + self.last_feedback).strip()
+                fb = (fb + "\n\nlast review: " + self.last_feedback).strip()
             state.reset_hard(parent)          # discard the candidate commit
             state.record_iteration(self.run_id, n=n, git_hash=None, score=None, verdict="fail",
                                    metrics=[], change_summary=candidate_diff, feedback=fb,
@@ -325,8 +344,7 @@ class Orchestrator:
         # (revert + count toward plateau) instead of crashing the whole run on a KeyError.
         missing = [m.name for m in cfg.evaluation.metrics if m.name not in values]
         if missing:
-            self._consult_validator(values, None, "fail", candidate_diff)
-            fb = self.last_feedback
+            fb = self.last_feedback              # standing review for context (no new call)
             state.reset_hard(parent)
             state.record_iteration(self.run_id, n=n, git_hash=None, score=None, verdict="fail",
                                    metrics=mres.metrics, change_summary=candidate_diff,
@@ -342,20 +360,34 @@ class Orchestrator:
         best = state.best_score(self.run_id)
         verdict = decide(new_score, best, cfg.evaluation.min_delta)
 
-        # Validator advises first (read-only) so its "why / what next" persists with the row.
-        if self.validator is not None:
-            ph("validator")                  # Validator analyzes & advises
-        self._consult_validator(values, new_score, verdict, candidate_diff,
-                                report_stats=self._report_extras(mres))
-        fb = self.last_feedback
-        stats = self._format_harness_stats(mres)         # surface report-only harness fields
+        # Reviewer runs only on events that need judgement (keep / about-to-plateau), not every
+        # step — see _should_review. Between reviews self.last_feedback holds the standing advice
+        # for the current best, which still flows into the executor's next brief.
+        stats = self._format_harness_stats(mres)         # report-only harness fields (cheap)
+        review = ""
+        if self._should_review(verdict):
+            ph("validator")                  # Reviewer analyzes & advises (read-only)
+            self._consult_validator(values, new_score, verdict, candidate_diff,
+                                    report_stats=self._report_extras(mres))
+            review = self.last_feedback
+            if verdict == "discard":
+                self._reviewed_streak = True   # one rethink per stuck streak (until a keep resets)
+        parts = []
         if stats:
-            fb = (stats + "\n\n" + fb).strip() if fb else stats
+            parts.append(stats)
+        if review:
+            parts.append(review)
+        elif verdict == "discard":           # discarded without a fresh review — log a compact line
+            best_txt = f"{best:.2f}" if best is not None else "n/a"
+            parts.append(f"score {new_score:.2f} did not beat best {best_txt} — auto-discard, "
+                         f"no review (plateau {self.plateau_count + 1}/{cfg.limits.plateau_N})")
+        fb = "\n\n".join(parts)
         if verdict == "keep":
             state.record_iteration(self.run_id, n=n, git_hash=cand_hash, score=new_score,
                                    verdict="keep", metrics=mres.metrics, change_summary=candidate_diff,
                                    feedback=fb, agent_exit=result.status)
             self.plateau_count = 0
+            self._reviewed_streak = False      # a keep breaks the streak → allow a fresh rethink
             state.update_run(self.run_id, best_score=new_score, plateau_count=0, iter_count=n)
         else:
             state.reset_hard(parent)          # discard the candidate commit
