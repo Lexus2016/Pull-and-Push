@@ -19,7 +19,7 @@ something far better than the first try — and you can watch every step happen 
 You bring the goal and a way to measure it. Pull-and-Push runs the thousands of small
 attempts for you and hands back the best one.
 
-![A live run climbing the quality curve](docs/assets/hero-quality-curve.png)
+![A live run climbing the quality curve](docs/assets/hero.png)
 
 > A real run. The score starts low; the loop keeps improving and climbs toward the target,
 > keeping the best version at every step. The dip near step #33 is the loop breaking out of
