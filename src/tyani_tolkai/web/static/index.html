@@ -248,6 +248,65 @@
   .pkitem:hover{background:var(--line)}.pkitem.dir{color:var(--ink)}.pkitem.file{color:var(--mut)}
   .modal-foot{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 18px;border-top:1px solid var(--line)}
   ::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px}
+
+  /* ───────── activity feed (right rail · chat-style, newest on top) ───────── */
+  .feed{position:fixed;top:0;right:0;height:100dvh;width:clamp(340px,33vw,470px);z-index:55;
+    display:flex;flex-direction:column;transform:translateX(101%);
+    transition:transform .34s cubic-bezier(.16,.84,.3,1);
+    background:linear-gradient(180deg,rgba(13,21,31,.98),rgba(9,14,21,.98));
+    border-left:1px solid var(--line-2);box-shadow:-26px 0 64px rgba(0,0,0,.5);backdrop-filter:blur(10px)}
+  body.feed-open .feed{transform:none}
+  .feed-head{position:relative;display:flex;align-items:center;gap:11px;padding:17px 18px 15px;
+    border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(70,224,208,.07),transparent)}
+  .feed-head::before{content:"";position:absolute;top:7px;left:7px;width:12px;height:12px;
+    border-top:2px solid var(--cold);border-left:2px solid var(--cold);opacity:.6}
+  .feed-head::after{content:"";position:absolute;bottom:-1px;left:0;width:46px;height:2px;background:var(--cold)}
+  .feed-title{font-family:var(--display);font-weight:700;font-size:14px;letter-spacing:2.5px;text-transform:uppercase;color:var(--ink)}
+  .feed-dot{width:8px;height:8px;border-radius:50%;background:var(--mut);flex:none}
+  .feed-dot.live{background:var(--cold);box-shadow:0 0 11px var(--cold);animation:blink 1.4s ease-in-out infinite}
+  .feed-actions{margin-left:auto;display:flex;align-items:center;gap:6px}
+  .feed-mini{background:none;border:1px solid var(--line-2);border-radius:var(--radius);color:var(--mut);cursor:pointer;
+    font-size:13px;line-height:1;padding:6px 9px;width:auto;transition:color .15s,border-color .15s}
+  .feed-mini:hover{color:var(--cold);border-color:var(--cold)}
+  .feed-x{background:none;border:0;color:var(--mut);cursor:pointer;font-size:19px;line-height:1;padding:2px 6px;width:auto}
+  .feed-x:hover{color:var(--cold)}
+  .feed-body{flex:1;overflow-y:auto;padding:16px 16px 30px;display:flex;flex-direction:column;gap:24px}
+  .feed-sec h4{margin:0 0 11px;font-family:var(--mono);font-size:11px;letter-spacing:1.8px;text-transform:uppercase;
+    color:var(--mut);display:flex;align-items:center;gap:8px}
+  .feed-sec h4::before{content:"";width:14px;height:1px;background:var(--cold)}
+  .feed #log{border:0;background:transparent;padding:0;max-height:none;overflow:visible;font-family:var(--ui)}
+  /* an iteration = a message card, newest first; left edge encodes the verdict */
+  .feed-item{border:1px solid var(--line);border-left:3px solid var(--line-2);border-radius:0 var(--radius) var(--radius) 0;
+    background:var(--panel-2);margin-bottom:9px;overflow:hidden;animation:feedin .34s ease both}
+  .feed-item.v-keep{border-left-color:var(--good)} .feed-item.v-discard{border-left-color:var(--warn)}
+  .feed-item.v-fail{border-left-color:var(--bad)} .feed-item.v-no_op{border-left-color:var(--mut)} .feed-item.v-stopped{border-left-color:var(--warn)}
+  .feed-item>summary{list-style:none;cursor:pointer;padding:0}
+  .feed-item>summary::before{content:none!important} .feed-item>summary::-webkit-details-marker{display:none}
+  .fi-head{display:flex;align-items:center;gap:10px;padding:10px 13px}
+  .fi-chev{color:var(--mut);font-size:10px;transition:transform .2s}
+  details.feed-item[open] .fi-chev{transform:rotate(90deg);color:var(--cold)}
+  .fi-n{font-family:var(--mono);font-size:12px;color:var(--mut)}
+  .fi-score{font-family:var(--mono);font-size:16px;font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
+  .fi-verd{font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:1px;text-transform:uppercase;margin-left:auto}
+  .fi-mets{padding:0 13px 10px;font-family:var(--mono);font-size:11.5px;color:var(--cold-dim);line-height:1.65;word-break:break-word}
+  details.feed-item[open] .fi-mets{color:var(--cold)}
+  .fi-why{padding:9px 13px;border-top:1px solid var(--line);color:var(--ink-dim);font-size:13px;line-height:1.58}
+  .fi-why b{color:var(--warm)}
+  .feed #agentLog{max-height:38vh;background:var(--field)}
+  @keyframes feedin{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}
+  /* edge tab — visible only while the rail is closed */
+  .feed-tab{position:fixed;top:50%;right:0;transform:translateY(-50%);z-index:54;
+    writing-mode:vertical-rl;background:linear-gradient(180deg,var(--panel-2),var(--panel));color:var(--cold);
+    border:1px solid var(--line-2);border-right:0;border-radius:var(--radius) 0 0 var(--radius);
+    padding:18px 9px;font-family:var(--mono);font-size:11px;letter-spacing:2.5px;text-transform:uppercase;cursor:pointer;
+    box-shadow:-10px 0 30px rgba(0,0,0,.35);transition:background .15s,color .15s,padding .15s}
+  .feed-tab:hover{background:rgba(70,224,208,.12);padding-right:13px}
+  .feed-tab .ft-dot{display:block;width:7px;height:7px;border-radius:50%;background:var(--mut);margin:0 auto 9px}
+  .feed-tab .ft-dot.live{background:var(--cold);box-shadow:0 0 9px var(--cold);animation:blink 1.4s ease-in-out infinite}
+  body.feed-open .feed-tab{display:none}
+  .feed-scrim{position:fixed;inset:0;background:rgba(4,8,13,.55);z-index:53;opacity:0;pointer-events:none;transition:opacity .3s}
+  @media(min-width:1280px){ body.feed-open .wrap{padding-right:clamp(340px,33vw,470px)} }
+  @media(max-width:1279px){ body.feed-open .feed-scrim{opacity:1;pointer-events:auto} }
 </style>
 </head>
 <body>
@@ -259,6 +318,7 @@
   <span class="sub">adversarial co-evolution engine</span>
   <div class="right">
     <select id="lang" class="lang-sel" title="Language"><option value="en">EN</option><option value="uk">UA</option><option value="ru">RU</option></select>
+    <button class="btn sec" id="feedBtn" style="width:auto;margin:0" data-i18n="feed.btn" data-i18n-title="feed.toggle" title="Activity feed">▦ Feed</button>
     <button class="btn sec" id="helpBtn" data-i18n="help.btn" style="width:auto;margin:0">❔ How it works</button>
   </div>
 </header>
@@ -455,12 +515,8 @@
         <textarea id="steerText" data-i18n-ph="prog.steerPh" placeholder="e.g. focus on reducing drawdown"></textarea>
         <div class="controls" style="margin-top:8px"><button class="btn sec" id="steerBtn" disabled data-i18n="prog.steerBtn" style="width:auto">↗ Send command</button></div>
       </div>
-      <h3 style="margin-top:22px" data-i18n="prog.log">Iteration log</h3>
-      <div id="log">—</div>
-
-      <h3 style="margin-top:22px" data-i18n="prog.agentLog">🔎 Agent log <small class="hint" style="display:inline" data-i18n="prog.agentLogSub">— the Executor's real output (updates during the run)</small></h3>
-      <div class="controls" style="margin-bottom:8px"><button class="btn sec" id="agentLogBtn" style="width:auto" disabled data-i18n="prog.agentLogBtn">↻ Refresh log</button></div>
-      <pre class="diff" id="agentLog" style="max-height:320px">—</pre>
+      <p class="hint" id="feedHint" style="margin-top:18px">📡 <span data-i18n="feed.moved">Iteration log &amp; agent output now live in the activity feed →</span>
+        <a href="#" id="feedOpenLink" style="color:var(--cold)" data-i18n="feed.open">open feed</a></p>
       <h3 style="margin-top:22px" data-i18n="prog.files">Artifact files <small class="hint" style="display:inline" data-i18n="prog.filesSub">— what the agent built</small></h3>
       <div class="controls" style="margin-bottom:8px"><button class="btn sec" id="filesBtn" style="width:auto" disabled data-i18n="prog.filesBtn">↻ Show / refresh files</button></div>
       <div id="files"></div>
@@ -468,6 +524,32 @@
     </div><!-- /view-progress -->
   </main>
 </div>
+
+<!-- ───────── activity feed (right rail) ───────── -->
+<div class="feed-scrim" id="feedScrim"></div>
+<button class="feed-tab" id="feedTab" title="Open activity feed"><span class="ft-dot" id="feedTabDot"></span><span data-i18n="feed.title">Activity</span></button>
+<div class="feed" id="feedPanel" role="complementary" aria-label="activity feed">
+  <div class="feed-head">
+    <span class="feed-dot" id="feedDot"></span>
+    <span class="feed-title" data-i18n="feed.title">Activity</span>
+    <div class="feed-actions">
+      <button class="feed-mini" id="feedRefresh" data-i18n-title="prog.agentLogBtn" title="Refresh agent log">↻</button>
+      <button class="feed-x" id="feedClose" data-i18n-title="feed.close" title="Close">✕</button>
+    </div>
+  </div>
+  <div class="feed-body">
+    <section class="feed-sec">
+      <h4 data-i18n="prog.log">Iteration log</h4>
+      <div id="log">—</div>
+    </section>
+    <section class="feed-sec">
+      <h4 data-i18n="prog.agentLog">🔎 Agent log</h4>
+      <pre class="diff" id="agentLog">—</pre>
+      <button class="btn sec" id="agentLogBtn" style="width:auto;margin-top:8px" disabled data-i18n="prog.agentLogBtn">↻ Refresh log</button>
+    </section>
+  </div>
+</div>
+
 <div id="picker" class="modal hidden">
   <div class="modal-box">
     <div class="modal-head"><b data-i18n="pk.title">📁 Choose a folder</b><button class="x" id="pkClose" data-i18n-title="pk.close" title="Close">✕</button></div>
@@ -510,7 +592,7 @@ const I18N={en:{
  "toast.scaffolded":"Runnable project created ✓ — press ▶ Run","toast.scaffoldCustom":"No matching template — created the generic skeleton ✓ Edit metrics/evaluate.py for your task, then ▶ Run","toast.scaffoldNeed":"Enter a name and a task description","toast.scaffoldNoTpl":"Couldn't infer a template — pick one explicitly",
  "toast.created":"Project created ✓","toast.saved":"Saved ✓","toast.deleted":"Deleted","toast.renamed":"Renamed","toast.stopping":"Stopping at the iteration boundary…","toast.forceStopped":"Agent stopped immediately ⛔","toast.forceMarked":"No active process — marked as stop","toast.cmdAdded":"Command queued — applies on the next iteration","toast.genOk":"Generated ✓ — review and press “Create”","toast.unavailable":"Project unavailable — refreshing the list","toast.runDone":"Run finished: ","toast.describeFirst":"Describe the task","toast.nameFirst":"Enter a project name","toast.metricFirst":"Add at least one metric","toast.testing":"testing the evaluation…","toast.evalOk":"✓ evaluation works","toast.evalFail":"✗ evaluation failed",
  "confirm.run":"Run starts a REAL agent (%s). Each iteration may cost tokens. The run works in the background — refresh the page to see progress. Continue?","confirm.runFinished":"This run already finished (e.g. it reached the target score). Starting Run begins a NEW run from iteration 1 on the current best code — your finished result stays saved. Start a new run?","confirm.forceStop":"Force Stop will kill the agent processes immediately (the current step is lost). Continue?","confirm.delete":"Delete project %s?","confirm.reset":"Reset progress to seed?","prompt.rename":"New name:",
- "toast.started":"Started ▶","toast.reset":"Reset to seed","gen.generating":"🪄 Generating…","err.prefix":"Error: ","cfg.failPrefix":"Configurator: ","gen.warnPrefix":"Generated, with notes: ","toast.renameFail":"Rename failed","te.zero":"zero","te.close":"close","cp.title":"Checkpoint — your decision","cp.continue":"▶ Continue","cp.accept":"✓ Accept & finish","cp.hint":"For a “target” checkpoint, raise Target score in Configuration first, then Continue.","cp.target":"Target score reached","cp.plateau":"Plateau — no improvement for a while","cp.periodic":"Periodic review","cp.accepted":"Accepted — run finished",
+ "toast.started":"Started ▶","toast.reset":"Reset to seed","gen.generating":"🪄 Generating…","err.prefix":"Error: ","cfg.failPrefix":"Configurator: ","gen.warnPrefix":"Generated, with notes: ","toast.renameFail":"Rename failed","te.zero":"zero","te.close":"close","feed.title":"Activity","feed.btn":"▦ Feed","feed.toggle":"Toggle activity feed","feed.close":"Close","feed.moved":"Iteration log & agent output now live in the activity feed →","feed.open":"open feed","cp.title":"Checkpoint — your decision","cp.continue":"▶ Continue","cp.accept":"✓ Accept & finish","cp.hint":"For a “target” checkpoint, raise Target score in Configuration first, then Continue.","cp.target":"Target score reached","cp.plateau":"Plateau — no improvement for a while","cp.periodic":"Periodic review","cp.accepted":"Accepted — run finished",
  "files.loading":"loading…","files.empty":"artifact is empty — start a run so the agent creates files","side.statusPrefix":"status: ","mc.max":"▲ max","mc.min":"▼ min","mc.target":"target","mc.weight":"weight","mc.reached":"✓ reached","sum.error":"error: ","sum.result":"result: ","sum.iters":" · iterations: ","tab.lockHint":"Pick or create a project first","pk.empty":"empty or no access"
 }};
 I18N.uk={
@@ -530,7 +612,7 @@ I18N.uk={
  "toast.scaffolded":"Готовий проєкт створено ✓ — натисни ▶ Запуск","toast.scaffoldCustom":"Доменний шаблон не підійшов — створено загальний скелет ✓ Відредагуй metrics/evaluate.py під свою задачу, тоді ▶ Запуск","toast.scaffoldNeed":"Вкажи назву та опис завдання","toast.scaffoldNoTpl":"Не вдалося визначити шаблон — обери явно",
  "toast.created":"Проєкт створено ✓","toast.saved":"Збережено ✓","toast.deleted":"Видалено","toast.renamed":"Перейменовано","toast.stopping":"Зупиняю на межі ітерації…","toast.forceStopped":"Агента зупинено негайно ⛔","toast.forceMarked":"Активного процесу не було — позначено стоп","toast.cmdAdded":"Команду додано — застосується на наступній ітерації","toast.genOk":"Згенеровано ✓ — перевір і натисни «Створити»","toast.unavailable":"Проєкт недоступний — оновлюю список","toast.runDone":"Прогін завершено: ","toast.describeFirst":"Опиши завдання","toast.nameFirst":"Вкажи назву проєкту","toast.metricFirst":"Додай хоча б одну метрику","toast.testing":"тестую оцінку…","toast.evalOk":"✓ оцінка працює","toast.evalFail":"✗ оцінка не вдалась",
  "confirm.run":"Run запускає РЕАЛЬНИЙ агент (%s). Кожна ітерація може коштувати токени. Прогін працює у фоні — онови сторінку, щоб бачити прогрес. Продовжити?","confirm.runFinished":"Цей прогін уже завершено (напр., досягнуто цільового балу). Run запустить НОВИЙ прогін з ітерації 1 на поточному найкращому коді — завершений результат лишається збереженим. Запустити новий прогін?","confirm.forceStop":"Force Stop негайно вб'є процеси агента (поточний крок втратиться). Продовжити?","confirm.delete":"Видалити проєкт %s?","confirm.reset":"Скинути прогрес до seed?","prompt.rename":"Нова назва:",
- "toast.started":"Запущено ▶","toast.reset":"Скинуто","gen.generating":"🪄 Генерую…","err.prefix":"Помилка: ","cfg.failPrefix":"Налаштовувач: ","gen.warnPrefix":"Згенеровано, але є зауваження: ","toast.renameFail":"Rename не вдалося","te.zero":"нуль","te.close":"закрити","cp.title":"Контрольна точка — твоє рішення","cp.continue":"▶ Продовжити","cp.accept":"✓ Прийняти й завершити","cp.hint":"Для точки «target» спершу підніми Цільовий бал у Конфігурації, тоді Продовжити.","cp.target":"Досягнуто цільовий бал","cp.plateau":"Плато — давно без покращень","cp.periodic":"Періодичний огляд","cp.accepted":"Прийнято — прогін завершено",
+ "toast.started":"Запущено ▶","toast.reset":"Скинуто","gen.generating":"🪄 Генерую…","err.prefix":"Помилка: ","cfg.failPrefix":"Налаштовувач: ","gen.warnPrefix":"Згенеровано, але є зауваження: ","toast.renameFail":"Rename не вдалося","te.zero":"нуль","te.close":"закрити","feed.title":"Стрічка","feed.btn":"▦ Стрічка","feed.toggle":"Показати/сховати стрічку","feed.close":"Закрити","feed.moved":"Лог ітерацій і вивід агента тепер у стрічці праворуч →","feed.open":"відкрити стрічку","cp.title":"Контрольна точка — твоє рішення","cp.continue":"▶ Продовжити","cp.accept":"✓ Прийняти й завершити","cp.hint":"Для точки «target» спершу підніми Цільовий бал у Конфігурації, тоді Продовжити.","cp.target":"Досягнуто цільовий бал","cp.plateau":"Плато — давно без покращень","cp.periodic":"Періодичний огляд","cp.accepted":"Прийнято — прогін завершено",
  "files.loading":"завантаження…","files.empty":"артефакт порожній — запусти прогін, щоб агент створив файли","side.statusPrefix":"статус: ","mc.max":"▲ макс","mc.min":"▼ мін","mc.target":"ціль","mc.weight":"вага","mc.reached":"✓ досягнуто","sum.error":"помилка: ","sum.result":"результат: ","sum.iters":" · ітерацій: ","tab.lockHint":"Спершу обери або створи проєкт","pk.empty":"порожньо або немає доступу"
 };
 I18N.ru={
@@ -550,7 +632,7 @@ I18N.ru={
  "toast.scaffolded":"Готовый проект создан ✓ — нажми ▶ Запуск","toast.scaffoldCustom":"Доменный шаблон не подошёл — создан общий скелет ✓ Отредактируй metrics/evaluate.py под свою задачу, затем ▶ Запуск","toast.scaffoldNeed":"Укажи название и описание задачи","toast.scaffoldNoTpl":"Не удалось определить шаблон — выбери явно",
  "toast.created":"Проект создан ✓","toast.saved":"Сохранено ✓","toast.deleted":"Удалено","toast.renamed":"Переименовано","toast.stopping":"Останавливаю на границе итерации…","toast.forceStopped":"Агент остановлен немедленно ⛔","toast.forceMarked":"Активного процесса не было — отмечено стоп","toast.cmdAdded":"Команда добавлена — применится на следующей итерации","toast.genOk":"Сгенерировано ✓ — проверь и нажми «Создать»","toast.unavailable":"Проект недоступен — обновляю список","toast.runDone":"Прогон завершён: ","toast.describeFirst":"Опиши задачу","toast.nameFirst":"Укажи название проекта","toast.metricFirst":"Добавь хотя бы одну метрику","toast.testing":"тестирую оценку…","toast.evalOk":"✓ оценка работает","toast.evalFail":"✗ оценка не удалась",
  "confirm.run":"Run запускает РЕАЛЬНОГО агента (%s). Каждая итерация может стоить токенов. Прогон работает в фоне — обнови страницу, чтобы видеть прогресс. Продолжить?","confirm.runFinished":"Этот прогон уже завершён (напр., достигнут целевой балл). Run запустит НОВЫЙ прогон с итерации 1 на текущем лучшем коде — завершённый результат остаётся сохранённым. Запустить новый прогон?","confirm.forceStop":"Force Stop немедленно убьёт процессы агента (текущий шаг потеряется). Продолжить?","confirm.delete":"Удалить проект %s?","confirm.reset":"Сбросить прогресс к seed?","prompt.rename":"Новое имя:",
- "toast.started":"Запущено ▶","toast.reset":"Сброшено","gen.generating":"🪄 Генерирую…","err.prefix":"Ошибка: ","cfg.failPrefix":"Настройщик: ","gen.warnPrefix":"Сгенерировано, есть замечания: ","toast.renameFail":"Rename не удался","te.zero":"ноль","te.close":"закрыть","cp.title":"Контрольная точка — твоё решение","cp.continue":"▶ Продолжить","cp.accept":"✓ Принять и завершить","cp.hint":"Для точки «target» сначала подними Целевой балл в Конфигурации, затем Продолжить.","cp.target":"Достигнут целевой балл","cp.plateau":"Плато — давно без улучшений","cp.periodic":"Периодический обзор","cp.accepted":"Принято — прогон завершён",
+ "toast.started":"Запущено ▶","toast.reset":"Сброшено","gen.generating":"🪄 Генерирую…","err.prefix":"Ошибка: ","cfg.failPrefix":"Настройщик: ","gen.warnPrefix":"Сгенерировано, есть замечания: ","toast.renameFail":"Rename не удался","te.zero":"ноль","te.close":"закрыть","feed.title":"Лента","feed.btn":"▦ Лента","feed.toggle":"Показать/скрыть ленту","feed.close":"Закрыть","feed.moved":"Лог итераций и вывод агента теперь в ленте справа →","feed.open":"открыть ленту","cp.title":"Контрольная точка — твоё решение","cp.continue":"▶ Продолжить","cp.accept":"✓ Принять и завершить","cp.hint":"Для точки «target» сначала подними Целевой балл в Конфигурации, затем Продолжить.","cp.target":"Достигнут целевой балл","cp.plateau":"Плато — давно без улучшений","cp.periodic":"Периодический обзор","cp.accepted":"Принято — прогон завершён",
  "files.loading":"загрузка…","files.empty":"артефакт пуст — запусти прогон, чтобы агент создал файлы","side.statusPrefix":"статус: ","mc.max":"▲ макс","mc.min":"▼ мин","mc.target":"цель","mc.weight":"вес","mc.reached":"✓ достигнуто","sum.error":"ошибка: ","sum.result":"результат: ","sum.iters":" · итераций: ","tab.lockHint":"Сначала выбери или создай проект","pk.empty":"пусто или нет доступа"
 };
 let LANG=(()=>{try{return localStorage.getItem('tt_lang')||'en';}catch(e){return 'en';}})();
@@ -718,26 +800,31 @@ function renderLog(o){
   // DOM every tick and snap any <details> the user just opened shut.
   const sig=JSON.stringify((o||[]).map(x=>[x.n,x.verdict,x.score]))+'|'+(($('tag')||{}).textContent||'');
   if(sig===_logSig)return; _logSig=sig;
-  $('log').innerHTML=o.map(x=>{
-  const sc=x.score==null?'—':(+x.score).toFixed(2);
-  const mets=(x.metrics&&x.metrics.length)?x.metrics.map(m=>`${m.name} ${fmt(m.value)}`).join('  ·  '):'';
-  const metsHtml=mets?` <span class="mets">${esc(mets)}</span>`:'';
-  const head=`iter #${x.n} · <span class="v-${x.verdict}">${x.verdict}</span> · score ${sc}${metsHtml}`;
-  if(x.change||x.feedback){
-    return `<details><summary>${head}</summary>`+
-      (x.feedback?`<div class="why"><b>${t('log.why')}</b> ${esc(x.feedback)}</div>`:'')+
-      (x.change?`<div class="why" style="border-top:0"><b>${t('log.changed')}</b></div><pre class="diff">${esc(x.change)}</pre>`:'')+
-      `</details>`;
-  }
-  return `<div class="lrow"><span>iter #${x.n}${metsHtml}</span><span class="v-${x.verdict}">${x.verdict}</span><span>${sc}</span></div>`;
-}).join('')||(()=>{const st=$('tag').textContent||'idle';
-  return (st==='stopped'||st==='error')
-    ? `<div class="empty" style="margin:6px 0">${t('log.emptyStopped')}</div>`
-    : `<div class="empty" style="margin:6px 0">${t('log.emptyIdle')}</div>`;})();}
+  const rows=(o||[]).slice().reverse().map(x=>{          // newest on top, like a chat feed
+    const sc=x.score==null?'—':(+x.score).toFixed(2);
+    const mets=(x.metrics&&x.metrics.length)?x.metrics.map(m=>`${m.name} ${fmt(m.value)}`).join('  ·  '):'';
+    const metsHtml=mets?`<div class="fi-mets">${esc(mets)}</div>`:'';
+    const mk=open=>`<div class="fi-head"><span class="fi-chev"${open?'':' style="visibility:hidden"'}>▸</span>`+
+      `<span class="fi-n">#${x.n}</span><span class="fi-score">${sc}</span>`+
+      `<span class="fi-verd v-${x.verdict}">${esc(x.verdict)}</span></div>${metsHtml}`;
+    if(x.change||x.feedback){
+      return `<details class="feed-item v-${x.verdict}"><summary>${mk(true)}</summary>`+
+        (x.feedback?`<div class="fi-why"><b>${t('log.why')}</b> ${esc(x.feedback)}</div>`:'')+
+        (x.change?`<div class="fi-why"><b>${t('log.changed')}</b></div><pre class="diff">${esc(x.change)}</pre>`:'')+
+        `</details>`;
+    }
+    return `<div class="feed-item v-${x.verdict}">${mk(false)}</div>`;
+  }).join('');
+  $('log').innerHTML=rows||(()=>{const st=$('tag').textContent||'idle';
+    return (st==='stopped'||st==='error')
+      ? `<div class="empty">${t('log.emptyStopped')}</div>`
+      : `<div class="empty">${t('log.emptyIdle')}</div>`;})();}
 function setStatus(s,score,sum,cost){const tg=$('tag');tg.className='tag '+(s||'idle');tg.textContent=s||'idle';
   $('score').textContent=score==null?'—':(+score).toFixed(1);
   const c=(cost&&cost>0)?('  ·  ≈ $'+(+cost).toFixed(2)):'';
-  $('summary').textContent=(sum?(sum.error?(t('sum.error')+sum.error):t('sum.result')+sum.reason+t('sum.iters')+sum.iterations):'')+c;}
+  $('summary').textContent=(sum?(sum.error?(t('sum.error')+sum.error):t('sum.result')+sum.reason+t('sum.iters')+sum.iterations):'')+c;
+  const live=(s==='running');                            // pulse the feed status dot while running
+  $('feedDot').classList.toggle('live',live);$('feedTabDot').classList.toggle('live',live);}
 async function loadState(name){const d=await(await fetch(api('/api/projects/'+name))).json();
   BASELINE=d.baseline||{};
   const its=d.iterations||[];RUN_STATUS=d.status||'idle';_logSig='';setStatus(d.status||'idle',d.best_score,null,d.cost);plot(its);renderLog(its);renderCheckpoint(d);
@@ -761,6 +848,17 @@ function startPolling(name){if(poll)clearInterval(poll);
 
 $('helpBtn').onclick=()=>$('helpCard').classList.toggle('hidden');
 $('navBtn').onclick=()=>document.body.classList.toggle('nav-collapsed');
+// ── activity feed (right rail) ──
+function setFeed(open){document.body.classList.toggle('feed-open',open);try{localStorage.setItem('tt_feed',open?'1':'0')}catch(e){}}
+$('feedBtn').onclick=()=>setFeed(!document.body.classList.contains('feed-open'));
+$('feedClose').onclick=()=>setFeed(false);
+$('feedTab').onclick=()=>setFeed(true);
+$('feedScrim').onclick=()=>setFeed(false);
+$('feedRefresh').onclick=()=>loadAgentLog();
+{const fol=$('feedOpenLink');if(fol)fol.onclick=e=>{e.preventDefault();setFeed(true);};}
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&document.body.classList.contains('feed-open')&&window.innerWidth<1280)setFeed(false);});
+(function(){let v=null;try{v=localStorage.getItem('tt_feed')}catch(e){}
+  setFeed(v===null?(window.innerWidth>=1280):(v==='1'));})();   // open by default on wide, else remember
 function lockProgressTab(lock){const tb=$('tabProgress');tb.disabled=lock;tb.classList.toggle('locked',lock);
   tb.title=lock?t('tab.lockHint'):'';}
 function showView(v){
