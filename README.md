@@ -29,8 +29,38 @@ Inspired by GANs, Karpathy's `autoresearch`, and the `consilium` adapter pattern
 ```bash
 python3.12 -m venv .venv
 .venv/bin/pip install -e ".[dev]"      # includes web deps (fastapi/uvicorn/httpx)
-.venv/bin/pytest                       # 105 passed, 1 skipped (docker)
+.venv/bin/pytest                       # 130 passed, 1 skipped (docker)
 ```
+
+## Configuration & troubleshooting
+
+**Environment (optional)** — nothing secret is needed to start:
+
+| Variable | Purpose |
+|----------|---------|
+| `TYANI_TOLKAI_WEB_PASSWORD` | If set, the dashboard requires `?token=<value>`. Leave empty for localhost. |
+| `TYANI_TOLKAI_HOME` | Where projects live (default `~/.tyani-tolkai`). |
+
+**Agents authenticate themselves** — Pull-and-Push shells out to whichever CLI a project names; no
+API keys live here. Install and log in the engines you use: `claude` (Anthropic), `codex` (OpenAI),
+`opencode`, `agy` (Google/Antigravity). Tip: use **different** providers for executor vs validator
+on non-trivial runs — same model = correlated review blind spots.
+
+**Portable scorer commands** — template commands use a `{python}` placeholder (e.g.
+`{python} ../metrics/run_backtest.py`) that the runner replaces with the sandbox interpreter, so
+projects run on hosts that only have `python3` (not a bare `python`).
+
+**Common issues**
+
+| Symptom | Fix |
+|---------|-----|
+| `claude: not found` / agent missing | Install + log in that CLI, or change the engine in the project's config. |
+| Rate-limited / quota hit | The run pauses (status `paused`); press **▶ Run** again to resume from the last best. |
+| Agent repeats `no_op` (no change) | Brief too vague or the file isn't the editable one — tighten the executor goal/task. |
+| A step never ends | Lower `limits.step_seconds` (per-agent timeout), or use **⛔ Force Stop**. |
+| `FileNotFoundError: 'python'` | The scorer command hardcodes `python` — use `{python}` (auto-substituted). |
+| Dashboard empty after a restart | Select the project — its history loads from `state.db`. |
+| Noisy/flaky scorer | Set `evaluation.runs: 3` — the runner takes the median of N measurements. |
 
 ## Quick start — the dashboard
 
