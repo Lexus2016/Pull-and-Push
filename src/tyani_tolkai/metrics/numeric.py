@@ -3,14 +3,23 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 from .base import MetricResult
 
 
+def _resolve_python(command: str, sandbox) -> str:
+    """Substitute the portable ``{python}`` placeholder with the sandbox's interpreter
+    (sys.executable locally, the image's ``python`` in docker). A bare ``python`` in a command
+    is NOT portable — many systems only have ``python3`` — so templates use ``{python}``."""
+    py = str(getattr(sandbox, "python", sys.executable))
+    return (command or "").replace("{python}", py)
+
+
 class NumericAdapter:
     def run(self, artifact_dir: str | Path, sandbox, evaluation, timeout: int) -> MetricResult:
-        res = sandbox.run(evaluation.command, cwd=artifact_dir, timeout=timeout)
+        res = sandbox.run(_resolve_python(evaluation.command, sandbox), cwd=artifact_dir, timeout=timeout)
         logs = (res.stdout or "") + (res.stderr or "")
         if res.exit_code != 0:
             return MetricResult(metrics=[], logs=logs, ok=False)

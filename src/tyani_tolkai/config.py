@@ -49,7 +49,8 @@ class MetricCfg(BaseModel):
 
 
 class EvaluationCfg(BaseModel):
-    adapter: Literal["numeric", "command-exit", "pytest-pass", "rubric-llm", "custom"]
+    # only adapters that get_metric_adapter actually implements — don't advertise unbuilt ones
+    adapter: Literal["numeric", "command-exit", "pytest-pass"]
     command: str | None = None
     metrics: list[MetricCfg] = Field(min_length=1)
     target_score: float = 100.0

@@ -13,7 +13,7 @@
     },
     "evaluation": {
       "adapter": "numeric",
-      "command": "python ../metrics/evaluate.py",
+      "command": "{python} ../metrics/evaluate.py",
       "target_score": 80,
       "metrics": [
         {"name": "score", "dir": "higher", "weight": 1.0, "target": 100}

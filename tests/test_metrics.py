@@ -21,6 +21,15 @@ def test_numeric_parses_json(tmp_path):
     assert by["sharpe"] == 1.8 and by["max_dd"] == 0.12
 
 
+def test_numeric_resolves_python_placeholder(tmp_path):
+    # {python} must resolve to the sandbox interpreter (sys.executable) so templates run on systems
+    # where a bare `python` is not on PATH (only python3) — the portability fix.
+    cmd = '{python} -c "import json; print(json.dumps({\'s\': 1.0}))"'
+    ev = _eval("numeric", cmd, [MetricCfg(name="s", dir="higher", weight=1, worst=0, target=1)])
+    res = get_metric_adapter("numeric").run(tmp_path, LocalBackend(), ev, timeout=10)
+    assert res.ok and res.metrics[0]["value"] == 1.0
+
+
 def test_numeric_broken_artifact(tmp_path):
     cmd = f'{sys.executable} -c "raise SystemExit(2)"'
     ev = _eval("numeric", cmd, [MetricCfg(name="x", dir="higher", weight=1, worst=0, target=1)])

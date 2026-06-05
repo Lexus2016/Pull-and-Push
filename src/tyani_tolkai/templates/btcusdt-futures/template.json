@@ -14,7 +14,7 @@
     },
     "evaluation": {
       "adapter": "numeric",
-      "command": "python ../metrics/run_backtest.py --strategy strategy.py --symbol BTCUSDT",
+      "command": "{python} ../metrics/run_backtest.py --strategy strategy.py --symbol BTCUSDT",
       "target_score": 90,
       "metrics": [
         {"name": "total_return_pct", "dir": "higher", "weight": 0.5, "target": 300},

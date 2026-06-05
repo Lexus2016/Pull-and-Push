@@ -10,11 +10,12 @@ from __future__ import annotations
 from pathlib import Path
 
 from .base import MetricResult
+from .numeric import _resolve_python
 
 
 class CommandExitAdapter:
     def run(self, artifact_dir: str | Path, sandbox, evaluation, timeout: int) -> MetricResult:
-        res = sandbox.run(evaluation.command, cwd=artifact_dir, timeout=timeout)
+        res = sandbox.run(_resolve_python(evaluation.command, sandbox), cwd=artifact_dir, timeout=timeout)
         passed = 1.0 if res.exit_code == 0 else 0.0
         metrics = [
             {"name": m.name, "value": passed, "dir": m.dir, "weight": m.weight}
