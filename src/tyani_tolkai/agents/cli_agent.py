@@ -16,9 +16,22 @@ from pathlib import Path
 
 from .base import RunResult
 
-# strip terminal control sequences (colors, cursor moves, carriage returns) so the
-# tee'd agent.log is readable plain text rather than raw ANSI from a TTY.
-_ANSI = re.compile(rb"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|[\r\x08]")
+# strip terminal control sequences (colors, cursor moves, charset designation, carriage
+# returns) so the tee'd agent.log is readable plain text rather than raw ANSI from a TTY.
+# Order matters: OSC and CSI are tried before the generic nF/2-char escape, and a lone ESC
+# is the last-resort catch. The CSI param class is [0-?] (0x30-0x3F) so it also covers the
+# private-mode prefixes < = > ? that the previous [0-9;?] regex let leak (e.g. ESC[>4m,
+# ESC[<u), and the generic branch covers charset designation (ESC(B) and ESC 7 / ESC 8.
+_ANSI = re.compile(
+    rb"\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)"   # OSC … (BEL or ST terminated)
+    rb"|\x1b\[[0-?]*[ -/]*[@-~]"            # CSI … final byte
+    rb"|\x1b[ -/]*[0-~]"                    # nF / 2-char escapes: ESC(B, ESC7, ESC=, ESC M …
+    rb"|[\r\x08]"                           # carriage return, backspace
+    rb"|\x1b"                               # last resort: a stray lone ESC
+)
+# A trailing, not-yet-complete escape at the end of a read chunk (its final byte hasn't
+# arrived yet). We hold it back in `carry` so it isn't half-stripped at the chunk boundary.
+_TRAIL_ESC = re.compile(rb"\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b]*|[ -/]*)?$")
 
 
 _EXECUTOR_FOCUS = (
@@ -187,6 +200,7 @@ class CLIAgentAdapter:
         os.close(slave)
         self._proc = proc
         chunks: list[bytes] = []
+        carry = b""          # a trailing partial escape held over to the next read
         timed_out = False
         deadline = time.monotonic() + max(1, timeout)
         try:
@@ -208,10 +222,21 @@ class CLIAgentAdapter:
                             break          # PTY closed → child exited
                         if not data:
                             break
-                        data = _ANSI.sub(b"", data)
-                        lf.write(data); lf.flush(); chunks.append(data)
+                        buf = carry + data
+                        m = _TRAIL_ESC.search(buf)        # hold a partial escape at the tail
+                        if m and m.start() < len(buf) and len(buf) - m.start() < 128:
+                            carry = buf[m.start():]; buf = buf[:m.start()]
+                        else:
+                            carry = b""
+                        clean = _ANSI.sub(b"", buf)
+                        if clean:
+                            lf.write(clean); lf.flush(); chunks.append(clean)
                     elif proc.poll() is not None:
                         break
+                if carry:                                  # flush whatever escape never completed
+                    tail = _ANSI.sub(b"", carry)
+                    if tail:
+                        lf.write(tail); lf.flush(); chunks.append(tail)
         except OSError:
             pass
         finally:

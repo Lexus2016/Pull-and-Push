@@ -102,3 +102,27 @@ def test_cli_adapter_dir_handling(tmp_path):
     assert av == ["codex", "exec", "-C", str(tmp_path), "PROMPT"]      # single-path flag
     av, _ = argv_for("opencode", ["opencode", "run"])
     assert av == ["opencode", "run", "PROMPT"]
+
+
+def test_ansi_stripper_removes_tty_control_noise():
+    # Regression: the agent.log tee leaked terminal control bursts like "(B[>4m[<u" because the
+    # old regex only matched [0-9;?] CSI params. The stripper must drop charset designation
+    # (ESC(B), private-mode CSI (ESC[>4m, ESC[<u), 2-char escapes (ESC7/ESC8) and SGR colour,
+    # while leaving human text (incl. UTF-8) and newlines/tabs intact.
+    from tyani_tolkai.agents.cli_agent import _ANSI
+    strip = lambda b: _ANSI.sub(b"", b)
+    assert strip(b"\x1b(B\x1b[>4m\x1b[<u\x1b7\x1b8 hello") == b" hello"
+    assert strip(b"\x1b[32mGotovo.\x1b[0m next\n") == b"Gotovo. next\n"
+    plain = "Створив strategy.py\n\tок".encode()
+    assert strip(plain) == plain                       # cyrillic + newline/tab untouched
+
+
+def test_ansi_trailing_partial_escape_is_detected_for_carry():
+    # an escape split across two PTY reads must be held back, not half-stripped at the boundary
+    from tyani_tolkai.agents.cli_agent import _ANSI, _TRAIL_ESC
+    buf = b"value=\x1b[3"                               # read 1 ends mid-CSI
+    m = _TRAIL_ESC.search(buf)
+    assert m and m.start() == len(b"value=")            # the partial escape is located
+    carry, head = buf[m.start():], buf[:m.start()]
+    rest = carry + b"1mRED\x1b[0m done"                 # read 2 completes it
+    assert _ANSI.sub(b"", head) + _ANSI.sub(b"", rest) == b"value=RED done"
