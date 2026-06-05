@@ -87,7 +87,7 @@ class RunManager:
                 return None          # no in-memory run → caller falls back to idle
             return {"status": r["status"], "summary": r["summary"],
                     "outcomes": list(r["outcomes"]), "phase": r.get("phase"),
-                    "baseline": dict(r.get("baseline") or {})}
+                    "baseline": dict(r.get("baseline") or {}), "cost": r.get("cost", 0.0)}
 
     def is_running(self, name: str) -> bool:
         with self._lock:
@@ -100,7 +100,7 @@ class RunManager:
                 raise HTTPException(409, "run already in progress")
             self._stop.discard(name)   # clear inside the lock so a racing /stop isn't lost
             self._runs[name] = {"status": "running", "summary": None, "outcomes": [],
-                                "phase": None, "baseline": {}}
+                                "phase": None, "baseline": {}, "cost": 0.0}
         threading.Thread(target=self._run, args=(name,), daemon=True).start()
 
     def _run(self, name: str) -> None:
@@ -153,6 +153,7 @@ class RunManager:
                          "feedback": o.feedback, "change": o.change,
                          "metrics": [{"name": m["name"], "value": m["value"]} for m in (o.metrics or [])]})
                     self._runs[name]["baseline"] = dict(orch._baseline)   # resolved zero-points (live cards)
+                    self._runs[name]["cost"] = orch.cost_total            # estimated spend so far
 
             def on_ph(p):
                 with self._lock:
@@ -206,8 +207,10 @@ def _persisted_state(name: str) -> dict:
                 baseline = json.loads(run["baseline_json"])   # resolved metric zero-points
             except ValueError:
                 baseline = {}
+        cost = run["cost_total"] if "cost_total" in run.keys() else 0.0
         return {
             "status": run["status"], "best_score": run["best_score"], "baseline": baseline,
+            "cost": cost or 0.0,
             "iterations": [{"n": it.n, "score": it.score, "verdict": it.verdict,
                             "change": it.change_summary, "feedback": it.feedback,
                             "metrics": [{"name": m["name"], "value": m["value"]} for m in it.metrics]}

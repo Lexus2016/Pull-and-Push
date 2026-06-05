@@ -84,6 +84,32 @@ def test_baseline_revalidation_demotes_a_flaky_best(tmp_path):
     assert log_path.exists() and "re-validation" in log_path.read_text(encoding="utf-8")
 
 
+def test_budget_cap_stops_the_run(tmp_path):
+    # with a price set and a tiny budget, the estimated spend trips the hard cap and ends the run
+    cfg = Config(
+        project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "g"}},
+        evaluation={"adapter": "numeric", "command": "true",
+                    "metrics": [{"name": "s", "dir": "higher", "weight": 1, "worst": 0, "target": 100}],
+                    "target_score": 1000, "min_delta": 1.0},
+        limits={"max_iterations": 20, "plateau_N": 10, "budget_usd": 1.0, "usd_per_mtok": 1_000_000.0})
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    orch = Orchestrator(cfg, s, run_id, MockAdapter([_edit_val(v) for v in (70, 80, 90, 100, 100, 100)]),
+                        FakeMetric(), LocalBackend())
+    summary = orch.run_loop()
+    assert summary.reason == "budget"                      # stopped by the cap, not target/plateau
+    assert s.get_run(run_id)["cost_total"] >= 1.0          # cost was tracked and persisted
+
+
+def test_cost_tracking_off_by_default(tmp_path):
+    # default price 0 -> no cost, no budget enforcement -> behaviour unchanged
+    edits = [_edit_val(v) for v in (70, 80, 90, 100)]
+    orch, s, run_id = _orch(tmp_path, edits, _cfg())
+    orch.run_loop()
+    assert orch.cost_total == 0.0
+
+
 def test_improving_run_reaches_target(tmp_path):
     edits = [_edit_val(v) for v in (70, 80, 90, 100)]
     orch, s, run_id = _orch(tmp_path, edits, _cfg())

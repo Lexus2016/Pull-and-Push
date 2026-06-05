@@ -62,6 +62,9 @@ class Orchestrator:
         self.consecutive_fail = 0     # consecutive hard agent failures (for escalation)
         self._reviewed_streak = False  # did the reviewer already give a rethink in this discard streak?
         self.aborted = False          # set by force_kill() — stop NOW, kill the live agent
+        # estimated cumulative cost (USD) across the run; restored on resume so the budget cap holds
+        self.cost_total = float(run["cost_total"]) if (run and "cost_total" in run.keys()
+                                                       and run["cost_total"] is not None) else 0.0
         # Baseline zero-points: metric.worst the user never has to invent. Pinned to the
         # first measured value, persisted so a resumed run keeps the same 0–100 scale.
         raw = run["baseline_json"] if (run and "baseline_json" in run.keys()) else None
@@ -209,6 +212,7 @@ class Orchestrator:
                                          report_stats=report_stats)
         vtimeout = cfg.agents["validator"].timeout if "validator" in cfg.agents else 300
         vres = self.validator.run(vprompt, state.artifact_dir, "read-only", vtimeout)
+        self._charge(vprompt, vres.stdout if vres else "")   # estimate reviewer cost
         if state.has_changes():               # enforce read-only regardless of engine
             state.revert_uncommitted()
         # keep the reviewer's full assessment/why/ideas (3 short parts) — 1000 chars clipped it
@@ -255,6 +259,16 @@ class Orchestrator:
         except OSError:
             pass
 
+    def _charge(self, *texts: str) -> None:
+        """Add the estimated cost of an agent call to the run total. Tokens are approximated as
+        chars/4 (CLI agents don't report exact usage), priced at limits.usd_per_mtok. Rough on
+        purpose — it powers a SAFETY CAP (budget_usd), not an invoice. No-op when price is 0."""
+        price = self.cfg.limits.usd_per_mtok or 0.0
+        if price <= 0:
+            return
+        tokens = sum(len(t or "") for t in texts) // 4
+        self.cost_total += tokens / 1_000_000.0 * price
+
     def _revalidate_best(self, n: int, ph) -> None:
         """Periodically re-score the current best (the working tree at iteration start IS the best,
         HEAD). If it no longer holds its recorded score (dropped beyond min_delta), it was a
@@ -296,6 +310,7 @@ class Orchestrator:
         ph("executor")                       # Executor is editing the artifact
         self._log_iteration_header(n)        # accumulate agent.log across iterations
         result = self._run_executor(brief)   # runs with restart-on-crash/timeout
+        self._charge(brief, result.stdout if result else "")   # estimate executor cost
 
         # Force-Stop landed while the agent was running → drop any partial edit and bail NOW,
         # but LEAVE A RECORD so the iteration list shows what happened (not an empty list).
@@ -441,6 +456,7 @@ class Orchestrator:
             outcome = self.run_iteration(context_text=ctx, on_phase=on_phase)
             if on_iteration:
                 on_iteration(outcome)
+            self.state.update_run(self.run_id, cost_total=self.cost_total)   # persist running cost
             if self.aborted:                   # Force-Stop landed mid-iteration
                 best = self.state.best_score(self.run_id)
                 self.state.set_status(self.run_id, "stopped")
@@ -449,6 +465,10 @@ class Orchestrator:
                 best = self.state.best_score(self.run_id)
                 self.state.set_status(self.run_id, "paused" if self.halt == "rate_limited" else "error")
                 return LoopSummary(self.halt, best, self.n)
+            if cfg.limits.budget_usd is not None and self.cost_total >= cfg.limits.budget_usd:
+                best = self.state.best_score(self.run_id)   # estimated spend hit the cap → stop
+                self.state.set_status(self.run_id, "finished")
+                return LoopSummary("budget", best, self.n)
             best = self.state.best_score(self.run_id)
             if best is not None and best >= cfg.evaluation.target_score:
                 self.state.set_status(self.run_id, "finished")

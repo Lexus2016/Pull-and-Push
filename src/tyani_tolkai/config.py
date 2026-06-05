@@ -74,6 +74,10 @@ class LimitsCfg(BaseModel):
     max_iterations: int = 40
     plateau_N: int = 8
     budget_usd: float | None = None
+    # price used to turn the (estimated) tokens into USD. 0 = cost tracking off (and budget_usd is
+    # not enforced). The estimate is rough — CLI agents don't report exact tokens — so it is a
+    # SAFETY CAP, not an invoice. Set both usd_per_mtok and budget_usd to enable a hard stop.
+    usd_per_mtok: float = 0.0
     step_seconds: int = 600
     agent_retries: int = 2          # restart a crashed/timed-out agent this many times
     max_agent_failures: int = 3     # consecutive hard failures → halt the run (escalate)
