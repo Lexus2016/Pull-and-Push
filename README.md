@@ -34,6 +34,20 @@ python3.12 -m venv .venv
 
 ## Configuration & troubleshooting
 
+**Cost cap** — set `limits.usd_per_mtok` (price) and `limits.budget_usd` (cap) in the config (or the
+form's Budget/Price fields) to hard-stop a run at an estimated spend. The estimate is rough (CLI
+agents don't report exact tokens) — a safety cap, not an invoice; the live status shows `≈ $X.XX`.
+
+**Human checkpoints** — enable `checkpoints.on_target` / `on_plateau` / `every_n` to PAUSE for your
+review (status *awaiting_review*) instead of finishing; the dashboard shows **Continue** / **Accept
+& finish**. (For a *target* checkpoint, raise the target score first if you want to push further.)
+
+**Stable scoring** — set `evaluation.runs: 3` to take the median of N measurements (flaky scorers),
+and `evaluation.revalidate_every: N` to periodically re-check the best and demote a noise/fluke win.
+
+**Untrusted generated code** — `sandbox.backend: local` runs the scorer on your host (fast, for code
+you trust). For code you don't fully trust, use `sandbox.backend: docker` to isolate execution.
+
 **Environment (optional)** — nothing secret is needed to start:
 
 | Variable | Purpose |
