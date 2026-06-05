@@ -350,24 +350,34 @@
   .feed-scrim{position:fixed;inset:0;background:rgba(4,8,13,.55);z-index:53;opacity:0;pointer-events:none;transition:opacity .3s}
   @media(min-width:1280px){ body.feed-open .wrap{padding-right:clamp(340px,33vw,470px)} }
   @media(max-width:1279px){ body.feed-open .feed-scrim{opacity:1;pointer-events:auto} }
+
+  /* ───────── styled tooltip (blueprint-arena) — one floating node, JS-positioned + viewport-clamped ───────── */
+  #tip{position:fixed;z-index:200;max-width:300px;padding:8px 11px;border-radius:var(--radius);
+    background:linear-gradient(180deg,#101b27,#0b1119);color:var(--ink);
+    border:1px solid var(--line-2);border-top:2px solid var(--cold);
+    font-family:var(--ui);font-size:12.5px;font-weight:400;line-height:1.5;letter-spacing:.2px;
+    white-space:normal;text-align:left;box-shadow:0 12px 34px rgba(0,0,0,.55);
+    opacity:0;pointer-events:none;transition:opacity .12s ease,transform .12s ease;transform:translateY(3px)}
+  #tip.show{opacity:1;transform:none}
+  #tip.below{border-top:1px solid var(--line-2);border-bottom:2px solid var(--cold)}
 </style>
 </head>
 <body>
 <header>
-  <button class="iconbtn" id="navBtn" data-i18n-title="nav.toggle" title="Toggle sidebar">☰</button>
+  <button class="iconbtn tipd" id="navBtn" data-i18n-title="nav.toggle" title="Toggle sidebar">☰</button>
   <div class="brand">
     <h1>Pull-and-Push</h1><span class="pp">[ pull ⇄ push ]</span>
   </div>
   <span class="sub">adversarial co-evolution engine</span>
   <div class="right">
-    <select id="lang" class="lang-sel" title="Language"><option value="en">EN</option><option value="uk">UA</option><option value="ru">RU</option></select>
-    <button class="btn sec" id="feedBtn" style="width:auto;margin:0" data-i18n="feed.btn" data-i18n-title="feed.toggle" title="Activity feed">▦ Feed</button>
-    <button class="btn sec" id="helpBtn" data-i18n="help.btn" style="width:auto;margin:0">❔ How it works</button>
+    <select id="lang" class="lang-sel tipd" data-i18n-title="lang.title" title="Language"><option value="en">EN</option><option value="uk">UA</option><option value="ru">RU</option></select>
+    <button class="btn sec tipd" id="feedBtn" style="width:auto;margin:0" data-i18n="feed.btn" data-i18n-title="feed.toggle" title="Activity feed">▦ Feed</button>
+    <button class="btn sec tipd" id="helpBtn" data-i18n="help.btn" data-i18n-title="help.btnTitle" style="width:auto;margin:0">❔ How it works</button>
   </div>
 </header>
 <div class="wrap">
   <aside>
-    <button class="btn" id="newBtn" data-i18n="side.new">＋ New project</button>
+    <button class="btn tipd" id="newBtn" data-i18n="side.new" data-i18n-title="side.newTitle">＋ New project</button>
     <h2 data-i18n="side.projects">Projects</h2>
     <ul class="plist" id="projects"></ul>
     <div class="empty" id="empty" data-i18n="side.empty">No projects yet.<br>Press <b>＋ New project</b> to start.</div>
@@ -544,9 +554,9 @@
         <div class="controls">  <!-- utilities -->
           <button class="btn sec" id="testEvalBtn" disabled data-i18n="prog.testEval" data-i18n-title="prog.testEvalTitle" title="Run the evaluation once — check the harness/command work">🧪 Test eval</button>
           <button class="btn sec" id="resetBtn" disabled data-i18n="prog.reset" data-i18n-title="prog.resetTitle" title="Roll the artifact back to seed">↺ Reset</button>
-          <button class="btn sec" id="renameBtn" disabled data-i18n="prog.rename">✎ Rename</button>
+          <button class="btn sec" id="renameBtn" disabled data-i18n="prog.rename" data-i18n-title="prog.renameTitle">✎ Rename</button>
           <button class="btn sec" id="exportBtn" disabled data-i18n="prog.export" data-i18n-title="prog.exportTitle" title="Download as .zip">⬇ Export</button>
-          <button class="btn danger" id="deleteBtn" disabled data-i18n="prog.delete">🗑 Delete</button>
+          <button class="btn danger" id="deleteBtn" disabled data-i18n="prog.delete" data-i18n-title="prog.deleteTitle">🗑 Delete</button>
         </div>
       </div>
       <div id="testResult"></div>
@@ -561,12 +571,12 @@
       <div style="margin-top:18px">
         <label data-i18n="prog.steer">Live agent command <small class="hint" style="display:inline" data-i18n="prog.steerSub">— added to the next iteration, without stopping</small></label>
         <textarea id="steerText" data-i18n-ph="prog.steerPh" placeholder="e.g. focus on reducing drawdown"></textarea>
-        <div class="controls" style="margin-top:8px"><button class="btn sec" id="steerBtn" disabled data-i18n="prog.steerBtn" style="width:auto">↗ Send command</button></div>
+        <div class="controls" style="margin-top:8px"><button class="btn sec" id="steerBtn" disabled data-i18n="prog.steerBtn" data-i18n-title="prog.steerTitle" style="width:auto">↗ Send command</button></div>
       </div>
       <p class="hint" id="feedHint" style="margin-top:18px">📡 <span data-i18n="feed.moved">Iteration log &amp; agent output now live in the activity feed →</span>
         <a href="#" id="feedOpenLink" style="color:var(--cold)" data-i18n="feed.open">open feed</a></p>
       <h3 style="margin-top:22px" data-i18n="prog.files">Artifact files <small class="hint" style="display:inline" data-i18n="prog.filesSub">— what the agent built</small></h3>
-      <div class="controls" style="margin-bottom:8px"><button class="btn sec" id="filesBtn" style="width:auto" disabled data-i18n="prog.filesBtn">↻ Show / refresh files</button></div>
+      <div class="controls" style="margin-bottom:8px"><button class="btn sec" id="filesBtn" style="width:auto" disabled data-i18n="prog.filesBtn" data-i18n-title="prog.filesTitle">↻ Show / refresh files</button></div>
       <div id="files"></div>
     </div>
     </div><!-- /view-progress -->
@@ -609,6 +619,7 @@
   </div>
 </div>
 <div id="toast"></div>
+<div id="tip"></div>
 <script>
 const TOKEN=new URLSearchParams(location.search).get('token')||'';
 const api=p=>p+(p.includes('?')?(TOKEN?'&token='+TOKEN:''):(TOKEN?'?token='+TOKEN:''));
@@ -631,7 +642,7 @@ const I18N={en:{
  "nav.toggle":"Toggle sidebar","help.btn":"❔ How it works",
  "help.title":"What this is","help.p":"Two agents compete over one project: the <b>Executor</b> improves the artifact, and scoring (deterministic code + optional <b>Validator</b>) decides if it got better. The loop keeps only improvements.",
  "help.s1":"<b>＋ New project</b> → describe the task and 🪄 generate, or fill the form → <b>Create</b>.","help.s2":"<b>▶ Run</b> drives the real agents; the quality curve and log update live.","help.s3":"<b>Live command</b> steers the agent without stopping; <b>Stop</b> — at the iteration boundary.",
- "side.new":"＋ New project","side.projects":"Projects","side.empty":"No projects yet.<br>Press <b>＋ New project</b> to start.","side.coord":"// COLD = Executor · WARM = Validator",
+ "side.new":"＋ New project","side.newTitle":"Create a new project — from a vetted template or a plain-language description.","prog.renameTitle":"Rename this project (and its folder).","prog.deleteTitle":"Delete this project for good — config, run history and the artifact.","prog.steerTitle":"Queue a hint for the NEXT iteration — steers the agent without stopping the run.","prog.filesTitle":"Show the files the agent produced inside the artifact.","help.btnTitle":"How Pull-and-Push works — a short guide.","lang.title":"Interface language (EN / UK / RU).","side.projects":"Projects","side.empty":"No projects yet.<br>Press <b>＋ New project</b> to start.","side.coord":"// COLD = Executor · WARM = Validator",
  "tab.progress":"📊 Progress","tab.config":"⚙ Configuration",
  "tpl.title":"🚀 Start from a template","tpl.desc":"The fastest, safest path: a vetted scoring harness ships with the template, so the project runs immediately. Name it, describe the task — we build it ready to run.","tpl.name":"Project name","tpl.nameHint":"Letters/digits/._- — becomes a folder; rename later.","tpl.tplLabel":"Template","tpl.auto":"📝 Auto-detect from description","tpl.tplHint":"Pick a vetted harness, or let it auto-detect from the description.","tpl.descLabel":"Task description","tpl.descPh":"e.g.: tune a leveraged BTCUSDT futures strategy for maximum return with no liquidations.","tpl.descHint":"Becomes the executor's goal; its keywords also help auto-pick the template.","tpl.btn":"🚀 Create runnable project","tpl.btnHint":"Creates the project with a committed harness and opens it — then press ▶ Run.","tpl.creating":"Building the project…",
  "gen.title":"🪄 Generate from a description","gen.desc":"The simplest path: describe the task in words — the configurator agent drafts the project, then you refine it in the form below.","gen.descLabel":"Task, metrics, goal, constraints","gen.descPh":"e.g.: push strategy.py to maximum Sharpe with drawdown below 15%. Metrics: sharpe (higher is better), max_dd (lower is better). Target 90. Constraints: edit only strategy.py, one change per step.","gen.descHint":"Plain language — what we do, which metrics, the goal, the constraints.","gen.engine":"Configurator engine","gen.engineHint":"Which CLI agent drafts the config (must be installed and logged in).","gen.btn":"🪄 Generate project","gen.btnHint":"Fills the form below — review it and press “Create”.",
@@ -651,7 +662,7 @@ I18N.uk={
  "nav.toggle":"Сховати / показати ліву панель","help.btn":"❔ Як це працює",
  "help.title":"Що це","help.p":"Два агенти змагаються над одним проєктом: <b>Виконавець</b> покращує артефакт, а оцінка (детермінований код + опційний <b>Валідатор</b>) каже, чи стало краще. Цикл тримає лише покращення.",
  "help.s1":"<b>＋ Новий проєкт</b> → опиши завдання й 🪄 згенеруй, або заповни форму → <b>Створити</b>.","help.s2":"<b>▶ Run</b> запускає реальних агентів; крива якості й лог оновлюються наживо.","help.s3":"<b>Команда наживо</b> керує агентом без зупинки; <b>Stop</b> — на межі ітерації.",
- "side.new":"＋ Новий проєкт","side.projects":"Проєкти","side.empty":"Проєктів ще немає.<br>Натисни <b>＋ Новий проєкт</b>, щоб почати.","side.coord":"// COLD = Виконавець · WARM = Оцінювач",
+ "side.new":"＋ Новий проєкт","side.newTitle":"Створити новий проєкт — із перевіреного шаблону або зі звичайного опису.","prog.renameTitle":"Перейменувати проєкт (і його теку).","prog.deleteTitle":"Видалити проєкт назавжди — конфіг, історію прогонів і артефакт.","prog.steerTitle":"Додати підказку до НАСТУПНОЇ ітерації — скеровує агента без зупинки прогону.","prog.filesTitle":"Показати файли, які агент створив усередині артефакту.","help.btnTitle":"Як працює Pull-and-Push — короткий гід.","lang.title":"Мова інтерфейсу (EN / UK / RU).","side.projects":"Проєкти","side.empty":"Проєктів ще немає.<br>Натисни <b>＋ Новий проєкт</b>, щоб почати.","side.coord":"// COLD = Виконавець · WARM = Оцінювач",
  "tab.progress":"📊 Прогрес","tab.config":"⚙ Конфігурація",
  "tpl.title":"🚀 Старт із шаблону","tpl.desc":"Найшвидший і найбезпечніший шлях: разом із шаблоном іде перевірений гарнес оцінювання, тож проєкт запускається одразу. Назви, опиши завдання — зберемо готовий до запуску.","tpl.name":"Назва проєкту","tpl.nameHint":"Літери/цифри/._- — стає текою; перейменувати можна пізніше.","tpl.tplLabel":"Шаблон","tpl.auto":"📝 Визначити з опису автоматично","tpl.tplHint":"Обери перевірений гарнес або дозволь визначити його з опису.","tpl.descLabel":"Опис завдання","tpl.descPh":"Напр.: налаштувати ф'ючерсну стратегію BTCUSDT із плечем на максимальний прибуток без ліквідацій.","tpl.descHint":"Стає метою виконавця; ключові слова також допомагають автоматично обрати шаблон.","tpl.btn":"🚀 Створити готовий проєкт","tpl.btnHint":"Створює проєкт із закомміченим гарнесом і відкриває його — далі натисни ▶ Запуск.","tpl.creating":"Будую проєкт…",
  "gen.title":"🪄 Згенерувати з опису","gen.desc":"Найпростіший шлях: опиши завдання словами — агент-налаштовувач сформує проєкт, а ти доведеш його у формі нижче.","gen.descLabel":"Опис завдання, метрик, мети, обмежень","gen.descPh":"Напр.: довести strategy.py до максимального Sharpe при просадці нижче 15%. Метрики: sharpe (вище — краще), max_dd (нижче — краще). Ціль 90. Обмеження: редагувати лише strategy.py, одна зміна за крок.","gen.descHint":"Природною мовою — що робимо, які метрики, яка мета, які обмеження.","gen.engine":"Рушій налаштовувача","gen.engineHint":"Який CLI-агент згенерує конфіг (має бути встановлений і залогінений).","gen.btn":"🪄 Згенерувати проєкт","gen.btnHint":"Заповнить форму нижче — перевір і натисни «Створити».",
@@ -671,7 +682,7 @@ I18N.ru={
  "nav.toggle":"Скрыть / показать левую панель","help.btn":"❔ Как это работает",
  "help.title":"Что это","help.p":"Два агента соревнуются над одним проектом: <b>Исполнитель</b> улучшает артефакт, а оценка (детерминированный код + опциональный <b>Валидатор</b>) решает, стало ли лучше. Цикл оставляет только улучшения.",
  "help.s1":"<b>＋ Новый проект</b> → опиши задачу и 🪄 сгенерируй, или заполни форму → <b>Создать</b>.","help.s2":"<b>▶ Run</b> запускает реальных агентов; кривая качества и лог обновляются вживую.","help.s3":"<b>Команда вживую</b> направляет агента без остановки; <b>Stop</b> — на границе итерации.",
- "side.new":"＋ Новый проект","side.projects":"Проекты","side.empty":"Проектов пока нет.<br>Нажми <b>＋ Новый проект</b>, чтобы начать.","side.coord":"// COLD = Исполнитель · WARM = Валидатор",
+ "side.new":"＋ Новый проект","side.newTitle":"Создать новый проект — из проверенного шаблона или из обычного описания.","prog.renameTitle":"Переименовать проект (и его папку).","prog.deleteTitle":"Удалить проект навсегда — конфиг, историю прогонов и артефакт.","prog.steerTitle":"Добавить подсказку к СЛЕДУЮЩЕЙ итерации — направляет агента без остановки прогона.","prog.filesTitle":"Показать файлы, которые агент создал внутри артефакта.","help.btnTitle":"Как работает Pull-and-Push — краткий гид.","lang.title":"Язык интерфейса (EN / UK / RU).","side.projects":"Проекты","side.empty":"Проектов пока нет.<br>Нажми <b>＋ Новый проект</b>, чтобы начать.","side.coord":"// COLD = Исполнитель · WARM = Валидатор",
  "tab.progress":"📊 Прогресс","tab.config":"⚙ Конфигурация",
  "tpl.title":"🚀 Старт из шаблона","tpl.desc":"Самый быстрый и безопасный путь: вместе с шаблоном идёт проверенный гарнес оценивания, поэтому проект запускается сразу. Назови, опиши задачу — соберём готовый к запуску.","tpl.name":"Название проекта","tpl.nameHint":"Буквы/цифры/._- — становится папкой; переименовать можно позже.","tpl.tplLabel":"Шаблон","tpl.auto":"📝 Определить из описания автоматически","tpl.tplHint":"Выбери проверенный гарнес или дай определить его из описания.","tpl.descLabel":"Описание задачи","tpl.descPh":"Напр.: настроить фьючерсную стратегию BTCUSDT с плечом на максимальную доходность без ликвидаций.","tpl.descHint":"Становится целью исполнителя; ключевые слова также помогают автоматически выбрать шаблон.","tpl.btn":"🚀 Создать готовый проект","tpl.btnHint":"Создаёт проект с закоммиченным гарнесом и открывает его — затем нажми ▶ Запуск.","tpl.creating":"Собираю проект…",
  "gen.title":"🪄 Сгенерировать из описания","gen.desc":"Простейший путь: опиши задачу словами — агент-настройщик составит проект, а ты доведёшь его в форме ниже.","gen.descLabel":"Описание задачи, метрик, цели, ограничений","gen.descPh":"Напр.: довести strategy.py до максимального Sharpe при просадке ниже 15%. Метрики: sharpe (выше — лучше), max_dd (ниже — лучше). Цель 90. Ограничения: править только strategy.py, одно изменение за шаг.","gen.descHint":"Естественным языком — что делаем, какие метрики, цель, ограничения.","gen.engine":"Движок настройщика","gen.engineHint":"Какой CLI-агент сгенерирует конфиг (должен быть установлен и залогинен).","gen.btn":"🪄 Сгенерировать проект","gen.btnHint":"Заполнит форму ниже — проверь и нажми «Создать».",
@@ -694,7 +705,9 @@ function applyLang(lang){
   document.documentElement.lang=LANG;const sel=$('lang');if(sel)sel.value=LANG;
   document.querySelectorAll('[data-i18n]').forEach(el=>el.innerHTML=t(el.getAttribute('data-i18n')));
   document.querySelectorAll('[data-i18n-ph]').forEach(el=>el.placeholder=t(el.getAttribute('data-i18n-ph')));
-  document.querySelectorAll('[data-i18n-title]').forEach(el=>el.title=t(el.getAttribute('data-i18n-title')));
+  document.querySelectorAll('[data-i18n-title]').forEach(el=>{   // styled tooltip, not the native one
+    const s=t(el.getAttribute('data-i18n-title'));
+    el.setAttribute('data-tip',s);el.setAttribute('aria-label',s);el.removeAttribute('title');});
   const veNone=$('f_va_engine')&&$('f_va_engine').querySelector('option[value=""]');
   if(veNone)veNone.textContent=t('opt.none');   // validator's "— none —" (built via opts, not data-i18n)
   // dynamic bits built in JS: rebuild metric rows (preserve values) and refresh log/cards
@@ -704,6 +717,25 @@ function applyLang(lang){
   if(TEMPLATES.length)fillTplSelect();   // re-label the auto option + summary in the new language
 }
 function toast(t,kind){const e=$('toast');e.textContent=t;e.className=kind||'';if(t)setTimeout(()=>e.className='',4200);}
+// ── styled tooltip: one floating node, positioned in JS and clamped to the viewport ──
+(function(){const tip=$('tip');if(!tip)return;let cur=null;
+  function show(el){const txt=el.getAttribute('data-tip');if(!txt){hide();return;}
+    cur=el;tip.textContent=txt;tip.className='show';
+    const r=el.getBoundingClientRect(),m=8,vw=innerWidth,vh=innerHeight;
+    const tw=tip.offsetWidth,th=tip.offsetHeight;
+    let left=Math.max(m,Math.min(r.left+r.width/2-tw/2,vw-tw-m));   // clamp horizontally
+    let top=r.top-th-10,below=false;
+    if(top<m){top=r.bottom+10;below=true;}                          // flip below if no room above
+    top=Math.max(m,Math.min(top,vh-th-m));
+    tip.style.left=left+'px';tip.style.top=top+'px';tip.classList.toggle('below',below);}
+  function hide(){cur=null;tip.className='';}
+  document.addEventListener('mouseover',e=>{const el=e.target.closest&&e.target.closest('[data-tip]');if(el)show(el);});
+  document.addEventListener('mouseout',e=>{const el=e.target.closest&&e.target.closest('[data-tip]');
+    if(el&&el===cur&&!(e.relatedTarget&&el.contains(e.relatedTarget)))hide();});
+  document.addEventListener('focusin',e=>{const el=e.target.closest&&e.target.closest('[data-tip]');if(el)show(el);});
+  document.addEventListener('focusout',hide);
+  window.addEventListener('scroll',hide,true);window.addEventListener('resize',hide);
+})();
 function opts(s,a,blank){s.innerHTML=(blank?`<option value="">${t('opt.none')}</option>`:'')+a.map(v=>`<option>${v}</option>`).join('');}
 
 async function loadMeta(){META=await(await fetch(api('/api/meta'))).json();
@@ -876,10 +908,11 @@ function renderLog(o){
       `<span class="fi-n">#${x.n}</span><span class="fi-score">${sc}</span>`+
       `<span class="fi-verd v-${x.verdict}">${esc(x.verdict)}</span></div>${metsHtml}`;
     // every kept iteration is a git commit → it can be downloaded, rewound to, or forked
+    const tip=k=>{const v=esc(t(k));return `data-tip="${v}" aria-label="${v}"`;};
     const acts=x.verdict==='keep'?`<div class="fi-acts">`+
-      `<button class="fi-act" title="${t('feed.dl')}" onclick="iterDownload(event,${x.n})">⬇</button>`+
-      `<button class="fi-act" title="${t('feed.rewind')}" onclick="iterRewind(event,${x.n})">↻</button>`+
-      `<button class="fi-act" title="${t('feed.fork')}" onclick="iterFork(event,${x.n})">⑂</button>`+
+      `<button class="fi-act" ${tip('feed.dl')} onclick="iterDownload(event,${x.n})">⬇</button>`+
+      `<button class="fi-act" ${tip('feed.rewind')} onclick="iterRewind(event,${x.n})">↻</button>`+
+      `<button class="fi-act" ${tip('feed.fork')} onclick="iterFork(event,${x.n})">⑂</button>`+
       `</div>`:'';
     if(x.change||x.feedback){
       return `<details class="feed-item v-${x.verdict}"><summary>${mk(true)}${acts}</summary>`+
