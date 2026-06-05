@@ -163,6 +163,12 @@
   .controls .btn{width:auto;min-width:138px;margin:0;padding:12px 16px;justify-content:center}
   .ctl-rows{display:flex;flex-direction:column;gap:10px;margin-bottom:18px}
   .ctl-sep{height:1px;background:var(--line);margin:2px 0;opacity:.7}
+  /* collapsible control chrome — fold the description + buttons, keep just the dashboard */
+  .ctl-toggle{cursor:pointer;user-select:none;display:flex;align-items:center;gap:9px;width:max-content}
+  .ctl-toggle:hover{color:var(--ink)}
+  .ctl-chev{font-size:11px;color:var(--cold);transition:transform .2s}
+  #ctlToggle.collapsed .ctl-chev{transform:rotate(-90deg)}
+  #ctlToggle.collapsed ~ #ctlChrome{display:none}
   .save-bar{display:flex;gap:12px;align-items:center;margin-top:6px;flex-wrap:wrap}
 
   /* ───────── progress ───────── */
@@ -534,9 +540,7 @@
 
     <div id="view-progress" class="hidden">
     <div class="card">
-      <h3 data-i18n="prog.title">Control & progress</h3>
-      <p class="desc" data-i18n="prog.desc">Start, stop and steer the run. The chart is the quality curve; the log is the keep/discard decision each step.</p>
-      <div id="runGoal" class="hint" style="margin:-6px 0 14px"></div>
+      <h3 class="ctl-toggle" id="ctlToggle" data-i18n-title="prog.collapseHint"><span class="ctl-chev">▾</span><span data-i18n="prog.title">Control & progress</span></h3>
       <div id="cpPanel" class="why hidden" style="border:1px solid #6a5a1f;border-radius:6px;margin:0 0 14px;padding:10px">
         <b>⏸ <span data-i18n="cp.title">Checkpoint — your decision</span></b>
         <div class="hint" id="cpMsg" style="display:block;margin:4px 0 8px"></div>
@@ -544,6 +548,9 @@
         <button class="btn" id="cpAcceptBtn" style="width:auto" data-i18n="cp.accept">✓ Accept & finish</button>
         <span class="hint" id="cpHint" data-i18n="cp.hint">For a “target” checkpoint, raise Target score in Configuration first, then Continue.</span>
       </div>
+      <div id="ctlChrome">
+      <p class="desc" data-i18n="prog.desc">Start, stop and steer the run. The chart is the quality curve; the log is the keep/discard decision each step.</p>
+      <div id="runGoal" class="hint" style="margin:-6px 0 14px"></div>
       <div class="ctl-rows">
         <div class="controls">  <!-- run lifecycle -->
           <button class="btn" id="runBtn" disabled data-i18n="prog.run" data-i18n-title="prog.runTitle" title="Start the loop with real agents">▶ Run</button>
@@ -560,6 +567,7 @@
         </div>
       </div>
       <div id="testResult"></div>
+      </div><!-- /ctlChrome -->
       <div class="status">
         <div class="kpi"><div class="score" id="score">—</div><div class="kpi-lbl" data-i18n="prog.compScore">composite score (0–100)</div></div>
         <span class="tag idle" id="tag">idle</span>
@@ -642,7 +650,7 @@ const I18N={en:{
  "nav.toggle":"Toggle sidebar","help.btn":"❔ How it works",
  "help.title":"What this is","help.p":"Two agents compete over one project: the <b>Executor</b> improves the artifact, and scoring (deterministic code + optional <b>Validator</b>) decides if it got better. The loop keeps only improvements.",
  "help.s1":"<b>＋ New project</b> → describe the task and 🪄 generate, or fill the form → <b>Create</b>.","help.s2":"<b>▶ Run</b> drives the real agents; the quality curve and log update live.","help.s3":"<b>Live command</b> steers the agent without stopping; <b>Stop</b> — at the iteration boundary.",
- "side.new":"＋ New project","side.newTitle":"Create a new project — from a vetted template or a plain-language description.","prog.renameTitle":"Rename this project (and its folder).","prog.deleteTitle":"Delete this project for good — config, run history and the artifact.","prog.steerTitle":"Queue a hint for the NEXT iteration — steers the agent without stopping the run.","prog.filesTitle":"Show the files the agent produced inside the artifact.","help.btnTitle":"How Pull-and-Push works — a short guide.","lang.title":"Interface language (EN / UK / RU).","side.projects":"Projects","side.empty":"No projects yet.<br>Press <b>＋ New project</b> to start.","side.coord":"// COLD = Executor · WARM = Validator",
+ "side.new":"＋ New project","side.newTitle":"Create a new project — from a vetted template or a plain-language description.","prog.collapseHint":"Collapse / expand the controls — keep just the dashboard to watch progress.","prog.renameTitle":"Rename this project (and its folder).","prog.deleteTitle":"Delete this project for good — config, run history and the artifact.","prog.steerTitle":"Queue a hint for the NEXT iteration — steers the agent without stopping the run.","prog.filesTitle":"Show the files the agent produced inside the artifact.","help.btnTitle":"How Pull-and-Push works — a short guide.","lang.title":"Interface language (EN / UK / RU).","side.projects":"Projects","side.empty":"No projects yet.<br>Press <b>＋ New project</b> to start.","side.coord":"// COLD = Executor · WARM = Validator",
  "tab.progress":"📊 Progress","tab.config":"⚙ Configuration",
  "tpl.title":"🚀 Start from a template","tpl.desc":"The fastest, safest path: a vetted scoring harness ships with the template, so the project runs immediately. Name it, describe the task — we build it ready to run.","tpl.name":"Project name","tpl.nameHint":"Letters/digits/._- — becomes a folder; rename later.","tpl.tplLabel":"Template","tpl.auto":"📝 Auto-detect from description","tpl.tplHint":"Pick a vetted harness, or let it auto-detect from the description.","tpl.descLabel":"Task description","tpl.descPh":"e.g.: tune a leveraged BTCUSDT futures strategy for maximum return with no liquidations.","tpl.descHint":"Becomes the executor's goal; its keywords also help auto-pick the template.","tpl.btn":"🚀 Create runnable project","tpl.btnHint":"Creates the project with a committed harness and opens it — then press ▶ Run.","tpl.creating":"Building the project…",
  "gen.title":"🪄 Generate from a description","gen.desc":"The simplest path: describe the task in words — the configurator agent drafts the project, then you refine it in the form below.","gen.descLabel":"Task, metrics, goal, constraints","gen.descPh":"e.g.: push strategy.py to maximum Sharpe with drawdown below 15%. Metrics: sharpe (higher is better), max_dd (lower is better). Target 90. Constraints: edit only strategy.py, one change per step.","gen.descHint":"Plain language — what we do, which metrics, the goal, the constraints.","gen.engine":"Configurator engine","gen.engineHint":"Which CLI agent drafts the config (must be installed and logged in).","gen.btn":"🪄 Generate project","gen.btnHint":"Fills the form below — review it and press “Create”.",
@@ -662,7 +670,7 @@ I18N.uk={
  "nav.toggle":"Сховати / показати ліву панель","help.btn":"❔ Як це працює",
  "help.title":"Що це","help.p":"Два агенти змагаються над одним проєктом: <b>Виконавець</b> покращує артефакт, а оцінка (детермінований код + опційний <b>Валідатор</b>) каже, чи стало краще. Цикл тримає лише покращення.",
  "help.s1":"<b>＋ Новий проєкт</b> → опиши завдання й 🪄 згенеруй, або заповни форму → <b>Створити</b>.","help.s2":"<b>▶ Run</b> запускає реальних агентів; крива якості й лог оновлюються наживо.","help.s3":"<b>Команда наживо</b> керує агентом без зупинки; <b>Stop</b> — на межі ітерації.",
- "side.new":"＋ Новий проєкт","side.newTitle":"Створити новий проєкт — із перевіреного шаблону або зі звичайного опису.","prog.renameTitle":"Перейменувати проєкт (і його теку).","prog.deleteTitle":"Видалити проєкт назавжди — конфіг, історію прогонів і артефакт.","prog.steerTitle":"Додати підказку до НАСТУПНОЇ ітерації — скеровує агента без зупинки прогону.","prog.filesTitle":"Показати файли, які агент створив усередині артефакту.","help.btnTitle":"Як працює Pull-and-Push — короткий гід.","lang.title":"Мова інтерфейсу (EN / UK / RU).","side.projects":"Проєкти","side.empty":"Проєктів ще немає.<br>Натисни <b>＋ Новий проєкт</b>, щоб почати.","side.coord":"// COLD = Виконавець · WARM = Оцінювач",
+ "side.new":"＋ Новий проєкт","side.newTitle":"Створити новий проєкт — із перевіреного шаблону або зі звичайного опису.","prog.collapseHint":"Згорнути / розгорнути керування — лишити тільки дашборд для стеження.","prog.renameTitle":"Перейменувати проєкт (і його теку).","prog.deleteTitle":"Видалити проєкт назавжди — конфіг, історію прогонів і артефакт.","prog.steerTitle":"Додати підказку до НАСТУПНОЇ ітерації — скеровує агента без зупинки прогону.","prog.filesTitle":"Показати файли, які агент створив усередині артефакту.","help.btnTitle":"Як працює Pull-and-Push — короткий гід.","lang.title":"Мова інтерфейсу (EN / UK / RU).","side.projects":"Проєкти","side.empty":"Проєктів ще немає.<br>Натисни <b>＋ Новий проєкт</b>, щоб почати.","side.coord":"// COLD = Виконавець · WARM = Оцінювач",
  "tab.progress":"📊 Прогрес","tab.config":"⚙ Конфігурація",
  "tpl.title":"🚀 Старт із шаблону","tpl.desc":"Найшвидший і найбезпечніший шлях: разом із шаблоном іде перевірений гарнес оцінювання, тож проєкт запускається одразу. Назви, опиши завдання — зберемо готовий до запуску.","tpl.name":"Назва проєкту","tpl.nameHint":"Літери/цифри/._- — стає текою; перейменувати можна пізніше.","tpl.tplLabel":"Шаблон","tpl.auto":"📝 Визначити з опису автоматично","tpl.tplHint":"Обери перевірений гарнес або дозволь визначити його з опису.","tpl.descLabel":"Опис завдання","tpl.descPh":"Напр.: налаштувати ф'ючерсну стратегію BTCUSDT із плечем на максимальний прибуток без ліквідацій.","tpl.descHint":"Стає метою виконавця; ключові слова також допомагають автоматично обрати шаблон.","tpl.btn":"🚀 Створити готовий проєкт","tpl.btnHint":"Створює проєкт із закомміченим гарнесом і відкриває його — далі натисни ▶ Запуск.","tpl.creating":"Будую проєкт…",
  "gen.title":"🪄 Згенерувати з опису","gen.desc":"Найпростіший шлях: опиши завдання словами — агент-налаштовувач сформує проєкт, а ти доведеш його у формі нижче.","gen.descLabel":"Опис завдання, метрик, мети, обмежень","gen.descPh":"Напр.: довести strategy.py до максимального Sharpe при просадці нижче 15%. Метрики: sharpe (вище — краще), max_dd (нижче — краще). Ціль 90. Обмеження: редагувати лише strategy.py, одна зміна за крок.","gen.descHint":"Природною мовою — що робимо, які метрики, яка мета, які обмеження.","gen.engine":"Рушій налаштовувача","gen.engineHint":"Який CLI-агент згенерує конфіг (має бути встановлений і залогінений).","gen.btn":"🪄 Згенерувати проєкт","gen.btnHint":"Заповнить форму нижче — перевір і натисни «Створити».",
@@ -682,7 +690,7 @@ I18N.ru={
  "nav.toggle":"Скрыть / показать левую панель","help.btn":"❔ Как это работает",
  "help.title":"Что это","help.p":"Два агента соревнуются над одним проектом: <b>Исполнитель</b> улучшает артефакт, а оценка (детерминированный код + опциональный <b>Валидатор</b>) решает, стало ли лучше. Цикл оставляет только улучшения.",
  "help.s1":"<b>＋ Новый проект</b> → опиши задачу и 🪄 сгенерируй, или заполни форму → <b>Создать</b>.","help.s2":"<b>▶ Run</b> запускает реальных агентов; кривая качества и лог обновляются вживую.","help.s3":"<b>Команда вживую</b> направляет агента без остановки; <b>Stop</b> — на границе итерации.",
- "side.new":"＋ Новый проект","side.newTitle":"Создать новый проект — из проверенного шаблона или из обычного описания.","prog.renameTitle":"Переименовать проект (и его папку).","prog.deleteTitle":"Удалить проект навсегда — конфиг, историю прогонов и артефакт.","prog.steerTitle":"Добавить подсказку к СЛЕДУЮЩЕЙ итерации — направляет агента без остановки прогона.","prog.filesTitle":"Показать файлы, которые агент создал внутри артефакта.","help.btnTitle":"Как работает Pull-and-Push — краткий гид.","lang.title":"Язык интерфейса (EN / UK / RU).","side.projects":"Проекты","side.empty":"Проектов пока нет.<br>Нажми <b>＋ Новый проект</b>, чтобы начать.","side.coord":"// COLD = Исполнитель · WARM = Валидатор",
+ "side.new":"＋ Новый проект","side.newTitle":"Создать новый проект — из проверенного шаблона или из обычного описания.","prog.collapseHint":"Свернуть / развернуть управление — оставить только дашборд для наблюдения.","prog.renameTitle":"Переименовать проект (и его папку).","prog.deleteTitle":"Удалить проект навсегда — конфиг, историю прогонов и артефакт.","prog.steerTitle":"Добавить подсказку к СЛЕДУЮЩЕЙ итерации — направляет агента без остановки прогона.","prog.filesTitle":"Показать файлы, которые агент создал внутри артефакта.","help.btnTitle":"Как работает Pull-and-Push — краткий гид.","lang.title":"Язык интерфейса (EN / UK / RU).","side.projects":"Проекты","side.empty":"Проектов пока нет.<br>Нажми <b>＋ Новый проект</b>, чтобы начать.","side.coord":"// COLD = Исполнитель · WARM = Валидатор",
  "tab.progress":"📊 Прогресс","tab.config":"⚙ Конфигурация",
  "tpl.title":"🚀 Старт из шаблона","tpl.desc":"Самый быстрый и безопасный путь: вместе с шаблоном идёт проверенный гарнес оценивания, поэтому проект запускается сразу. Назови, опиши задачу — соберём готовый к запуску.","tpl.name":"Название проекта","tpl.nameHint":"Буквы/цифры/._- — становится папкой; переименовать можно позже.","tpl.tplLabel":"Шаблон","tpl.auto":"📝 Определить из описания автоматически","tpl.tplHint":"Выбери проверенный гарнес или дай определить его из описания.","tpl.descLabel":"Описание задачи","tpl.descPh":"Напр.: настроить фьючерсную стратегию BTCUSDT с плечом на максимальную доходность без ликвидаций.","tpl.descHint":"Становится целью исполнителя; ключевые слова также помогают автоматически выбрать шаблон.","tpl.btn":"🚀 Создать готовый проект","tpl.btnHint":"Создаёт проект с закоммиченным гарнесом и открывает его — затем нажми ▶ Запуск.","tpl.creating":"Собираю проект…",
  "gen.title":"🪄 Сгенерировать из описания","gen.desc":"Простейший путь: опиши задачу словами — агент-настройщик составит проект, а ты доведёшь его в форме ниже.","gen.descLabel":"Описание задачи, метрик, цели, ограничений","gen.descPh":"Напр.: довести strategy.py до максимального Sharpe при просадке ниже 15%. Метрики: sharpe (выше — лучше), max_dd (ниже — лучше). Цель 90. Ограничения: править только strategy.py, одно изменение за шаг.","gen.descHint":"Естественным языком — что делаем, какие метрики, цель, ограничения.","gen.engine":"Движок настройщика","gen.engineHint":"Какой CLI-агент сгенерирует конфиг (должен быть установлен и залогинен).","gen.btn":"🪄 Сгенерировать проект","gen.btnHint":"Заполнит форму ниже — проверь и нажми «Создать».",
@@ -976,6 +984,12 @@ function setNav(collapsed){document.body.classList.toggle('nav-collapsed',!!coll
 function navRestore(){let v=null;try{v=localStorage.getItem('tt_nav')}catch(e){}setNav(v==='1');}
 $('navBtn').onclick=()=>setNav(!document.body.classList.contains('nav-collapsed'));
 navRestore();
+// collapse the control chrome (description + buttons) → keep only the dashboard for live watching
+function chromeRestore(){let v=null;try{v=localStorage.getItem('tt_chrome')}catch(e){}
+  const t=$('ctlToggle');if(t)t.classList.toggle('collapsed',v==='1');}
+{const t=$('ctlToggle');if(t)t.onclick=()=>{const c=t.classList.toggle('collapsed');
+  try{localStorage.setItem('tt_chrome',c?'1':'0')}catch(e){}};}
+chromeRestore();
 // ── activity feed (right rail) ──
 function setFeed(open){document.body.classList.toggle('feed-open',!!open);try{localStorage.setItem('tt_feed',open?'1':'0')}catch(e){}}
 function feedRestore(){let v=null;try{v=localStorage.getItem('tt_feed')}catch(e){}
@@ -1131,7 +1145,7 @@ $('steerBtn').onclick=async()=>{const txt=$('steerText').value.trim();if(!curren
   let last=null,view=null; try{last=localStorage.getItem('tt_current');view=localStorage.getItem('tt_view');}catch(e){}
   const exists=[...$('projects').children].some(li=>li.textContent===last);
   if(last&&exists){ await selectProject(last); if(view==='config')showView('config'); }
-  feedRestore(); navRestore();   // last word: restore rail + left-nav collapsed state after project/tab restore
+  feedRestore(); navRestore(); chromeRestore();   // last word: restore rail + nav + control-chrome state
 })();
 </script>
 </body>
