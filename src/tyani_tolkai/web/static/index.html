@@ -11,6 +11,8 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/styles/github-dark.min.css">
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/highlight.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
 <style>
   /* ───────── Pull-and-Push · blueprint arena ─────────
      Two opposing forces: COLD (cyan) = Executor/push · WARM (amber) = Evaluator/pull */
@@ -309,6 +311,27 @@
   .feed #agentLog{display:flex;flex-direction:column}
   .agent-pre{margin:0;font-family:var(--mono);font-size:12px;line-height:1.5;white-space:pre-wrap;word-break:break-word;
     color:var(--ink-dim);background:var(--field);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px}
+  /* rendered Markdown (validator feedback + agent output) — themed */
+  .md{font-family:var(--ui);font-size:13.5px;line-height:1.62;color:var(--ink-dim);word-break:break-word}
+  .md.agent-md{font-size:13px;padding:11px 13px}
+  .md>*:first-child{margin-top:0}.md>*:last-child{margin-bottom:0}
+  .md p{margin:0 0 8px}
+  .md h1,.md h2,.md h3,.md h4{font-family:var(--display);color:var(--ink);margin:13px 0 6px;line-height:1.25;font-weight:600}
+  .md h1{font-size:17px}.md h2{font-size:15px}.md h3{font-size:13.5px}.md h4{font-size:12.5px;color:var(--ink-dim)}
+  .md ul,.md ol{margin:6px 0 10px;padding-left:20px}
+  .md li{margin:3px 0}.md li::marker{color:var(--cold)}
+  .md strong{color:var(--ink);font-weight:600}
+  .md a{color:var(--cold);text-decoration:none;border-bottom:1px solid var(--cold-dim)}
+  .md a:hover{border-bottom-color:var(--cold)}
+  .md code{font-family:var(--mono);font-size:.92em;background:rgba(124,166,206,.13);color:var(--cold);padding:1px 5px;border-radius:3px}
+  .md pre{margin:8px 0;background:var(--field);border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;overflow:auto}
+  .md pre code{background:none;color:var(--ink-dim);padding:0;font-size:12px;line-height:1.5}
+  .md blockquote{margin:8px 0;padding:3px 12px;border-left:2px solid var(--warm-dim);color:var(--mut)}
+  .md hr{border:0;border-top:1px solid var(--line);margin:10px 0}
+  .md table{border-collapse:collapse;margin:8px 0;font-size:12px}
+  .md th,.md td{border:1px solid var(--line);padding:4px 8px;text-align:left}
+  .md th{color:var(--ink);background:rgba(124,166,206,.08)}
+  .md-plain{white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:var(--ink-dim)}
   @keyframes feedin{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}
   /* edge tab — visible only while the rail is closed */
   .feed-tab{position:fixed;top:50%;right:0;transform:translateY(-50%);z-index:54;
@@ -588,6 +611,11 @@ const api=p=>p+(p.includes('?')?(TOKEN?'&token='+TOKEN:''):(TOKEN?'?token='+TOKE
 const $=id=>document.getElementById(id);
 let META={},current=null,poll=null,chart=null;
 const esc=s=>String(s==null?'':s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+// render agent / validator Markdown safely (LLM output) — sanitised; falls back to escaped text
+function md(text){text=String(text==null?'':text);
+  if(!window.marked||!window.DOMPurify)return '<div class="md-plain">'+esc(text)+'</div>';
+  try{return DOMPurify.sanitize(marked.parse(text,{breaks:true,gfm:true}));}catch(e){return '<div class="md-plain">'+esc(text)+'</div>';}}
+function hl(root){if(window.hljs&&root)root.querySelectorAll('pre code').forEach(b=>{try{hljs.highlightElement(b);}catch(e){}});}
 const fmt=v=>{v=+v;return Number.isFinite(v)?(Math.abs(v)>=10?v.toFixed(2):v.toFixed(4)):'—';};
 let CFG=null;   // active project's config (for metric targets/weights)
 let TEMPLATES=[];   // scaffold templates (vetted seed-kits), loaded from /api/templates
@@ -761,13 +789,14 @@ function renderAgentLog(text){
   const re=/▼\s*ITERATION\s+(\d+)\s*·\s*executor/g;const heads=[];let m;
   while((m=re.exec(text)))heads.push({n:m[1],end:re.lastIndex,start:m.index});
   if(!heads.length){
-    el.innerHTML=text?`<pre class="agent-pre">${esc(text)}</pre>`:`<div class="empty">${t('agentLog.empty')}</div>`;return;}
+    el.innerHTML=text?`<div class="md agent-md">${md(text)}</div>`:`<div class="empty">${t('agentLog.empty')}</div>`;hl(el);return;}
   const segs=heads.map((h,i)=>({n:h.n,body:text.slice(h.end,(heads[i+1]||{}).start??text.length).trim()}));
   el.innerHTML=segs.reverse().map((s,i)=>                                            // newest on top
     `<details class="feed-item v-no_op"${i===0?' open':''}><summary>`+
     `<div class="fi-head"><span class="fi-chev">▸</span><span class="fi-n">#${s.n}</span>`+
     `<span class="fi-verd" style="color:var(--cold-dim)">executor</span></div></summary>`+
-    `<pre class="agent-pre">${esc(s.body)||'—'}</pre></details>`).join('');
+    `<div class="md agent-md">${md(s.body)||'—'}</div></details>`).join('');
+  hl(el);
 }
 async function loadFiles(){if(!current)return;
   $('files').innerHTML=`<div class="hint">${t('files.loading')}</div>`;
@@ -844,7 +873,7 @@ function renderLog(o){
       `<span class="fi-verd v-${x.verdict}">${esc(x.verdict)}</span></div>${metsHtml}`;
     if(x.change||x.feedback){
       return `<details class="feed-item v-${x.verdict}"><summary>${mk(true)}</summary>`+
-        (x.feedback?`<div class="fi-why"><b>${t('log.why')}</b> ${esc(x.feedback)}</div>`:'')+
+        (x.feedback?`<div class="fi-why"><b>${t('log.why')}</b><div class="md">${md(x.feedback)}</div></div>`:'')+
         (x.change?`<div class="fi-why"><b>${t('log.changed')}</b></div><pre class="diff">${esc(x.change)}</pre>`:'')+
         `</details>`;
     }
@@ -853,7 +882,8 @@ function renderLog(o){
   $('log').innerHTML=rows||(()=>{const st=$('tag').textContent||'idle';
     return (st==='stopped'||st==='error')
       ? `<div class="empty">${t('log.emptyStopped')}</div>`
-      : `<div class="empty">${t('log.emptyIdle')}</div>`;})();}
+      : `<div class="empty">${t('log.emptyIdle')}</div>`;})();
+  hl($('log'));}
 function setStatus(s,score,sum,cost){const tg=$('tag');tg.className='tag '+(s||'idle');tg.textContent=s||'idle';
   $('score').textContent=score==null?'—':(+score).toFixed(1);
   const c=(cost&&cost>0)?('  ·  ≈ $'+(+cost).toFixed(2)):'';
