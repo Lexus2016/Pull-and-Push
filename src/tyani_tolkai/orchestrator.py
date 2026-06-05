@@ -255,11 +255,41 @@ class Orchestrator:
         except OSError:
             pass
 
+    def _revalidate_best(self, n: int, ph) -> None:
+        """Periodically re-score the current best (the working tree at iteration start IS the best,
+        HEAD). If it no longer holds its recorded score (dropped beyond min_delta), it was a
+        noise/flaky win — demote the recorded best to the fresh measurement so the loop re-improves
+        from the truth, not from a fluke. Off unless evaluation.revalidate_every > 0."""
+        cfg, state = self.cfg, self.state
+        every = cfg.evaluation.revalidate_every or 0
+        best = state.best_score(self.run_id)
+        if every <= 0 or best is None or n <= 1 or (n - 1) % every != 0:
+            return
+        ph("scoring")
+        mres = self._run_metrics()
+        state.revert_uncommitted()                 # drop scoring side-effects → tree stays = best
+        if not mres.ok:
+            return
+        values = {m["name"]: m["value"] for m in mres.metrics}
+        if any(m.name not in values for m in cfg.evaluation.metrics):
+            return
+        fresh = score(values, cfg.evaluation.metrics)
+        if fresh < best - cfg.evaluation.min_delta:
+            state.update_run(self.run_id, best_score=fresh)
+            try:
+                sep = "─" * 60
+                with (state.project_dir / "agent.log").open("a", encoding="utf-8") as f:
+                    f.write(f"\n{sep}\n⚠ re-validation @ iter {n}: best {best:.2f} → {fresh:.2f} "
+                            f"(previous best did not hold — demoted as noise/flaky)\n{sep}\n")
+            except OSError:
+                pass
+
     def run_iteration(self, context_text: str = "", on_phase=None) -> IterationOutcome:
         self.n += 1
         n = self.n
         cfg, state = self.cfg, self.state
         ph = on_phase or (lambda *_: None)
+        self._revalidate_best(n, ph)         # demote a noise/flaky best before building the brief
         brief = build_brief(state, self.run_id, cfg, context_text=context_text,
                             validator_feedback=self.last_feedback)
 

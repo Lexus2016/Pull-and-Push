@@ -59,6 +59,9 @@ class EvaluationCfg(BaseModel):
     # System-managed default (0.5 ≈ ignore sub-half-point wiggle); not surfaced in the UI.
     min_delta: float = 0.5
     harness_dir: str | None = None
+    # Re-score the current best every N iterations; if it no longer holds its score (a noise/flaky
+    # win), demote it so the loop re-improves from the truth. 0 = off (default — costs a scorer run).
+    revalidate_every: int = 0
 
     @model_validator(mode="after")
     def _require_command(self) -> "EvaluationCfg":

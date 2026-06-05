@@ -49,6 +49,41 @@ def _orch(tmp_path, edits, cfg):
     return Orchestrator(cfg, s, run_id, MockAdapter(edits), FakeMetric(), LocalBackend()), s, run_id
 
 
+class _ScriptedMetric:
+    """Returns a pre-scripted score per call (to simulate a flaky scorer for the same artifact)."""
+
+    def __init__(self, scores):
+        self.scores = scores
+        self.i = 0
+
+    def run(self, artifact_dir, sandbox, evaluation, timeout):
+        v = self.scores[min(self.i, len(self.scores) - 1)]
+        self.i += 1
+        return MetricResult([{"name": "s", "value": v, "dir": "higher", "weight": 1}], "", True)
+
+
+def test_baseline_revalidation_demotes_a_flaky_best(tmp_path):
+    # revalidate_every=1: at iter 2 the best (90) is re-scored, comes back 50 (a flaky/noise win),
+    # so it is demoted to 50 — the loop no longer trusts a fluke.
+    cfg = Config(
+        project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "g"}},
+        evaluation={"adapter": "numeric", "command": "true",
+                    "metrics": [{"name": "s", "dir": "higher", "weight": 1, "worst": 0, "target": 100}],
+                    "target_score": 1000, "min_delta": 1.0, "revalidate_every": 1},
+        limits={"max_iterations": 20, "plateau_N": 5})
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    orch = Orchestrator(cfg, s, run_id, MockAdapter([_edit_val(1)]), _ScriptedMetric([90.0, 50.0]),
+                        LocalBackend())
+    assert orch.run_iteration().verdict == "keep"
+    assert s.best_score(run_id) == 90.0                # kept the (flaky) 90
+    orch.run_iteration()                               # iter2: re-validate best -> 50 -> demote; then no_op
+    assert s.best_score(run_id) == 50.0                # demoted from the fluke
+    log_path = s.project_dir / "agent.log"
+    assert log_path.exists() and "re-validation" in log_path.read_text(encoding="utf-8")
+
+
 def test_improving_run_reaches_target(tmp_path):
     edits = [_edit_val(v) for v in (70, 80, 90, 100)]
     orch, s, run_id = _orch(tmp_path, edits, _cfg())
