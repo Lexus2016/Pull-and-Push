@@ -7,7 +7,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d1420'/%3E%3Cpath d='M7 13h13l-3-3 M25 19H12l3 3' fill='none' stroke='%2346e0d0' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M25 19H12l3 3' fill='none' stroke='%23ffc14d' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;450;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/styles/github-dark.min.css">
 <script src="https://cdn.jsdelivr.net/gh/highlightjs/cdn-release/build/highlight.min.js"></script>
@@ -15,15 +15,16 @@
   /* ───────── Pull-and-Push · blueprint arena ─────────
      Two opposing forces: COLD (cyan) = Executor/push · WARM (amber) = Evaluator/pull */
   :root{
-    --bg:#080d14; --panel:#0c131c; --panel-2:#0e1620;
-    --line:rgba(124,166,206,.14); --line-2:rgba(124,166,206,.30);
-    --ink:#dde8f2; --ink-dim:#aebdce; --mut:#75899e;
-    --cold:#46e0d0; --cold-dim:#2aa89c;
-    --warm:#ffb14e; --warm-dim:#c8843a;
-    --good:#46e0a0; --bad:#ff6b6b; --warn:#ffd166;
-    --field:#0a1019; --radius:4px;
+    --bg:#080d14; --panel:#0d151f; --panel-2:#101b27;
+    --line:rgba(130,172,212,.16); --line-2:rgba(130,172,212,.32);
+    --ink:#eaf2fa; --ink-dim:#c6d4e2; --mut:#94a8bd;
+    --cold:#5ee9da; --cold-dim:#2aa89c;
+    --warm:#ffb663; --warm-dim:#c8843a;
+    --good:#54e6a8; --bad:#ff7b7b; --warn:#ffd166;
+    --field:#0a1119; --radius:4px;
     --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
-    --ui:'Chakra Petch',system-ui,sans-serif;
+    --ui:'IBM Plex Sans',system-ui,sans-serif;
+    --display:'Chakra Petch','IBM Plex Sans',system-ui,sans-serif;
   }
   *{box-sizing:border-box}
   html{scroll-behavior:smooth}
@@ -40,7 +41,7 @@
     position:relative;min-height:100vh;
   }
   /* grain + scanline atmosphere */
-  body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.5;
+  body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.26;
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.04'/%3E%3C/svg%3E"),
       repeating-linear-gradient(0deg,rgba(255,255,255,.012) 0 1px,transparent 1px 3px);}
   .wrap,header{position:relative;z-index:1}
@@ -50,7 +51,7 @@
     border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(14,22,32,.9),rgba(8,13,20,.6));
     backdrop-filter:blur(6px);animation:rise .5s both}
   .brand{display:flex;align-items:baseline;gap:10px}
-  header h1{margin:0;font-weight:700;font-size:26px;letter-spacing:2px;text-transform:uppercase;
+  header h1{margin:0;font-family:var(--display);font-weight:700;font-size:26px;letter-spacing:2px;text-transform:uppercase;
     background:linear-gradient(90deg,var(--cold),#bfe9ff 40%,var(--warm));-webkit-background-clip:text;background-clip:text;color:transparent}
   .pp{font-family:var(--mono);color:var(--mut);font-size:20px}
   header .sub{font-family:var(--mono);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--mut)}
@@ -116,10 +117,10 @@
   #view-config .card:nth-of-type(1){animation-delay:.12s}
   #view-config .card:nth-of-type(2){animation-delay:.18s}
   .card h3{margin:0 0 6px;font-family:var(--mono);font-size:12px;color:var(--cold);text-transform:uppercase;letter-spacing:2px}
-  .card .desc{color:var(--mut);font-size:14px;margin:0 0 18px;max-width:70ch}
+  .card .desc{color:var(--ink-dim);font-size:15px;line-height:1.62;margin:0 0 18px}
   .console{border-left:3px solid var(--cold);background:linear-gradient(90deg,rgba(70,224,208,.05),var(--panel) 40%)}
   .help{border-left:3px solid var(--warm);background:linear-gradient(90deg,rgba(255,177,78,.05),var(--panel) 40%)}
-  .help ol{margin:8px 0 0;padding-left:20px}.help li{margin:5px 0;color:var(--ink-dim);font-size:14px}
+  .help ol{margin:8px 0 0;padding-left:20px}.help li{margin:6px 0;color:var(--ink-dim);font-size:15px;line-height:1.55}
   .help b{color:var(--cold)}
 
   /* ───────── tabs ───────── */
@@ -143,7 +144,7 @@
   .chk input{width:18px;height:18px;accent-color:var(--cold);cursor:pointer}
   label{display:block;font-size:13.5px;color:var(--ink);margin-bottom:6px;font-weight:500}
   label small{color:var(--mut);font-weight:400}
-  .hint{color:var(--mut);font-size:12.5px;margin-top:5px;line-height:1.45}
+  .hint{color:var(--mut);font-size:13px;margin-top:5px;line-height:1.55}
   input,select,textarea{width:100%;padding:12px 13px;background:var(--field);border:1px solid var(--line-2);
     border-radius:var(--radius);color:var(--ink);font-size:15.5px;font-family:var(--ui);transition:border-color .15s,box-shadow .15s}
   input[type=number],.mrow input{font-family:var(--mono)}
@@ -160,6 +161,10 @@
   .save-bar{display:flex;gap:12px;align-items:center;margin-top:6px;flex-wrap:wrap}
 
   /* ───────── progress ───────── */
+  #runGoal:not(:empty){color:var(--ink-dim);font-size:14.5px;line-height:1.6;
+    border-left:2px solid var(--warm-dim);background:linear-gradient(90deg,rgba(255,182,99,.07),transparent 70%);
+    padding:11px 16px;border-radius:0 var(--radius) var(--radius) 0}
+  #runGoal b{color:var(--warm)}
   .status{display:flex;gap:26px;align-items:center;flex-wrap:wrap;margin:8px 0 18px}
   .score{font-family:var(--mono);font-size:56px;font-weight:600;line-height:1;min-width:110px;font-variant-numeric:tabular-nums;
     color:var(--cold);text-shadow:0 0 30px rgba(70,224,208,.28)}
