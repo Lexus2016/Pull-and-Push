@@ -112,8 +112,12 @@ def cmd_projects(args) -> int:
 
 def cmd_web(args) -> int:
     from .web.server import create_app
+    import logging
     import uvicorn
 
+    # operational logging (run start/end/checkpoint/errors). User-facing CLI output stays print().
+    logging.basicConfig(level=logging.INFO,
+                        format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     token = args.password or os.environ.get("TYANI_TOLKAI_WEB_PASSWORD")
     app = create_app(token)
     url = f"http://{args.host}:{args.port}/" + (f"?token={token}" if token else "")

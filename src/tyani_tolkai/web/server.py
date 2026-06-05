@@ -9,11 +9,14 @@ TYANI_TOLKAI_WEB_PASSWORD env) protects the API when set.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import tempfile
 import threading
 from pathlib import Path
+
+log = logging.getLogger("pull_and_push")   # operational events; configured by the CLI's basicConfig
 
 import yaml
 from fastapi import Body, FastAPI, HTTPException, Query
@@ -143,6 +146,8 @@ class RunManager:
                             for it in hist]
             else:
                 run_id = state.create_run(cfg.mode)
+            log.info("run start: project=%s run_id=%s executor=%s", name, run_id,
+                     cfg.agents["executor"].engine)
             ex = cfg.agents["executor"]
             executor = build_adapter(ex.engine, ex.model, "writeable")
             validator = None
@@ -174,6 +179,8 @@ class RunManager:
             st = {"stopped": "stopped", "rate_limited": "error", "agent_error": "error",
                   "checkpoint": "awaiting_review"}.get(summary.reason, "finished")
             cp_row = state.open_checkpoint(run_id) if summary.reason == "checkpoint" else None
+            log.info("run end: project=%s status=%s reason=%s best=%s iters=%s cost=%.4f",
+                     name, st, summary.reason, summary.best_score, summary.iterations, orch.cost_total)
             with self._lock:
                 self._runs[name]["status"] = st
                 self._runs[name]["summary"] = {"reason": summary.reason,
@@ -184,6 +191,7 @@ class RunManager:
                                       "best_score": summary.best_score,
                                       "iterations": summary.iterations})
         except Exception as e:  # surface failures to the UI rather than dying silently
+            log.exception("run crashed: project=%s", name)
             with self._lock:
                 self._runs[name]["status"] = "error"
                 self._runs[name]["summary"] = {"error": str(e)}
