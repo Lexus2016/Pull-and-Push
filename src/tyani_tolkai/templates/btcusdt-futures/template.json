@@ -3,7 +3,7 @@
   "name": "BTCUSDT 5m futures strategy",
   "keywords": ["trading", "btc", "btcusdt", "futures", "crypto", "binance", "strategy",
                "backtest", "sharpe", "drawdown", "leverage", "trade", "bot"],
-  "summary": "Tune a leveraged long/short BTCUSDT 5m strategy. The executor edits strategy.py (a PARAMS dict); a committed backtest harness scores total return, liquidations and drawdown on real data.",
+  "summary": "Tune a leveraged long/short BTCUSDT 5m strategy. The executor edits strategy.py (signals() + PARAMS); a committed walk-forward backtest harness scores return, liquidations and drawdown on a held-out out-of-sample tail (anti-overfit) of real data.",
   "config": {
     "mode": "asymmetric",
     "agents": {"executor": {"engine": "claude", "timeout": 600},
@@ -17,7 +17,7 @@
       "command": "{python} ../metrics/run_backtest.py --strategy strategy.py --symbol BTCUSDT",
       "target_score": 90,
       "metrics": [
-        {"name": "total_return_pct", "dir": "higher", "weight": 0.5, "target": 300},
+        {"name": "return_oos_pct", "dir": "higher", "weight": 0.5, "target": 100},
         {"name": "liquidations", "dir": "lower", "weight": 0.25, "target": 0},
         {"name": "max_drawdown_pct", "dir": "lower", "weight": 0.2, "target": 30},
         {"name": "max_drawdown_days", "dir": "lower", "weight": 0.15, "target": 5}

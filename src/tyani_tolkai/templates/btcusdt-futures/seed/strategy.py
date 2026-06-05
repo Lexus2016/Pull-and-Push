@@ -8,7 +8,12 @@ signals(), runs a FIXED leveraged long/short simulation on real BTCUSDT 5m data 
 liquidation, taker commission, reinvested equity) and scores the result. You do NOT edit the
 harness — that would be grading your own exam.
 
-Scored: total_return_pct↑(300) · liquidations↓(0) · max_drawdown_pct↓(30) · max_drawdown_days↓(5)
+WALK-FORWARD: the score is measured ONLY on the held-out out-of-sample tail (the last 30% of the
+data). Your signals may read the whole history, but a strategy that just memorises the past scores
+badly on the holdout — build something that GENERALISES. The harness also reports full_return_pct
+and in_sample_return_pct: a big gap between in-sample and OOS means overfitting.
+
+Scored (OOS): return_oos_pct↑(100) · liquidations↓(0) · max_drawdown_pct↓(30) · max_drawdown_days↓(5)
 The risk knobs below (leverage, risk_frac, stop_pct, take_pct) are applied by the harness exactly
 as you set them — they are your choices, not the harness's.
 """
