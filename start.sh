@@ -48,9 +48,8 @@ if [ ! -d "$VENV" ]; then
   UPDATE=1   # fresh venv → must install
 fi
 
-# resolve interpreter + console script (handle Git-Bash on Windows too)
+# resolve the venv interpreter (handle Git-Bash on Windows too)
 PYBIN="$VENV/bin/python";            [ -x "$PYBIN" ] || PYBIN="$VENV/Scripts/python.exe"
-EXE="$VENV/bin/pull-and-push";       [ -x "$EXE" ]  || EXE="$VENV/Scripts/pull-and-push.exe"
 
 # 2. install (first run, or --update, or if the package somehow isn't importable)
 if [ "$UPDATE" = "1" ] || ! "$PYBIN" -c "import tyani_tolkai" >/dev/null 2>&1; then
@@ -59,6 +58,10 @@ if [ "$UPDATE" = "1" ] || ! "$PYBIN" -c "import tyani_tolkai" >/dev/null 2>&1; t
   "$PYBIN" -m pip install -q -e ".[web]"
 fi
 
-# 3. launch the dashboard — extra args (e.g. --port 8080) pass through
+# 3. launch the dashboard — prefer the console script, fall back to `python -m`.
+#    Extra args (e.g. --port 8080) pass through.
 echo "▶ Starting the dashboard — open the URL printed below (Ctrl-C to stop)."
-exec "$EXE" web ${ARGS[@]+"${ARGS[@]}"}
+if   [ -x "$VENV/bin/pull-and-push" ];         then exec "$VENV/bin/pull-and-push" web ${ARGS[@]+"${ARGS[@]}"}
+elif [ -x "$VENV/Scripts/pull-and-push.exe" ]; then exec "$VENV/Scripts/pull-and-push.exe" web ${ARGS[@]+"${ARGS[@]}"}
+else exec "$PYBIN" -m tyani_tolkai.cli web ${ARGS[@]+"${ARGS[@]}"}
+fi
