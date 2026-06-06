@@ -128,6 +128,9 @@ class StateStore:
             # local identity so commits work even without global git config
             self._git("config", "user.email", "orchestrator@tyani-tolkai.local")
             self._git("config", "user.name", "tyani-tolkai")
+            # byte-exact artifacts across platforms: never let git rewrite line endings
+            # (Windows global autocrlf=true would otherwise turn LF into CRLF on commit)
+            self._git("config", "core.autocrlf", "false")
             # keep transient bytecode out of artifact versions
             gi = self.artifact_dir / ".gitignore"
             if not gi.exists():

@@ -26,9 +26,10 @@ def test_local_backend_python_is_host_interpreter():
     assert LocalBackend.python == sys.executable
 
 
-def test_windows_split_keeps_backslash_paths():
-    # On Windows the sandbox splits with posix=False so C:\...\python.exe isn't mangled.
+def test_python_is_forward_slashed_for_cross_platform_split():
+    # The interpreter path must be forward-slashed so shlex.split(posix=True) keeps it intact
+    # on Windows (C:/...\python.exe works there) WHILE still unquoting -c "..." args correctly.
     import shlex
-    argv = shlex.split(r'C:\Py\python.exe ..\metrics\run.py --x', posix=False)
-    assert argv[0] == r'C:\Py\python.exe'
-    assert argv[1] == r'..\metrics\run.py'
+    assert "\\" not in LocalBackend.python
+    argv = shlex.split('C:/Py/python.exe -c "print(1)" ../m/run.py', posix=True)
+    assert argv == ["C:/Py/python.exe", "-c", "print(1)", "../m/run.py"]

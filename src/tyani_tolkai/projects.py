@@ -52,10 +52,29 @@ def list_projects() -> list[str]:
     return sorted(p.name for p in projects_root().iterdir() if p.is_dir())
 
 
+def _rmtree(path) -> None:
+    """shutil.rmtree that also clears Windows read-only files. Git pack/object files are
+    read-only, so a plain rmtree raises PermissionError (WinError 5) on Windows; the handler
+    chmods them writable and retries. No-op difference on POSIX."""
+    import stat
+
+    def _fix(func, p, *_):
+        try:
+            os.chmod(p, stat.S_IWRITE)
+            func(p)
+        except Exception:
+            pass
+
+    try:
+        shutil.rmtree(path, onexc=_fix)        # Python 3.12+
+    except TypeError:
+        shutil.rmtree(path, onerror=_fix)      # Python <= 3.11
+
+
 def delete_project(name: str) -> None:
     d = project_dir(name)
     if d.exists():
-        shutil.rmtree(d)
+        _rmtree(d)
 
 
 def rename_project(old: str, new: str) -> None:
@@ -249,7 +268,7 @@ def fork_project(name: str, new_name: str, n: int) -> Path:
         state.rewind_to(run_id, n)                  # position the copy at iteration n
     except Exception:                               # never leave a half-forked project behind
         state.close()
-        shutil.rmtree(dst, ignore_errors=True)
+        _rmtree(dst)                                # handles Windows read-only .git files
         raise
     state.close()
     return dst
