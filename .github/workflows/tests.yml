@@ -59,3 +59,23 @@ jobs:
           }
           Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
           if ($ok) { "dashboard 200 OK" } else { Write-Error "dashboard did not serve 200"; exit 1 }
+
+  # Exercise the documented one-command installers (start.sh / start.ps1) themselves on each OS,
+  # using --check (create venv + install, verify import, skip the blocking launch).
+  launcher:
+    name: launcher (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: start.sh --check (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: ./start.sh --check
+      - name: start.ps1 --check (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./start.ps1 --check

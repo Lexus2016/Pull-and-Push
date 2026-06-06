@@ -8,17 +8,23 @@
 #   ./start.sh                 # install if needed, then open http://127.0.0.1:8765
 #   ./start.sh --port 8080     # run on another port
 #   ./start.sh --update        # reinstall dependencies (e.g. after `git pull`)
+#   ./start.sh --check         # install only, verify it works, do NOT launch (CI / dry-run)
 #
 set -euo pipefail
 cd "$(dirname "$0")"
 
 VENV=".venv"
 
-# split off our own --update flag; everything else goes to the dashboard
+# split off our own flags; everything else goes to the dashboard
 UPDATE=0
+CHECK=0
 ARGS=()
 for a in "$@"; do
-  if [ "$a" = "--update" ]; then UPDATE=1; else ARGS+=("$a"); fi
+  case "$a" in
+    --update) UPDATE=1 ;;
+    --check)  CHECK=1 ;;
+    *)        ARGS+=("$a") ;;
+  esac
 done
 
 # Find a usable CPython 3.10+ interpreter (NOT PyPy — its sqlite driver breaks the
@@ -56,6 +62,13 @@ if [ "$UPDATE" = "1" ] || ! "$PYBIN" -c "import tyani_tolkai" >/dev/null 2>&1; t
   echo "▶ Installing dependencies (.[web]) …"
   "$PYBIN" -m pip install -q --upgrade pip
   "$PYBIN" -m pip install -q -e ".[web]"
+fi
+
+# --check: install verified, do not launch the (blocking) server
+if [ "$CHECK" = "1" ]; then
+  "$PYBIN" -c "import tyani_tolkai" || { echo "✖ package not importable after install"; exit 1; }
+  echo "✓ install OK ($("$PYBIN" --version 2>&1)) — skipping launch (--check)"
+  exit 0
 fi
 
 # 3. launch the dashboard — prefer the console script, fall back to `python -m`.

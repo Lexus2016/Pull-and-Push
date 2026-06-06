@@ -7,6 +7,7 @@
 #   powershell -ExecutionPolicy Bypass -File .\start.ps1
 #   powershell -ExecutionPolicy Bypass -File .\start.ps1 --port 8080
 #   powershell -ExecutionPolicy Bypass -File .\start.ps1 --update   # reinstall deps
+#   powershell -ExecutionPolicy Bypass -File .\start.ps1 --check    # install only, no launch
 #
 $ErrorActionPreference = 'Stop'
 # native commands (the python/pip probes) signal via exit code, not exceptions — don't let a
@@ -17,11 +18,14 @@ Set-Location $PSScriptRoot
 $venv = '.venv'
 $py   = Join-Path $venv 'Scripts\python.exe'
 
-# split off our own --update flag; everything else goes to the dashboard
+# split off our own flags; everything else goes to the dashboard
 $update = $false
+$check = $false
 $pass = @()
 foreach ($a in $args) {
-    if ($a -eq '--update' -or $a -eq '-Update') { $update = $true } else { $pass += $a }
+    if ($a -eq '--update' -or $a -eq '-Update') { $update = $true }
+    elseif ($a -eq '--check' -or $a -eq '-Check') { $check = $true }
+    else { $pass += $a }
 }
 
 # Find a usable CPython 3.10+ (NOT PyPy) to build the venv with.
@@ -67,6 +71,14 @@ if ($update -or -not $importable) {
     Write-Host "> Installing dependencies (.[web]) ..."
     & $py -m pip install -q --upgrade pip
     & $py -m pip install -q -e ".[web]"
+}
+
+# --check: install verified, do not launch the (blocking) server
+if ($check) {
+    & $py -c "import tyani_tolkai"
+    if ($LASTEXITCODE -ne 0) { Write-Host "package not importable after install" -ForegroundColor Red; exit 1 }
+    "install OK ($(& $py --version)) - skipping launch (--check)"
+    exit 0
 }
 
 # 3. launch the dashboard - prefer the console script, fall back to `python -m`
