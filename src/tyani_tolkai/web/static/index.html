@@ -191,10 +191,14 @@
   .status .hint:empty{display:none}   /* drop the empty summary so the run buttons fit on the score row */
   .score{font-family:var(--mono);font-size:56px;font-weight:600;line-height:1;min-width:110px;font-variant-numeric:tabular-nums;
     color:var(--cold);text-shadow:0 0 30px rgba(70,224,208,.28)}
-  .kpi{display:flex;flex-direction:column;gap:3px}
+  .kpi{display:flex;flex-direction:column;gap:3px;cursor:pointer}
+  .kpi:hover .score{text-shadow:0 0 36px rgba(70,224,208,.5)}
+  .kpi.active .kpi-lbl{color:var(--cold)}
   .kpi-lbl{font-family:var(--mono);font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:1px}
   .mcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin:4px 0 10px}
-  .mcard{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+  .mcard{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;cursor:pointer;transition:border-color .15s,box-shadow .15s}
+  .mcard:hover{border-color:var(--cold)}
+  .mcard.active{border-color:var(--cold);box-shadow:0 0 0 1px var(--cold) inset}
   .mcard.reached{border-color:var(--good)}
   .mc-top{display:flex;justify-content:space-between;align-items:center}
   .mc-name{font-family:var(--mono);font-size:13px;color:var(--ink-dim)}
@@ -575,7 +579,7 @@
       <div id="testResult"></div>
       </div><!-- /ctlChrome -->
       <div class="status">
-        <div class="kpi"><div class="score" id="score">—</div><div class="kpi-lbl" data-i18n="prog.compScore">composite score (0–100)</div></div>
+        <div class="kpi" id="kpiScore" data-i18n-title="prog.curveHint"><div class="score" id="score">—</div><div class="kpi-lbl" data-i18n="prog.compScore">composite score (0–100)</div></div>
         <span class="tag idle" id="tag">idle</span>
         <div class="hint" id="summary"></div>
         <div class="controls run-row" style="margin-left:auto">  <!-- run lifecycle — same row as the score, pushed right -->
@@ -585,7 +589,7 @@
         </div>
       </div>
       <div class="mcards" id="metricCards"></div>
-      <h3 style="margin-top:6px" data-i18n="prog.curve">Quality curve</h3>
+      <h3 style="margin-top:6px" id="chartTitle" data-i18n="prog.curve">Quality curve</h3>
       <div class="chartbox"><canvas id="chart"></canvas></div>
       <div style="margin-top:18px">
         <label data-i18n="prog.steer">Live agent command <small class="hint" style="display:inline" data-i18n="prog.steerSub">— added to the next iteration, without stopping</small></label>
@@ -675,7 +679,7 @@ const I18N={en:{
  "toast.created":"Project created ✓","toast.saved":"Saved ✓","toast.deleted":"Deleted","toast.renamed":"Renamed","toast.stopping":"Stopping at the iteration boundary…","toast.forceStopped":"Agent stopped immediately ⛔","toast.forceMarked":"No active process — marked as stop","toast.cmdAdded":"Command queued — applies on the next iteration","toast.genOk":"Generated ✓ — review and press “Create”","toast.unavailable":"Project unavailable — refreshing the list","toast.runDone":"Run finished: ","toast.describeFirst":"Describe the task","toast.nameFirst":"Enter a project name","toast.metricFirst":"Add at least one metric","toast.testing":"testing the evaluation…","toast.evalOk":"✓ evaluation works","toast.evalFail":"✗ evaluation failed",
  "confirm.run":"Run starts a REAL agent (%s). Each iteration may cost tokens. The run works in the background — refresh the page to see progress. Continue?","confirm.runFinished":"This run already finished (e.g. it reached the target score). Starting Run begins a NEW run from iteration 1 on the current best code — your finished result stays saved. Start a new run?","confirm.forceStop":"Force Stop will kill the agent processes immediately (the current step is lost). Continue?","confirm.delete":"Delete project %s?","confirm.reset":"Reset progress to seed?","prompt.rename":"New name:",
  "toast.started":"Started ▶","toast.reset":"Reset to seed","gen.generating":"🪄 Generating…","err.prefix":"Error: ","err.weightSum":"Metric weights add up to %s — they must total 1 or less. Reduce them, then save.","err.weightSumToast":"Can\u2019t save: metric weights exceed 1","cfg.failPrefix":"Configurator: ","gen.warnPrefix":"Generated, with notes: ","toast.renameFail":"Rename failed","te.zero":"zero","te.close":"close","feed.title":"Activity","feed.btn":"▦ Feed","feed.toggle":"Toggle activity feed","feed.close":"Close","feed.moved":"Iteration log & agent output now live in the activity feed →","feed.open":"open feed","feed.dl":"Download this version","feed.rewind":"Continue from here (rewind)","feed.fork":"Fork to a new project","confirm.rewind":"Rewind the project to iteration %s? Later iterations leave the list (kept in git, recoverable); the next Run continues from here.","prompt.forkName":"New project name — a copy positioned at iteration %s:","toast.downloading":"Preparing download…","toast.notWhileRunning":"Stop the run first","toast.rewound":"Rewound to iteration %s — press ▶ Run to continue","toast.rewindFail":"Rewind failed","toast.forked":"Forked → %s","toast.forkFail":"Fork failed","cp.title":"Checkpoint — your decision","cp.continue":"▶ Continue","cp.accept":"✓ Accept & finish","cp.hint":"For a “target” checkpoint, raise Target score in Configuration first, then Continue.","cp.target":"Target score reached","cp.plateau":"Plateau — no improvement for a while","cp.periodic":"Periodic review","cp.accepted":"Accepted — run finished",
- "files.loading":"loading…","files.empty":"artifact is empty — start a run so the agent creates files","side.statusPrefix":"status: ","mc.max":"▲ max","mc.min":"▼ min","mc.target":"target","mc.weight":"weight","mc.reached":"✓ reached","sum.error":"error: ","sum.result":"result: ","sum.iters":" · iterations: ","tab.lockHint":"Pick or create a project first","pk.empty":"empty or no access"
+ "files.loading":"loading…","files.empty":"artifact is empty — start a run so the agent creates files","side.statusPrefix":"status: ","mc.max":"▲ max","mc.min":"▼ min","mc.target":"target","mc.weight":"weight","mc.reached":"✓ reached","mc.plotTip":"Click to chart this metric over the run","prog.curveHint":"Click the score or a metric to switch what the chart shows","sum.error":"error: ","sum.result":"result: ","sum.iters":" · iterations: ","tab.lockHint":"Pick or create a project first","pk.empty":"empty or no access"
 }};
 I18N.uk={
  "nav.toggle":"Сховати / показати ліву панель","help.btn":"❔ Як це працює",
@@ -695,7 +699,7 @@ I18N.uk={
  "toast.created":"Проєкт створено ✓","toast.saved":"Збережено ✓","toast.deleted":"Видалено","toast.renamed":"Перейменовано","toast.stopping":"Зупиняю на межі ітерації…","toast.forceStopped":"Агента зупинено негайно ⛔","toast.forceMarked":"Активного процесу не було — позначено стоп","toast.cmdAdded":"Команду додано — застосується на наступній ітерації","toast.genOk":"Згенеровано ✓ — перевір і натисни «Створити»","toast.unavailable":"Проєкт недоступний — оновлюю список","toast.runDone":"Прогін завершено: ","toast.describeFirst":"Опиши завдання","toast.nameFirst":"Вкажи назву проєкту","toast.metricFirst":"Додай хоча б одну метрику","toast.testing":"тестую оцінку…","toast.evalOk":"✓ оцінка працює","toast.evalFail":"✗ оцінка не вдалась",
  "confirm.run":"Run запускає РЕАЛЬНИЙ агент (%s). Кожна ітерація може коштувати токени. Прогін працює у фоні — онови сторінку, щоб бачити прогрес. Продовжити?","confirm.runFinished":"Цей прогін уже завершено (напр., досягнуто цільового балу). Run запустить НОВИЙ прогін з ітерації 1 на поточному найкращому коді — завершений результат лишається збереженим. Запустити новий прогін?","confirm.forceStop":"Force Stop негайно вб'є процеси агента (поточний крок втратиться). Продовжити?","confirm.delete":"Видалити проєкт %s?","confirm.reset":"Скинути прогрес до seed?","prompt.rename":"Нова назва:",
  "toast.started":"Запущено ▶","toast.reset":"Скинуто","gen.generating":"🪄 Генерую…","err.prefix":"Помилка: ","err.weightSum":"Сума ваг метрик = %s — вона має бути не більшою за 1. Зменш ваги і збережи.","err.weightSumToast":"Не можу зберегти: сума ваг метрик >1","cfg.failPrefix":"Налаштовувач: ","gen.warnPrefix":"Згенеровано, але є зауваження: ","toast.renameFail":"Rename не вдалося","te.zero":"нуль","te.close":"закрити","feed.title":"Стрічка","feed.btn":"▦ Стрічка","feed.toggle":"Показати/сховати стрічку","feed.close":"Закрити","feed.moved":"Лог ітерацій і вивід агента тепер у стрічці праворуч →","feed.open":"відкрити стрічку","feed.dl":"Завантажити цю версію","feed.rewind":"Продовжити звідси (відкат)","feed.fork":"Форк у новий проєкт","confirm.rewind":"Відкотити проєкт до ітерації %s? Пізніші ітерації зникнуть зі списку (лишаються в git, відновлювані); наступний Run продовжить звідси.","prompt.forkName":"Назва нового проєкту — копія на ітерації %s:","toast.downloading":"Готую завантаження…","toast.notWhileRunning":"Спершу зупини прогін","toast.rewound":"Відкочено до ітерації %s — тисни ▶ Run, щоб продовжити","toast.rewindFail":"Відкат не вдався","toast.forked":"Форк → %s","toast.forkFail":"Форк не вдався","cp.title":"Контрольна точка — твоє рішення","cp.continue":"▶ Продовжити","cp.accept":"✓ Прийняти й завершити","cp.hint":"Для точки «target» спершу підніми Цільовий бал у Конфігурації, тоді Продовжити.","cp.target":"Досягнуто цільовий бал","cp.plateau":"Плато — давно без покращень","cp.periodic":"Періодичний огляд","cp.accepted":"Прийнято — прогін завершено",
- "files.loading":"завантаження…","files.empty":"артефакт порожній — запусти прогін, щоб агент створив файли","side.statusPrefix":"статус: ","mc.max":"▲ макс","mc.min":"▼ мін","mc.target":"ціль","mc.weight":"вага","mc.reached":"✓ досягнуто","sum.error":"помилка: ","sum.result":"результат: ","sum.iters":" · ітерацій: ","tab.lockHint":"Спершу обери або створи проєкт","pk.empty":"порожньо або немає доступу"
+ "files.loading":"завантаження…","files.empty":"артефакт порожній — запусти прогін, щоб агент створив файли","side.statusPrefix":"статус: ","mc.max":"▲ макс","mc.min":"▼ мін","mc.target":"ціль","mc.weight":"вага","mc.reached":"✓ досягнуто","mc.plotTip":"Клікни, щоб побудувати графік цієї метрики за прогін","prog.curveHint":"Клікни на балі або на метриці, щоб змінити, що показує графік","sum.error":"помилка: ","sum.result":"результат: ","sum.iters":" · ітерацій: ","tab.lockHint":"Спершу обери або створи проєкт","pk.empty":"порожньо або немає доступу"
 };
 I18N.ru={
  "nav.toggle":"Скрыть / показать левую панель","help.btn":"❔ Как это работает",
@@ -715,7 +719,7 @@ I18N.ru={
  "toast.created":"Проект создан ✓","toast.saved":"Сохранено ✓","toast.deleted":"Удалено","toast.renamed":"Переименовано","toast.stopping":"Останавливаю на границе итерации…","toast.forceStopped":"Агент остановлен немедленно ⛔","toast.forceMarked":"Активного процесса не было — отмечено стоп","toast.cmdAdded":"Команда добавлена — применится на следующей итерации","toast.genOk":"Сгенерировано ✓ — проверь и нажми «Создать»","toast.unavailable":"Проект недоступен — обновляю список","toast.runDone":"Прогон завершён: ","toast.describeFirst":"Опиши задачу","toast.nameFirst":"Укажи название проекта","toast.metricFirst":"Добавь хотя бы одну метрику","toast.testing":"тестирую оценку…","toast.evalOk":"✓ оценка работает","toast.evalFail":"✗ оценка не удалась",
  "confirm.run":"Run запускает РЕАЛЬНОГО агента (%s). Каждая итерация может стоить токенов. Прогон работает в фоне — обнови страницу, чтобы видеть прогресс. Продолжить?","confirm.runFinished":"Этот прогон уже завершён (напр., достигнут целевой балл). Run запустит НОВЫЙ прогон с итерации 1 на текущем лучшем коде — завершённый результат остаётся сохранённым. Запустить новый прогон?","confirm.forceStop":"Force Stop немедленно убьёт процессы агента (текущий шаг потеряется). Продолжить?","confirm.delete":"Удалить проект %s?","confirm.reset":"Сбросить прогресс к seed?","prompt.rename":"Новое имя:",
  "toast.started":"Запущено ▶","toast.reset":"Сброшено","gen.generating":"🪄 Генерирую…","err.prefix":"Ошибка: ","err.weightSum":"Сумма весов метрик = %s — она должна быть не больше 1. Уменьши веса и сохрани.","err.weightSumToast":"Не могу сохранить: сумма весов метрик >1","cfg.failPrefix":"Настройщик: ","gen.warnPrefix":"Сгенерировано, есть замечания: ","toast.renameFail":"Rename не удался","te.zero":"ноль","te.close":"закрыть","feed.title":"Лента","feed.btn":"▦ Лента","feed.toggle":"Показать/скрыть ленту","feed.close":"Закрыть","feed.moved":"Лог итераций и вывод агента теперь в ленте справа →","feed.open":"открыть ленту","feed.dl":"Скачать эту версию","feed.rewind":"Продолжить отсюда (откат)","feed.fork":"Форк в новый проект","confirm.rewind":"Откатить проект к итерации %s? Поздние итерации исчезнут из списка (остаются в git, восстановимы); следующий Run продолжит отсюда.","prompt.forkName":"Имя нового проекта — копия на итерации %s:","toast.downloading":"Готовлю скачивание…","toast.notWhileRunning":"Сначала останови прогон","toast.rewound":"Откат к итерации %s — нажми ▶ Run, чтобы продолжить","toast.rewindFail":"Откат не удался","toast.forked":"Форк → %s","toast.forkFail":"Форк не удался","cp.title":"Контрольная точка — твоё решение","cp.continue":"▶ Продолжить","cp.accept":"✓ Принять и завершить","cp.hint":"Для точки «target» сначала подними Целевой балл в Конфигурации, затем Продолжить.","cp.target":"Достигнут целевой балл","cp.plateau":"Плато — давно без улучшений","cp.periodic":"Периодический обзор","cp.accepted":"Принято — прогон завершён",
- "files.loading":"загрузка…","files.empty":"артефакт пуст — запусти прогон, чтобы агент создал файлы","side.statusPrefix":"статус: ","mc.max":"▲ макс","mc.min":"▼ мин","mc.target":"цель","mc.weight":"вес","mc.reached":"✓ достигнуто","sum.error":"ошибка: ","sum.result":"результат: ","sum.iters":" · итераций: ","tab.lockHint":"Сначала выбери или создай проект","pk.empty":"пусто или нет доступа"
+ "files.loading":"загрузка…","files.empty":"артефакт пуст — запусти прогон, чтобы агент создал файлы","side.statusPrefix":"статус: ","mc.max":"▲ макс","mc.min":"▼ мин","mc.target":"цель","mc.weight":"вес","mc.reached":"✓ достигнуто","mc.plotTip":"Кликни, чтобы построить график этой метрики за прогон","prog.curveHint":"Кликни на балле или на метрике, чтобы сменить, что показывает график","sum.error":"ошибка: ","sum.result":"результат: ","sum.iters":" · итераций: ","tab.lockHint":"Сначала выбери или создай проект","pk.empty":"пусто или нет доступа"
 };
 let LANG=(()=>{try{return localStorage.getItem('tt_lang')||'en';}catch(e){return 'en';}})();
 function t(k,...args){let s=(I18N[LANG]&&I18N[LANG][k])??I18N.en[k]??k;args.forEach(a=>s=s.replace('%s',a));return s;}
@@ -734,6 +738,7 @@ function applyLang(lang){
   if(current){$('cfgTitle').textContent=t('title.projectPrefix')+current;$('saveBtn').textContent=t('btn.saveChanges');
     $('runGoal').textContent=(CFG&&CFG.roles&&CFG.roles.executor&&CFG.roles.executor.goal)?(t('goal.prefix')+CFG.roles.executor.goal):'';}
   if(TEMPLATES.length)fillTplCards();   // re-render the template cards in the new language
+  try{if(LAST_ITERS&&LAST_ITERS.length)plot();}catch(e){}   // refresh chart title in the new language
 }
 function toast(t,kind){const e=$('toast');e.textContent=t;e.className=kind||'';if(t)setTimeout(()=>e.className='',4200);}
 // ── styled tooltip: one floating node, positioned in JS and clamped to the viewport ──
@@ -887,10 +892,40 @@ function ensureChart(){if(chart||!window.Chart)return chart;
     options:{responsive:true,maintainAspectRatio:false,
       scales:{y:{min:0,max:100,grid:{color:'rgba(124,166,206,.12)'},ticks:{color:'#75899e'}},
       x:{grid:{color:'rgba(124,166,206,.06)'},ticks:{color:'#75899e'}}},plugins:{legend:{display:false}}}});return chart;}
-function plot(o){const c=ensureChart();if(!c)return;const p=o.filter(x=>x.score!=null);
-  c.data.labels=p.map(x=>'#'+x.n);c.data.datasets[0].data=p.map(x=>x.score);
-  c.data.datasets[0].pointBackgroundColor=p.map(x=>x.verdict==='keep'?'#46e0a0':(x.verdict==='discard'?'#ffd166':'#75899e'));
+let CHART_VIEW=null;     // null = composite score curve; otherwise a metric name
+let LAST_ITERS=[];       // cached iteration list so a card/score click can re-plot without refetching
+function metricVal(x,name){const m=(x.metrics||[]).find(e=>e.name===name);const v=m?+m.value:NaN;return Number.isFinite(v)?v:null;}
+function chartTitleText(){
+  if(CHART_VIEW===null)return t('prog.curve');
+  const spec=((CFG&&CFG.evaluation&&CFG.evaluation.metrics)||[]).find(s=>s.name===CHART_VIEW);
+  const arrow=spec?(spec.dir==='higher'?t('mc.max'):t('mc.min')):'';
+  return CHART_VIEW+(arrow?('  ·  '+arrow):'');
+}
+function plot(o){const c=ensureChart();if(!c)return;if(o)LAST_ITERS=o;const list=LAST_ITERS||[];
+  const ds=c.data.datasets[0];
+  const colorOf=x=>x.verdict==='keep'?'#46e0a0':(x.verdict==='discard'?'#ffd166':'#75899e');
+  if(CHART_VIEW===null){                                   // composite score — fixed 0–100 scale
+    const p=list.filter(x=>x.score!=null);
+    c.data.labels=p.map(x=>'#'+x.n);ds.data=p.map(x=>+x.score);ds.pointBackgroundColor=p.map(colorOf);
+    c.options.scales.y.min=0;c.options.scales.y.max=100;
+  }else{                                                   // one metric — raw value, axis auto-scaled
+    const p=list.filter(x=>metricVal(x,CHART_VIEW)!=null);
+    const vals=p.map(x=>metricVal(x,CHART_VIEW));
+    c.data.labels=p.map(x=>'#'+x.n);ds.data=vals;ds.pointBackgroundColor=p.map(colorOf);
+    if(vals.length){let lo=Math.min(...vals),hi=Math.max(...vals);if(lo===hi){lo-=1;hi+=1;}
+      const pad=(hi-lo)*0.08;c.options.scales.y.min=lo-pad;c.options.scales.y.max=hi+pad;
+    }else{c.options.scales.y.min=undefined;c.options.scales.y.max=undefined;}
+  }
+  const kpi=$('kpiScore');if(kpi)kpi.classList.toggle('active',CHART_VIEW===null);
+  const ttl=$('chartTitle');if(ttl)ttl.textContent=chartTitleText();
   c.update();}
+function setChartView(v){                                  // null = composite; else a metric name
+  CHART_VIEW=v;
+  document.querySelectorAll('#metricCards .mcard').forEach(el=>el.classList.toggle('active',el.dataset.metric===v));
+  plot();}
+// click a metric card → chart that metric over the run; click the composite score → quality curve
+$('metricCards').addEventListener('click',e=>{const card=e.target.closest('.mcard');if(card&&card.dataset.metric)setChartView(card.dataset.metric);});
+$('kpiScore').addEventListener('click',()=>setChartView(null));
 // the most recent iteration that actually carries metric values — a fail/no_op iteration (or one
 // still mid-flight) has empty metrics, and we must NOT blank the KPI cards just because the latest
 // step produced no score. Fall back to the last step that did.
@@ -907,7 +942,7 @@ function renderMetricCards(lastMetrics){
     let pct=0,reached=false;
     if(has && s.target!==worst){pct=((v-worst)/(s.target-worst))*100;pct=Math.max(0,Math.min(100,pct));reached=pct>=99.999;}
     const arrow=s.dir==='higher'?t('mc.max'):t('mc.min');
-    return `<div class="mcard${reached?' reached':''}">
+    return `<div class="mcard${reached?' reached':''}${CHART_VIEW===s.name?' active':''}" data-metric="${esc(s.name)}" title="${esc(t('mc.plotTip'))}">
       <div class="mc-top"><span class="mc-name">${esc(s.name)}</span><span class="mc-dir">${arrow}</span></div>
       <div class="mc-val">${has?fmt(v):'—'}</div>
       <div class="mc-bar"><div class="mc-fill" style="width:${pct.toFixed(0)}%"></div></div>
@@ -978,7 +1013,7 @@ function setStatus(s,score,sum,cost){const tg=$('tag');tg.className='tag '+(s||'
   $('summary').textContent=(sum?(sum.error?(t('sum.error')+sum.error):t('sum.result')+sum.reason+t('sum.iters')+sum.iterations):'')+c;
   const live=(s==='running');                            // pulse the feed status dot while running
   $('feedDot').classList.toggle('live',live);}
-async function loadState(name){const d=await(await fetch(api('/api/projects/'+name))).json();
+async function loadState(name){CHART_VIEW=null;const d=await(await fetch(api('/api/projects/'+name))).json();
   BASELINE=d.baseline||{};
   const its=d.iterations||[];RUN_STATUS=d.status||'idle';_logSig='';setStatus(d.status||'idle',d.best_score,null,d.cost);plot(its);renderLog(its);renderCheckpoint(d);
   renderMetricCards(lastMetricsOf(its));loadAgentLog();

@@ -175,6 +175,10 @@ projects run on hosts that only have `python3` (not a bare `python`).
   collapsible **activity feed** (right rail, newest iteration on top): the validator's review and
   the executor's output render as **Markdown**. Your layout — feed open/closed, sidebar, current
   project and tab — is remembered across reloads.
+- 📈 **Switchable chart** — by default it draws the composite **quality curve**. Click any **metric
+  card** to chart that metric's real value across the whole run (the axis auto-scales to its units);
+  click the **composite score** to switch back. Points stay coloured by verdict, and the chart keeps
+  updating live during a run.
 - ⛔ **Force Stop** kills the agent instantly; **Stop** waits for the iteration boundary.
 - ⬇ **Export** downloads the current best **result as a `.zip`** (artifact code + `README.md` + `RESULTS.md`).
 - **UI languages:** English (default) · Ukrainian · Russian — switch in the header (with styled,
