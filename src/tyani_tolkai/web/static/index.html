@@ -209,6 +209,21 @@
   .mc-fill{height:100%;background:linear-gradient(90deg,var(--cold-dim),var(--cold));transition:width .4s}
   .mcard.reached .mc-fill{background:linear-gradient(90deg,#2c7a58,var(--good))}
   .mc-foot{font-family:var(--mono);font-size:11px;color:var(--mut);margin-top:8px}
+  /* live agent command — a console-style command panel */
+  .steer{margin-top:20px;border:1px solid var(--line-2);border-left:3px solid var(--cold);border-radius:var(--radius);
+    background:linear-gradient(180deg,rgba(70,224,208,.06),rgba(70,224,208,0) 55%),var(--panel-2);padding:15px 17px;
+    transition:border-color .2s,box-shadow .2s}
+  .steer:focus-within{border-color:var(--cold);box-shadow:0 0 0 1px rgba(70,224,208,.5),0 10px 34px rgba(70,224,208,.10)}
+  .steer-h{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:11px;
+    font-family:var(--display);font-weight:700;font-size:12.5px;letter-spacing:1.6px;text-transform:uppercase;color:var(--ink)}
+  .steer-ic{display:inline-flex;align-items:center;justify-content:center;min-width:26px;height:24px;padding:0 6px;
+    border-radius:6px;background:rgba(70,224,208,.14);color:var(--cold);font-family:var(--mono);font-weight:700;font-size:13px}
+  .steer-sub{font-weight:400;letter-spacing:0;text-transform:none}
+  .steer textarea{width:100%;min-height:66px;box-sizing:border-box;background:var(--field);border:1px solid var(--line);
+    border-radius:8px;color:var(--ink);font-family:var(--mono);font-size:13px;line-height:1.55;padding:11px 13px;resize:vertical;
+    transition:border-color .15s,box-shadow .15s}
+  .steer textarea::placeholder{color:var(--mut)}
+  .steer textarea:focus{outline:none;border-color:var(--cold);box-shadow:0 0 0 2px rgba(70,224,208,.18)}
   .te-x{position:absolute;top:6px;right:8px;background:none;border:0;color:var(--mut);cursor:pointer;
         font-size:18px;line-height:1;padding:0 4px;width:auto}
   .te-x:hover{color:var(--fg)}
@@ -591,16 +606,15 @@
       <div class="mcards" id="metricCards"></div>
       <h3 style="margin-top:6px" id="chartTitle" data-i18n="prog.curve">Quality curve</h3>
       <div class="chartbox"><canvas id="chart"></canvas></div>
-      <div style="margin-top:18px">
-        <label data-i18n="prog.steer">Live agent command <small class="hint" style="display:inline" data-i18n="prog.steerSub">— added to the next iteration, without stopping</small></label>
+      <div class="steer" id="steerBox">
+        <div class="steer-h"><span class="steer-ic">&gt;_</span>
+          <span data-i18n="prog.steer">Live agent command</span>
+          <span class="hint steer-sub" data-i18n="prog.steerSub">— added to the next iteration, without stopping</span></div>
         <textarea id="steerText" data-i18n-ph="prog.steerPh" placeholder="e.g. focus on reducing drawdown"></textarea>
-        <div class="controls" style="margin-top:8px"><button class="btn sec" id="steerBtn" disabled data-i18n="prog.steerBtn" data-i18n-title="prog.steerTitle" style="width:auto">↗ Send command</button></div>
+        <div class="controls" style="margin-top:10px"><button class="btn" id="steerBtn" disabled data-i18n="prog.steerBtn" data-i18n-title="prog.steerTitle" style="width:auto">↗ Send command</button></div>
       </div>
       <p class="hint" id="feedHint" style="margin-top:18px">📡 <span data-i18n="feed.moved">Iteration log &amp; agent output now live in the activity feed →</span>
         <a href="#" id="feedOpenLink" style="color:var(--cold)" data-i18n="feed.open">open feed</a></p>
-      <h3 style="margin-top:22px" data-i18n="prog.files">Artifact files <small class="hint" style="display:inline" data-i18n="prog.filesSub">— what the agent built</small></h3>
-      <div class="controls" style="margin-bottom:8px"><button class="btn sec" id="filesBtn" style="width:auto" disabled data-i18n="prog.filesBtn" data-i18n-title="prog.filesTitle">↻ Show / refresh files</button></div>
-      <div id="files"></div>
     </div>
     </div><!-- /view-progress -->
   </main>
@@ -688,7 +702,7 @@ I18N.uk={
  "side.new":"＋ Новий проєкт","side.newTitle":"Створити новий проєкт — із перевіреного шаблону або зі звичайного опису.","prog.collapseHint":"Згорнути / розгорнути керування — лишити тільки дашборд для стеження.","prog.renameTitle":"Перейменувати проєкт (і його теку).","prog.deleteTitle":"Видалити проєкт назавжди — конфіг, історію прогонів і артефакт.","prog.steerTitle":"Додати підказку до НАСТУПНОЇ ітерації — скеровує агента без зупинки прогону.","prog.filesTitle":"Показати файли, які агент створив усередині артефакту.","help.btnTitle":"Як працює Pull-and-Push — короткий гід.","lang.title":"Мова інтерфейсу (EN / UK / RU).","side.projects":"Проєкти","side.empty":"Проєктів ще немає.<br>Натисни <b>＋ Новий проєкт</b>, щоб почати.","side.coord":"// COLD = Виконавець · WARM = Оцінювач",
  "tab.progress":"📊 Прогрес","tab.config":"⚙ Конфігурація",
  "tpl.title":"🚀 Новий проєкт зі зразка","tpl.desc":"«Зразок» — це готовий міні-проєкт, у якому вже є оцінювач: код, що дивиться на результат і виставляє оцінку від 0 до 100. Обери зразок, найближчий до твоєї задачі, дай назву й опиши мету — і проєкт можна одразу запускати. Під час запуску штучний інтелект багато разів переписує файл, оцінювач щоразу виставляє бал, а система лишає кращі версії.","tpl.name":"Назва проєкту","tpl.nameHint":"Літери/цифри/._- — стає текою; перейменувати можна пізніше.","tpl.pick":"Якого типу твоя задача?","tpl.tplLabel":"Шаблон","tpl.auto":"Підібрати автоматично","tpl.tplHint":"Обери зразок нижче.","tpl.card.auto.t":"🪄 Підібрати за мене","tpl.card.auto.d":"Не знаєш, що обрати? Опиши задачу нижче — підберемо найближчий зразок за словами опису.","tpl.card.custom.t":"✍️ Будь-що — за моїм оцінювачем","tpl.card.custom.d":"Найзагальніший варіант. Покращує будь-який текст чи файл за твоїм власним оцінювачем — маленьким скриптом, що друкує число. У комплекті простий приклад (покращити слоган), який ти заміниш своєю задачею. Обери, якщо задача не про торгівлю й не про тести.","tpl.card.btcusdt-futures.t":"📈 Торгова стратегія (бектест)","tpl.card.btcusdt-futures.d":"Готовий реалістичний бектест: штучний інтелект переписує стратегію, а вбудована симуляція (плече, комісії, ліквідації) оцінює її лише на відкладених даних — щоб не можна було просто підлаштуватися під минуле. У комплекті демодані BTCUSDT 5m — заміни harness/data.csv на будь-який ринок чи таймфрейм (ETH, форекс, акції). Обери для будь-якої торгової стратегії.","tpl.card.pytest-pass.t":"✅ Полагодити код під тести","tpl.card.pytest-pass.d":"Штучний інтелект править код, поки прихований набір перевірок (тестів) не стане повністю зеленим. Бал = відсоток перевірок, що пройшли. Обери, якщо треба написати чи полагодити код під готові тести.","tpl.descLabel":"Опиши мету своїми словами","tpl.descPh":"Напр.: налаштувати ф'ючерсну стратегію BTCUSDT із плечем на максимальний прибуток без ліквідацій.","tpl.descHint":"Це стане завданням для штучного інтелекту — що конкретніше, то краще.","tpl.btn":"🚀 Створити й відкрити проєкт","tpl.btnHint":"Створює проєкт із вбудованим оцінювачем і відкриває його. Далі натисни ▶ Запуск.","tpl.creating":"Будую проєкт…",
- "gen.title":"🪄 Згенерувати з опису","gen.desc":"Найпростіший шлях: опиши завдання словами — агент-налаштовувач сформує проєкт, а ти доведеш його у формі нижче.","gen.descLabel":"Опис завдання, метрик, мети, обмежень","gen.descPh":"Напр.: довести strategy.py до максимального Sharpe при просадці нижче 15%. Метрики: sharpe (вище — краще), max_dd (нижче — краще). Ціль 90. Обмеження: редагувати лише strategy.py, одна зміна за крок.","gen.descHint":"Природною мовою — що робимо, які метрики, яка мета, які обмеження.","gen.engine":"Рушій налаштовувача","gen.engineHint":"Який CLI-агент згенерує конфіг (має бути встановлений і залогінений).","gen.btn":"🪄 Згенерувати проєкт","gen.btnHint":"Заповнить форму нижче — перевір і натисни «Створити».",
+ "gen.title":"🪄 Згенерувати з опису","gen.desc":"Найпростіший шлях: опиши завдання словами — агент-налаштовувач сформує проєкт, а ти доналаштуєш його у формі нижче.","gen.descLabel":"Опис завдання, метрик, мети, обмежень","gen.descPh":"Напр.: довести strategy.py до максимального Sharpe при просадці нижче 15%. Метрики: sharpe (вище — краще), max_dd (нижче — краще). Ціль 90. Обмеження: редагувати лише strategy.py, одна зміна за крок.","gen.descHint":"Природною мовою — що робимо, які метрики, яка мета, які обмеження.","gen.engine":"Рушій налаштовувача","gen.engineHint":"Який CLI-агент згенерує конфіг (має бути встановлений і залогінений).","gen.btn":"🪄 Згенерувати проєкт","gen.btnHint":"Заповнить форму нижче — перевір і натисни «Створити».",
  "man.summary":"⚙ Заповнити / редагувати вручну (розширене)","man.title":"Новий проєкт","man.desc":"Або заповни вручну. Усе валідовується перед збереженням.","man.basic":"Основне","man.name":"Назва проєкту","man.nameHint":"Унікальна назва (літери/цифри/._-). Стане текою; пізніше — через Rename.","man.mode":"Режим","man.modeHint":"MVP: <b>asymmetric</b> — Виконавець ↔ Оцінювач.","man.agents":"Агенти","man.agentsSub":"готові CLI — нічого писати не треба","man.exEngine":"Виконавець — рушій","man.exEngineHint":"Який CLI редагує артефакт (встановлений і залогінений).","man.vaEngine":"Валідатор — рушій","man.optional":"(опц.)","man.vaEngineHint":"Оглядає кожну зміну — думка + ідеї, а НЕ бал (оцінює гарнес). Бери <b>інший</b> провайдер (захист від «змови»).","man.roles":"Ролі","man.rolesSub":"чого домагатись","man.exGoal":"Виконавець — мета","man.exGoalPh":"Напр. Максимізувати дохідність strategy.py","man.exGoalHint":"Головна ціль кожної ітерації.","man.exTask":"Виконавець — завдання/обмеження","man.exTaskPh":"Напр. Редагуй лише strategy.py, одна зміна за крок","man.exTaskHint":"Звужує дії агента — допомагає збіжності.","man.vaGoal":"Валідатор — мета","man.vaGoalPh":"Оціни зміну: твоя думка, чому бал змінився, та ідеї для покращення","man.eval":"Оцінка","man.evalSub":"бал рахує код, не LLM","man.command":"Команда оцінки","man.commandHint":"Рядок, що запускається в пісочниці й дає число(а). Кнопкою <b>🧪 Тест оцінки</b> на вкладці «Прогрес» можна перевірити, що працює.","man.harness":"Тека прихованих тестів","man.harnessHint":"Тека з тестами — <b>поза</b> досяжністю Виконавця.","man.target":"Цільовий бал","man.targetHint":"Бал ≥ цього → перемога, зупинка. 0 = старт, 100 = ціль.","man.metrics":"Метрики","man.metricsHint":"— що міряємо. Нуль шкали система ставить сама за стартовим заміром (0 = звідки почали), 100 = ціль. Бал = зважена сума.","man.mName":"назва","man.mDir":"напрям","man.mWeight":"вага","man.mTarget":"ціль","man.addMetric":"＋ метрика","man.seed":"Стартовий код","man.seedSub":"з чого починає виконавець","man.seedLabel":"Стартовий код","man.seedEmpty":"Порожній — агент створить код з нуля","man.seedCopy":"Зі стартового коду — скопіювати з папки","man.seedHint":"Найчастіше — <b>порожній</b>: перша ітерація створює перший варіант сама.","man.seedPath":"Папка стартового коду","man.browse":"📁 Огляд","man.browseTitle":"Огляд папок","man.seedPathHint":"Її вміст копіюється в артефакт як старт (оригінал недоторканий).","man.stop":"Коли зупиняти прогін","man.stopSub":"будь-яка умова зупиняє цикл","man.maxIter":"Макс. ітерацій <small>(max_iterations)</small>","man.maxIterHint":"Жорсткий стоп: найбільше кроків, навіть якщо ціль ще не досягнута.","man.plateau":"Плато, N кроків <small>(plateau_N)</small>","man.plateauHint":"Стоп, якщо N змістовних змін поспіль НЕ покращили бал (застрягли).","man.step":"Таймаут кроку, сек <small>(step_seconds)</small>","man.stepHint":"Скільки чекати один прогін агента, перш ніж перервати його.","man.budget":"Бюджет, USD <small>(budget_usd)</small>","man.budgetHint":"Жорсткий стоп, коли оцінені витрати сягають цього. Порожнє = без ліміту.","man.price":"Ціна, USD / 1М токенів <small>(usd_per_mtok)</small>","man.priceHint":"Перетворює оцінені токени на $ (грубо — запобіжник, не рахунок). 0 = вимкнено.","man.sandbox":"Пісочниця виконання","man.sandboxSub":"де запускається код стратегії","man.sandboxHint":"<b>docker</b>: ізольоване й безпечне виконання згенерованого коду · <b>local</b>: швидше, без ізоляції.","man.notify":"Сповіщення","man.notifySub":"вебхук після завершення прогону","man.notifyEnable":"Викликати URL після завершення роботи","man.notifyHint":"Система сама смикне твій URL, коли прогін дійде до кінця (target / plateau / stop / error).","man.notifyUrlHint":"Твоя адреса. POST надсилає JSON {project, status, reason, best_score, iterations}.","man.notifyMethod":"Метод","man.notifyMethodHint":"<b>GET</b> додає <code>?project=…&status=…</code> у запит.","man.create":"💾 Створити","man.saveHint":"Заповни назву та хоча б одну метрику.",
  "prog.title":"Керування та прогрес","prog.desc":"Запускай, зупиняй і скеровуй прогін. Графік — крива якості; лог — рішення keep/discard щокроку.","prog.run":"▶ Run","prog.runTitle":"Запустити цикл з реальними агентами","prog.stop":"⏹ Stop","prog.stopTitle":"Зупинити на межі поточної ітерації (дочекається кроку)","prog.forceStop":"⛔ Force Stop","prog.forceStopTitle":"Негайно вбити процеси агента — без очікування ітерації","prog.testEval":"🧪 Тест оцінки","prog.testEvalTitle":"Запустити оцінку один раз — перевірити, що harness/команда працюють","prog.reset":"↺ Reset","prog.resetTitle":"Відкотити артефакт до seed","prog.rename":"✎ Rename","prog.export":"⬇ Export","prog.exportTitle":"Завантажити як .zip","prog.delete":"🗑 Delete","prog.compScore":"композитний бал (0–100)","prog.curve":"Крива якості","prog.steer":"Команда агенту наживо","prog.steerSub":"— додається в наступну ітерацію, без зупинки","prog.steerPh":"напр. зосередься на зменшенні просадки","prog.steerBtn":"↗ Надіслати команду","prog.log":"Хід ітерацій","prog.agentLog":"🔎 Лог агента","prog.agentLogSub":"— реальний вивід Виконавця (оновлюється під час прогону)","prog.agentLogBtn":"↻ Оновити лог","prog.files":"Файли артефакту","prog.filesSub":"— що агент побудував","prog.filesBtn":"↻ Показати / оновити файли",
  "pk.title":"📁 Вибір папки","pk.close":"Закрити","pk.hint":"Подвійний клік — зайти в папку.","pk.pick":"Вибрати цю папку",
@@ -836,7 +850,7 @@ function buildConfig(){const c={project:$('f_project').value.trim(),mode:$('f_mo
   const nUrl=$('f_notify_url').value.trim(),nEn=$('f_notify_enabled').checked;
   if(nEn||nUrl)c.notify={enabled:nEn,url:nUrl||null,method:$('f_notify_method').value};
   return c;}
-function enableControls(on){['runBtn','stopBtn','forceStopBtn','resetBtn','renameBtn','exportBtn','deleteBtn','steerBtn','filesBtn','testEvalBtn','agentLogBtn'].forEach(b=>$(b).disabled=!on);}
+function enableControls(on){['runBtn','stopBtn','forceStopBtn','resetBtn','renameBtn','exportBtn','deleteBtn','steerBtn','testEvalBtn','agentLogBtn'].forEach(b=>$(b).disabled=!on);}
 async function loadAgentLog(){if(!current)return;
   const d=await(await fetch(api('/api/projects/'+current+'/agent-log'))).json().catch(()=>({log:''}));
   renderAgentLog(d.log||'');}
@@ -860,13 +874,6 @@ function renderAgentLog(text){
     `<div class="md agent-md">${md(s.body)||'—'}</div></details>`;}).join('');
   hl(el);
 }
-async function loadFiles(){if(!current)return;
-  $('files').innerHTML=`<div class="hint">${t('files.loading')}</div>`;
-  const d=await(await fetch(api('/api/projects/'+current+'/files'))).json().catch(()=>({files:[]}));
-  if(!d.files||!d.files.length){$('files').innerHTML=`<div class="hint">${t('files.empty')}</div>`;return;}
-  const lang=p=>p.endsWith('.py')?'python':(p.endsWith('.json')?'json':(p.endsWith('.yaml')||p.endsWith('.yml')?'yaml':'plaintext'));
-  $('files').innerHTML=d.files.map(f=>`<details><summary>📄 ${esc(f.path)}</summary><pre class="diff"><code class="language-${lang(f.path)}">${esc(f.content)}</code></pre></details>`).join('');
-  if(window.hljs)$('files').querySelectorAll('pre code').forEach(b=>{try{hljs.highlightElement(b);}catch(e){}});}
 function highlight(){[...$('projects').children].forEach(li=>li.classList.toggle('active',li.textContent===current));}
 
 async function loadProjects(){const d=await(await fetch(api('/api/projects'))).json();const ul=$('projects');ul.innerHTML='';
@@ -1030,7 +1037,7 @@ function startPolling(name){if(poll)clearInterval(poll);
       const pl={executor:t('phase.executor'),scoring:t('phase.scoring'),validator:t('phase.validator')};
       const c=(d.cost>0)?('  ·  ≈ $'+(+d.cost).toFixed(2)):'';
       $('summary').textContent=(pl[d.phase]||d.phase)+' · '+t('phase.iter')+' '+(((oc[oc.length-1]||{}).n||0)+1)+c;}
-    if(d.status!=='running'){clearInterval(poll);poll=null;loadProjects();loadFiles();
+    if(d.status!=='running'){clearInterval(poll);poll=null;loadProjects();
       const r=d.summary?d.summary.reason:d.status;
       toast(t('toast.runDone')+r+(best!=null?(' · '+(+best).toFixed(1)):''), d.status==='error'?'err':'ok');}},1000);}
 
@@ -1147,7 +1154,6 @@ $('saveBtn').onclick=async()=>{const cfg=buildConfig();
   const r=await fetch(api(url),{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
   if(!r.ok){const e=await r.json().catch(()=>({}));toast(t('err.prefix')+(e.detail||r.status),'err');return;}
   toast(current?t('toast.saved'):t('toast.created'),'ok');await loadProjects();selectProject(cfg.project);};
-$('filesBtn').onclick=loadFiles;
 $('agentLogBtn').onclick=loadAgentLog;
 $('testEvalBtn').onclick=async()=>{if(!current)return;
   $('testResult').innerHTML=`<div class="hint" style="margin-top:8px">${t('toast.testing')}</div>`;
