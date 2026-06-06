@@ -90,6 +90,7 @@ def test_network_is_actually_denied():
                  "python", "-c", "import socket; socket.create_connection(('1.1.1.1', 53), 2)"],
                 capture_output=True, timeout=60)
     assert r.returncode != 0
+    assert b"unreachable" in r.stderr.lower()      # specifically a NETWORK failure
 
 
 @docker_required
@@ -98,6 +99,7 @@ def test_fs_is_actually_readonly():
                  "python", "-c", "open('/nope.txt', 'w').write('x')"],
                 capture_output=True, timeout=60)
     assert r.returncode != 0
+    assert b"read-only file system" in r.stderr.lower()   # specifically a read-only-FS failure
 
 
 @docker_required
@@ -109,3 +111,27 @@ def test_container_removed_after_run(tmp_path):
     out = _sp.run(["docker", "ps", "-a", "--filter", "name=tt-bot-", "--format", "{{.Names}}"],
                   capture_output=True, text=True, timeout=30).stdout
     assert "tt-bot-" not in out
+
+
+@docker_required
+def test_container_removed_on_error_path(tmp_path):
+    from tyani_tolkai.bot_runner import BotProtocolError
+    d = tmp_path / "bot"; d.mkdir(); d.chmod(0o755)
+    bars = _bars([1.0, 2.0])
+    # bot_cmd hangs inside the container → drive_bot times out → BotProtocolError
+    with pytest.raises(BotProtocolError):
+        score_bot_sandboxed(["python", "-c", "import time; time.sleep(120)"], bars,
+                            bot_dir=str(d), seed="s", params={},
+                            per_read_timeout=2.0, total_timeout=6.0)
+    out = _sp.run(["docker", "ps", "-a", "--filter", "name=tt-bot-", "--format", "{{.Names}}"],
+                  capture_output=True, text=True, timeout=30).stdout
+    assert "tt-bot-" not in out        # no leaked container even when the run errored
+
+
+def test_raises_when_docker_unavailable(tmp_path, monkeypatch):
+    from tyani_tolkai import bot_sandbox
+    from tyani_tolkai.bot_sandbox import score_bot_sandboxed, SandboxUnavailable
+    monkeypatch.setattr(bot_sandbox, "docker_available", lambda: False)
+    with pytest.raises(SandboxUnavailable):
+        score_bot_sandboxed(["python", "x.py"], _bars([1.0]), bot_dir=str(tmp_path),
+                            seed="s", params={})
