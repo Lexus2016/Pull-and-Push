@@ -38,6 +38,14 @@ class BotProtocolError(Exception):
 # Internal helpers
 # ---------------------------------------------------------------------------
 
+def _kill_quietly(proc: subprocess.Popen) -> None:
+    """Watchdog callback: kill the child, swallowing any error."""
+    try:
+        proc.kill()
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _reader_thread(
     proc: subprocess.Popen,
     line_q: "queue.Queue[str | None]",
@@ -144,33 +152,54 @@ def drive_bot(
     line_q: "queue.Queue[str | None]" = queue.Queue()
     byte_q: "queue.Queue[bool]" = queue.Queue()
 
+    orders: list[int] = []
+
+    # The TemporaryDirectory encloses the whole try/finally so it is only
+    # removed AFTER the child process is gone.
     with tempfile.TemporaryDirectory() as cwd:
-        proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
-            text=True,
-            bufsize=1,
-            close_fds=True,
-            cwd=cwd,
-        )
-
-        reader = threading.Thread(
-            target=_reader_thread,
-            args=(proc, line_q, byte_q, max_bytes),
-            daemon=True,
-        )
-        reader.start()
-
-        orders: list[int] = []
-
+        proc: subprocess.Popen | None = None
+        reader: threading.Thread | None = None
+        watchdog: threading.Timer | None = None
         try:
+            # Popen is INSIDE the try so a bad command (FileNotFoundError,
+            # PermissionError, ...) is masked as a generic BotProtocolError
+            # and never leaks our path/argv.
+            proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+                close_fds=True,
+                cwd=cwd,
+            )
+
+            # Backstop for write-stall: if the bot stops reading stdin, our
+            # stdin.write() can block past the pipe buffer, bypassing the
+            # read-deadline. The watchdog kills the child at the global
+            # deadline regardless of whether we are blocked in write() or
+            # read(); a blocked write() then raises BrokenPipeError ->
+            # caught below -> BotProtocolError.
+            watchdog = threading.Timer(total_timeout, _kill_quietly, args=(proc,))
+            watchdog.daemon = True
+            watchdog.start()
+
+            reader = threading.Thread(
+                target=_reader_thread,
+                args=(proc, line_q, byte_q, max_bytes),
+                daemon=True,
+            )
+            reader.start()
+
+            assert proc.stdin is not None
+
             # ── INIT ──────────────────────────────────────────────────────
+            if time.monotonic() >= deadline:
+                raise BotProtocolError("evaluation failed")
             init_msg = bp.encode(
                 {"type": bp.INIT, "params": params, "schema_version": "1"}
             )
-            assert proc.stdin is not None
             proc.stdin.write(init_msg)
             proc.stdin.flush()
 
@@ -184,6 +213,8 @@ def drive_bot(
 
             # ── BAR loop ──────────────────────────────────────────────────
             for i, (o, h, l, c, v) in enumerate(bars):
+                if time.monotonic() >= deadline:
+                    raise BotProtocolError("evaluation failed")
                 bar_msg = bp.encode(
                     {"type": bp.BAR, "n": i, "o": o, "h": h, "l": l, "c": c, "v": v}
                 )
@@ -207,9 +238,13 @@ def drive_bot(
                 orders.append(want)
 
             # ── END ───────────────────────────────────────────────────────
+            if time.monotonic() >= deadline:
+                raise BotProtocolError("evaluation failed")
             proc.stdin.write(bp.encode({"type": bp.END}))
             proc.stdin.flush()
             proc.stdin.close()
+
+            return orders
 
         except BotProtocolError:
             raise
@@ -218,18 +253,31 @@ def drive_bot(
             raise BotProtocolError("evaluation failed")
 
         finally:
-            # Always terminate the child — never leave it running.
-            try:
-                proc.terminate()
+            if watchdog is not None:
+                watchdog.cancel()
+
+            if proc is not None:
+                # Close our pipe ends first so the child sees EOF / broken pipe.
+                for stream in (proc.stdin, proc.stdout):
+                    try:
+                        if stream:
+                            stream.close()
+                    except Exception:  # noqa: BLE001
+                        pass
+                # Always terminate the child — never leave it running.
                 try:
-                    proc.wait(timeout=3.0)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait(timeout=2.0)
-            except Exception:  # noqa: BLE001
-                pass
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=3.0)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        try:
+                            proc.wait(timeout=2.0)
+                        except subprocess.TimeoutExpired:
+                            pass
+                except Exception:  # noqa: BLE001
+                    pass
 
             # Join the reader thread so the thread is fully cleaned up.
-            reader.join(timeout=5.0)
-
-        return orders
+            if reader is not None:
+                reader.join(timeout=5.0)

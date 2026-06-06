@@ -44,3 +44,23 @@ def test_drive_bot_rejects_wrong_n():
     bars = _bars([1.0])
     with pytest.raises(BotProtocolError):
         drive_bot(bad, bars, params={}, per_read_timeout=3.0, total_timeout=8.0)
+
+
+def test_drive_bot_enforces_byte_cap():
+    flood = [sys.executable, "-c",
+             "import sys,json\n"
+             "for line in sys.stdin:\n"
+             " m=json.loads(line)\n"
+             " if m.get('type')=='init':\n"
+             "  sys.stdout.write('{\"type\":\"ready\"}\\n'); sys.stdout.flush()\n"
+             "  while True:\n"
+             "   sys.stdout.write('x'*200+'\\n'); sys.stdout.flush()\n"]
+    bars = _bars([1.0])
+    with pytest.raises(BotProtocolError):
+        drive_bot(flood, bars, params={}, per_read_timeout=3.0, total_timeout=8.0, max_bytes=500)
+
+
+def test_drive_bot_masks_bad_command():
+    bars = _bars([1.0])
+    with pytest.raises(BotProtocolError):
+        drive_bot(["/nonexistent/x"], bars, params={}, per_read_timeout=1.0, total_timeout=3.0)
