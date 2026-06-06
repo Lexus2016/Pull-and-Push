@@ -42,3 +42,9 @@ cache/
 
 # ─── Scratch screenshots in the repo root (README images live in docs/assets/) ───
 /*.png
+
+# ─── Local strays (Finder duplicates, research dumps) — not part of the project ───
+* copy
+* copy/
+* copy [0-9]*
+/research-*.json
