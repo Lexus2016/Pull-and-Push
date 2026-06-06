@@ -113,8 +113,6 @@ def cmd_projects(args) -> int:
 
 def cmd_profile(args) -> int:
     """Analyze an existing bot (read-only) and write profile.json + profile.md."""
-    from pathlib import Path
-
     src = Path(args.path)
     if not src.exists():
         print(f"path not found: {src}")
