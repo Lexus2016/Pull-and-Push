@@ -8,7 +8,7 @@ never receives the bot's path.
 from __future__ import annotations
 
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -215,7 +215,7 @@ def assemble_payload(source_root: str | Path, *,
     return res
 
 
-def _default_runner(engine: str, model: str | None, timeout: int):
+def _default_runner(engine: str, model: str | None, timeout: int) -> Callable[[str], str]:
     """Build a callable prompt->stdout backed by a real read-only CLI agent.
 
     Same adapter + TemporaryDirectory isolation as configurator.generate_config,
@@ -233,7 +233,8 @@ def _default_runner(engine: str, model: str | None, timeout: int):
 
 
 def analyze_bot(source_root: str | Path, *, engine: str = "claude",
-                model: str | None = None, runner=None, timeout: int = 180) -> BotProfile:
+                model: str | None = None, runner: Callable[[str], str] | None = None,
+                timeout: int = 180) -> BotProfile:
     """Analyze an existing bot (read-only) and return a validated BotProfile.
 
     ``runner`` (callable prompt->stdout) is injectable for tests; by default a real
@@ -244,7 +245,7 @@ def analyze_bot(source_root: str | Path, *, engine: str = "claude",
     if not payload.text.strip():
         unknowns = ["could not read source: no analyzable text files found"]
         if payload.dropped:
-            unknowns.append("unreadable: " + ", ".join(payload.dropped[:_MAX_FILES_LISTED]))
+            unknowns.append("not analyzed: " + ", ".join(payload.dropped[:_MAX_FILES_LISTED]))
         return BotProfile(
             analyzer_engine=engine, bot_name=(root.name or "bot"),
             source_root=str(root), language="unknown", framework="unknown",
