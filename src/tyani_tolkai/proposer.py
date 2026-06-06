@@ -173,3 +173,40 @@ def propose_evaluation(profile: BotProfile, goal: str, *, engine: str = "claude"
             ) from second_err
 
     return ground_proposal(proposal, profile)
+
+
+def render_markdown(proposal: MetricProposal) -> str:
+    """Render a MetricProposal as a human review report (the approval surface)."""
+    p = proposal
+    out: list[str] = []
+    out.append(f"# Metric Proposal — {p.bot_name}\n")
+    out.append(f"- **Proposer engine:** {p.proposer_engine} (single LLM pass — non-deterministic)")
+    out.append(f"- **Goal:** {p.goal}\n")
+    out.append("> Review and EDIT this proposal before P3. Targets/weights are starting points.\n")
+
+    out.append("## Proposed metrics")
+    if p.proposed_metrics:
+        for m in p.proposed_metrics:
+            out.append(f"- **{m.name}** — optimize {m.dir}, weight {m.weight}, target {m.target} "
+                       f"— conf {m.confidence:.2f}\n  - {m.rationale}")
+    else:
+        out.append("- _none_")
+    out.append("")
+
+    out.append("## Proposed tunables")
+    if p.proposed_tunables:
+        for t in p.proposed_tunables:
+            rng = f"[{t.min}, {t.max}]" if (t.min is not None or t.max is not None) else "(non-numeric)"
+            out.append(f"- **{t.name}** {rng} [{t.inferred_type}] — conf {t.confidence:.2f}\n  - {t.rationale}")
+    else:
+        out.append("- _none_")
+    out.append("")
+
+    out.append("## Warnings")
+    if p.warnings:
+        for w in p.warnings:
+            out.append(f"- {w}")
+    else:
+        out.append("- _none_")
+    out.append("")
+    return "\n".join(out)

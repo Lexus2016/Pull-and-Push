@@ -175,3 +175,27 @@ def test_propose_evaluation_raises_after_failed_repair():
     from tyani_tolkai.proposer import propose_evaluation, ProposalError
     with pytest.raises(ProposalError):
         propose_evaluation(_PROFILE, "g", engine="claude", runner=lambda _p: "still not json")
+
+
+def test_render_markdown_full_and_empty():
+    from tyani_tolkai.proposer import render_markdown
+    from tyani_tolkai.proposal_schema import MetricProposal, ProposedMetric, ProposedTunable
+    full = MetricProposal(
+        proposer_engine="claude", bot_name="b", goal="max return",
+        proposed_metrics=[ProposedMetric(name="return_oos_pct", dir="higher", weight=0.6,
+                                         target=100.0, rationale="primary", confidence=0.8)],
+        proposed_tunables=[ProposedTunable(name="leverage", min=1.0, max=10.0,
+                                           inferred_type="float", rationale="risk", confidence=0.7)],
+        warnings=["liquidations self-reported"],
+    )
+    md = render_markdown(full)
+    assert md.startswith("# Metric Proposal")
+    assert "max return" in md
+    assert "## Proposed metrics" in md and "return_oos_pct" in md and "higher" in md
+    assert "## Proposed tunables" in md and "leverage" in md
+    assert "## Warnings" in md and "self-reported" in md
+    assert "claude" in md
+
+    empty = MetricProposal(proposer_engine="c", bot_name="b", goal="g")
+    md2 = render_markdown(empty)
+    assert "_none_" in md2
