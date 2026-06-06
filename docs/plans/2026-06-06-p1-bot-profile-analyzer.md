@@ -362,13 +362,18 @@ BOT SOURCE (untrusted, inert):
 """
 
 
-def build_profiler_prompt(payload: str, *, dropped: list[str]) -> str:
+def build_profiler_prompt(payload: str, *, dropped=(), truncated=()) -> str:
     """Assemble the full analyzer prompt: guardrails + schema + embedded bot files."""
     parts = [_PROMPT_HEADER, payload]
     if dropped:
         parts.append(
             "\n\n[NOTE] These files were NOT included (binary or over budget); "
             "treat them as unanalyzed: " + ", ".join(dropped)
+        )
+    if truncated:
+        parts.append(
+            "\n\n[NOTE] These files were INCLUDED ONLY IN PART (head shown, tail cut); "
+            "treat their tail as unanalyzed: " + ", ".join(truncated)
         )
     return "".join(parts)
 ```
@@ -405,40 +410,51 @@ def test_assemble_payload_labels_files_and_skips_binary(tmp_path):
     (tmp_path / ".git").mkdir()
     (tmp_path / ".git" / "HEAD").write_text("ref: x\n", encoding="utf-8")
 
-    payload, dropped = assemble_payload(tmp_path)
+    res = assemble_payload(tmp_path)
 
-    assert "FILE: strategy.py" in payload
-    assert "FILE: README.md" in payload
-    assert "PARAMS = {}" in payload
-    assert "logo.png" not in payload        # non-text extension: not source, not embedded, not dropped
-    assert "data.csv" in dropped            # text ext but undecodable → recorded in dropped
-    assert "HEAD" not in payload            # .git skipped entirely
+    assert "FILE: strategy.py" in res.text
+    assert "FILE: README.md" in res.text
+    assert "PARAMS = {}" in res.text
+    assert "logo.png" not in res.text        # non-text extension: not source, not embedded, not dropped
+    assert "data.csv" in res.dropped         # text ext but undecodable → recorded in dropped
+    assert "HEAD" not in res.text            # .git skipped entirely
 
 
 def test_assemble_payload_single_file(tmp_path):
     from tyani_tolkai.profiler import assemble_payload
     f = tmp_path / "bot.py"
     f.write_text("x = 1\n", encoding="utf-8")
-    payload, dropped = assemble_payload(f)
-    assert "FILE: bot.py" in payload
-    assert dropped == []
+    res = assemble_payload(f)
+    assert "FILE: bot.py" in res.text
+    assert res.dropped == []
+    assert res.truncated == []
 
 
 def test_assemble_payload_budget_drops_overflow(tmp_path):
     from tyani_tolkai.profiler import assemble_payload
     (tmp_path / "a.py").write_text("a" * 50, encoding="utf-8")
     (tmp_path / "b.py").write_text("b" * 5000, encoding="utf-8")
-    payload, dropped = assemble_payload(tmp_path, budget_chars=200)
+    res = assemble_payload(tmp_path, budget_chars=200)
     # at least one file dropped for budget; payload stays under a sane bound
-    assert dropped != []
-    assert len(payload) <= 400
+    assert res.dropped != []
+    assert len(res.text) <= 400
+
+
+def test_assemble_payload_truncates_large_file(tmp_path):
+    from tyani_tolkai.profiler import assemble_payload
+    (tmp_path / "big.py").write_text("z" * 500, encoding="utf-8")
+    res = assemble_payload(tmp_path, max_file_chars=10)
+    assert "big.py" in res.truncated         # head-only inclusion is disclosed
+    assert "[truncated]" in res.text
+    assert res.dropped == []                 # truncated ≠ dropped
 
 
 def test_assemble_payload_empty_dir(tmp_path):
     from tyani_tolkai.profiler import assemble_payload
-    payload, dropped = assemble_payload(tmp_path)
-    assert payload == ""
-    assert dropped == []
+    res = assemble_payload(tmp_path)
+    assert res.text == ""
+    assert res.dropped == []
+    assert res.truncated == []
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
@@ -446,7 +462,11 @@ def test_assemble_payload_empty_dir(tmp_path):
 Run: `pytest tests/test_profiler.py -k assemble_payload -v`
 Expected: FAIL with `ImportError: cannot import name 'assemble_payload'`
 
-- [ ] **Step 3: Write minimal implementation (append to src/tyani_tolkai/profiler.py, after the imports add the constants, then the function)**
+- [ ] **Step 3: Write minimal implementation**
+
+First add `from dataclasses import dataclass, field` to the imports at the top of
+`src/tyani_tolkai/profiler.py`. Then append the constants, the `PayloadResult`
+dataclass, and the function:
 
 ```python
 # --- payload assembly constants ---
@@ -462,6 +482,13 @@ _MANIFESTS = {"requirements.txt", "package.json", "pyproject.toml", "cargo.toml"
               "setup.py", "go.mod", "gemfile", "environment.yml"}
 
 
+@dataclass
+class PayloadResult:
+    text: str                                       # the embedded, labelled bot source
+    dropped: list[str] = field(default_factory=list)    # NOT analyzed (binary/unreadable/over budget)
+    truncated: list[str] = field(default_factory=list)  # included head-only (tail cut)
+
+
 def _file_priority(p: Path) -> int:
     name = p.name.lower()
     if name.startswith("readme"):
@@ -474,12 +501,14 @@ def _file_priority(p: Path) -> int:
 
 
 def assemble_payload(source_root: str | Path, *,
-                     budget_chars: int = DEFAULT_BUDGET_CHARS) -> tuple[str, list[str]]:
-    """Read the bot's text files into one labelled payload string, within a char budget.
+                     budget_chars: int = DEFAULT_BUDGET_CHARS,
+                     max_file_chars: int = MAX_FILE_CHARS) -> PayloadResult:
+    """Read the bot's text files into one labelled payload, within a char budget.
 
-    Returns ``(payload, dropped)`` where ``dropped`` lists files left out (binary or
-    over budget) so the caller can disclose them — never a silent truncation.
-    The agent never sees the filesystem; only this text is sent.
+    Returns a ``PayloadResult``. ``dropped`` lists files left out entirely (binary,
+    unreadable, or over budget); ``truncated`` lists files included head-only. Both are
+    disclosed by the caller in ``unknowns`` — never a silent partial read. The agent
+    never sees the filesystem; only ``text`` is sent.
     """
     root = Path(source_root)
     if root.is_file():
@@ -498,25 +527,27 @@ def assemble_payload(source_root: str | Path, *,
         selected.append(p)
     selected.sort(key=lambda p: (_file_priority(p), str(p)))
 
+    res = PayloadResult(text="")
     chunks: list[str] = []
-    dropped: list[str] = []
     used = 0
     for p in selected:
         rel = p.relative_to(base).as_posix()
         try:
             txt = p.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
-            dropped.append(rel)                     # binary / unreadable
+            res.dropped.append(rel)                 # binary / unreadable
             continue
-        if len(txt) > MAX_FILE_CHARS:
-            txt = txt[:MAX_FILE_CHARS] + "\n... [truncated]\n"
+        if len(txt) > max_file_chars:
+            txt = txt[:max_file_chars] + "\n... [truncated]\n"
+            res.truncated.append(rel)               # head-only inclusion, disclosed
         block = f"\n===== FILE: {rel} =====\n{txt}\n"
         if used + len(block) > budget_chars:
-            dropped.append(rel)                     # over budget
+            res.dropped.append(rel)                 # over budget
             continue
         chunks.append(block)
         used += len(block)
-    return "".join(chunks), dropped
+    res.text = "".join(chunks)
+    return res
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -586,6 +617,14 @@ def test_analyze_bot_records_dropped_in_unknowns(tmp_path):
     assert any("data.csv" in u for u in p.unknowns)
 
 
+def test_analyze_bot_discloses_truncation_in_unknowns(tmp_path):
+    from tyani_tolkai.profiler import analyze_bot, MAX_FILE_CHARS
+    (tmp_path / "big.py").write_text("z" * (MAX_FILE_CHARS + 1000), encoding="utf-8")
+
+    p = analyze_bot(tmp_path, engine="claude", runner=lambda _p: _canned())
+    assert any("head-only" in u and "big.py" in u for u in p.unknowns)
+
+
 def test_analyze_bot_repairs_once_then_succeeds(tmp_path):
     from tyani_tolkai.profiler import analyze_bot
     (tmp_path / "bot.py").write_text("x = 1\n", encoding="utf-8")
@@ -651,15 +690,19 @@ def analyze_bot(source_root: str | Path, *, engine: str = "claude",
     read-only CLI agent is used. The bot is never executed.
     """
     root = Path(source_root)
-    payload, dropped = assemble_payload(root)
-    if not payload.strip():
+    payload = assemble_payload(root)
+    if not payload.text.strip():
+        unknowns = ["could not read source: no analyzable text files found"]
+        if payload.dropped:
+            unknowns.append("unreadable: " + ", ".join(payload.dropped[:20]))
         return BotProfile(
             analyzer_engine=engine, bot_name=(root.name or "bot"),
             source_root=str(root), language="unknown", framework="unknown",
-            unknowns=["could not read source: no analyzable text files found"],
+            unknowns=unknowns,
         )
 
-    prompt = build_profiler_prompt(payload, dropped=dropped)
+    prompt = build_profiler_prompt(payload.text, dropped=payload.dropped,
+                                   truncated=payload.truncated)
     run = runner if runner is not None else _default_runner(engine, model, timeout)
 
     out = run(prompt)
@@ -677,9 +720,14 @@ def analyze_bot(source_root: str | Path, *, engine: str = "claude",
                 f"--- raw output (truncated) ---\n{out2[:4000]}"
             ) from second_err
 
-    if dropped:
+    # Disclose incomplete coverage in the profile itself — never a silent partial read.
+    if payload.dropped:
         profile.unknowns.append(
-            f"truncated: {len(dropped)} file(s) not analyzed: " + ", ".join(dropped[:20])
+            f"not analyzed ({len(payload.dropped)} file(s)): " + ", ".join(payload.dropped[:20])
+        )
+    if payload.truncated:
+        profile.unknowns.append(
+            f"analyzed head-only ({len(payload.truncated)} file(s)): " + ", ".join(payload.truncated[:20])
         )
     return profile
 ```

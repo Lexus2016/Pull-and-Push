@@ -192,7 +192,7 @@ tyani-tolkai profile <path> [--engine claude] [--out <dir>]
 |---|---|
 | Empty / unreadable source | `BotProfile(language="unknown", entry_point=None, unknowns=["could not read source"])` — no crash |
 | LLM returns non-JSON | one repair retry → then raise `ProfileError`, raw output saved for debugging |
-| Oversized bot (token budget) | include by priority (code > README > manifests; skip data/binaries); record dropped files in `unknowns` ("truncated: N files not analyzed") — **never silently dropped** |
+| Oversized bot (token budget / huge file) | include by priority (code > README > manifests; skip binaries); whole files left out are listed in `unknowns` as "not analyzed", single huge files included head-only are listed as "analyzed head-only" — **never a silent partial read** |
 | Schema invalid after repair | fail loud (no silent best-effort) |
 
 ## Testing
