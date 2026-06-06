@@ -118,18 +118,21 @@ made checkable by its `evidence`, not a quantified measurement.
 
 A new module `src/tyani_tolkai/profiler.py`, mirroring the existing
 `configurator.py` (which already does LLM-text → validated JSON). It reuses
-`agents/cli_agent.py` (subprocess CLI agent), `sandbox.py` (read-only execution
-context), and the robust JSON extraction already used by the configurator.
+`registry.build_adapter` + `agents/cli_agent.py` (subprocess CLI agent in a
+`read-only` profile) and `configurator.py`'s `extract_json` (robust `raw_decode`).
+No new sandbox machinery — P1 uses the exact isolation the configurator already
+uses (a `read-only` adapter in an empty `TemporaryDirectory`).
 
-Public entry:
+Public entry (mirrors `configurator.generate_config`):
 
 ```python
 def analyze_bot(
     source_root: Path,
     *,
-    engine: str,                 # "claude" | "codex" | ...
-    sandbox: Sandbox,
-    timeout: int,
+    engine: str = "claude",      # "claude" | "codex" | ...
+    model: str | None = None,
+    runner=None,                 # callable prompt->stdout, injectable for tests
+    timeout: int = 180,
 ) -> BotProfile: ...
 ```
 
@@ -168,11 +171,13 @@ tyani-tolkai profile <path> [--engine claude] [--out <dir>]
   transforming text → JSON. There is no bot code execution, so no bot-side RCE
   surface.
 - **Read-only is structural, not a flag.** The agent runs in an empty scratch cwd
-  and never receives the path to the bot — the bot's files reach it only as inert
-  text embedded in the prompt. So there is nothing for the agent to write to or
-  read beyond what we chose to show it; this sidesteps the project lesson that CLI
-  agents don't uniformly honour `--read-only` (only codex maps it). Network off
-  via `sandbox.py`.
+  (a `TemporaryDirectory`) and never receives the path to the bot — the bot's files
+  reach it only as inert text embedded in the prompt. So there is nothing for the
+  agent to write to or read beyond what we chose to show it; this sidesteps the
+  project lesson that CLI agents don't uniformly honour `--read-only` (only codex
+  maps it). The analyzer invokes the agent exactly like the existing
+  `configurator.py` (a `read-only` adapter profile); the bot itself never runs, so
+  the bot cannot touch the network or anything else. No new sandbox machinery for P1.
 - **Prompt-injection hardening.** The bot's source is untrusted content fed to an
   LLM; a comment/README could address the agent directly. The analyzer prompt
   frames all file contents as inert data to be described, never instructions. The
@@ -213,9 +218,8 @@ tyani-tolkai profile <path> [--engine claude] [--out <dir>]
 | `src/tyani_tolkai/profiler.py` (new) | `analyze_bot()`, payload assembly, parse/validate/repair, render |
 | `src/tyani_tolkai/profile_schema.py` (new) | the `BotProfile` pydantic models above |
 | `src/tyani_tolkai/cli.py` (edit) | add `profile` subcommand |
-| reuse `agents/cli_agent.py` | subprocess LLM call |
-| reuse `sandbox.py` | read-only, network-off execution context |
-| reuse `configurator.py` JSON-extraction | robust `raw_decode` of LLM output |
+| reuse `registry.build_adapter` + `agents/cli_agent.py` | subprocess LLM call in a `read-only` profile |
+| reuse `configurator.py` `extract_json` | robust `raw_decode` of LLM output |
 | `tests/test_profiler.py`, `tests/fixtures/...` (new) | tests above |
 
 ## Decided
