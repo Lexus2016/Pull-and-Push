@@ -68,6 +68,9 @@ class Orchestrator:
         self.consecutive_fail = 0     # consecutive hard agent failures (for escalation)
         self._reviewed_streak = False  # did the reviewer already give a rethink in this discard streak?
         self.aborted = False          # set by force_kill() — stop NOW, kill the live agent
+        # set if the SEED already meets the target on the first measurement — a mis-specified
+        # objective (target too low / trivial metric / scorer not measuring this artifact), not a win
+        self._baseline_meets_target = False
         # estimated cumulative cost (USD) across the run; restored on resume so the budget cap holds
         self.cost_total = float(run["cost_total"]) if (run and "cost_total" in run.keys()
                                                        and run["cost_total"] is not None) else 0.0
@@ -447,6 +450,21 @@ class Orchestrator:
         best = state.best_score(self.run_id)
         verdict = decide(new_score, best, cfg.evaluation.min_delta)
 
+        # Reality check: a SEED that already meets the target on the very first measurement means
+        # the objective is mis-specified (target too low / trivial metric / the scorer isn't really
+        # measuring this artifact) — not a win. After baseline pinning a normal seed reads ~0, so a
+        # first-iteration score at/above the target uniquely flags this. Surface it loudly.
+        baseline_warn = ""
+        if n == 1 and new_score >= cfg.evaluation.target_score:
+            self._baseline_meets_target = True
+            baseline_warn = (
+                f"⚠ OBJECTIVE LIKELY MIS-SPECIFIED: the starting artifact already scores "
+                f"{new_score:.1f} (target {cfg.evaluation.target_score:g}) on the FIRST measurement "
+                "— there is nothing to optimize. This almost always means the target is too low, the "
+                "metric is trivial, or the scorer is not actually measuring this artifact. Check the "
+                "target and metrics (and that the evaluation command really scores YOUR code), then "
+                "run again.")
+
         # Reviewer runs only on events that need judgement (keep / about-to-plateau), not every
         # step — see _should_review. Between reviews self.last_feedback holds the standing advice
         # for the current best, which still flows into the executor's next brief.
@@ -460,6 +478,8 @@ class Orchestrator:
             if verdict == "discard":
                 self._reviewed_streak = True   # one rethink per stuck streak (until a keep resets)
         parts = []
+        if baseline_warn:
+            parts.append(baseline_warn)
         if stats:
             parts.append(stats)
         if review:
@@ -532,6 +552,9 @@ class Orchestrator:
                 return LoopSummary("checkpoint", best, self.n)
             if best is not None and best >= cfg.evaluation.target_score:
                 self.state.set_status(self.run_id, "finished")
+                # the seed already met the target → mis-specified objective, not a real win
+                if self._baseline_meets_target:
+                    return LoopSummary("baseline_meets_target", best, self.n)
                 return LoopSummary("target", best, self.n)
             if self.plateau_count >= cfg.limits.plateau_N:
                 self.state.set_status(self.run_id, "finished")

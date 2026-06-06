@@ -185,6 +185,19 @@ def test_improving_run_reaches_target(tmp_path):
     assert summary.best_score == 100.0
     scores = [r.score for r in s.last_iterations(run_id, 10)]
     assert scores == sorted(scores)            # monotonic non-decreasing
+
+
+def test_baseline_already_meets_target_is_flagged_not_a_win(tmp_path):
+    # A SEED that already scores >= target on the FIRST measurement is a mis-specified objective
+    # (target too low / trivial metric / scorer not measuring the artifact), NOT a victory. The loop
+    # must report that — not a hollow "target reached" — and warn on the iteration's feedback.
+    edits = [_edit_val(100)]                       # first (only) measurement already meets target 100
+    orch, s, run_id = _orch(tmp_path, edits, _cfg(target=100))
+    summary = orch.run_loop()
+    assert summary.reason == "baseline_meets_target"   # NOT "target"
+    assert summary.iterations == 1
+    fb = s.last_iterations(run_id, 1)[0].feedback or ""
+    assert "MIS-SPECIFIED" in fb
     assert all(r.verdict == "keep" for r in s.last_iterations(run_id, 10))
 
 
