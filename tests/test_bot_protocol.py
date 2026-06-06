@@ -26,9 +26,9 @@ def test_seeded_oos_start_is_in_band_and_deterministic():
     a = bp.seeded_oos_start(n, seed="proj-x")
     b = bp.seeded_oos_start(n, seed="proj-x")
     assert a == b
-    assert int(0.60 * n) <= a <= int(0.80 * n)
+    assert int(0.60 * n) <= a < int(0.80 * n)
     c = bp.seeded_oos_start(n, seed="proj-y")
-    assert int(0.60 * n) <= c <= int(0.80 * n)
+    assert int(0.60 * n) <= c < int(0.80 * n)
 
 
 def test_seeded_oos_start_handles_small_n():

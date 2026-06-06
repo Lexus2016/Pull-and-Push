@@ -294,6 +294,11 @@ def score_bot(cmd, bars, *, params, seed, allow_untrusted=False,
     at an UNTRUSTED bot until P3.2 lands; for now it is for trusted/reference bots only.
     ``allow_untrusted`` is reserved and currently has no effect beyond documenting intent.
     """
+    if allow_untrusted:
+        raise NotImplementedError(
+            "running an untrusted bot requires the P3.2 OS sandbox, which is not built yet; "
+            "score_bot currently provides process separation only, for trusted/reference bots"
+        )
     oos_start = bp.seeded_oos_start(len(bars), seed=seed)
     orders = drive_bot(cmd, bars, params=params,
                        per_read_timeout=per_read_timeout, total_timeout=total_timeout)
