@@ -185,6 +185,13 @@ tyani-tolkai profile <path> [--engine claude] [--out <dir>]
   what the tool *does* — the worst case is a wrong profile, caught at human review.
   The analyzer also emits a `Risk{kind:"prompt-injection"}` when it detects such
   text in the bot.
+- **Secret-bearing files are never read or sent.** `assemble_payload` guards out
+  files whose name/suffix indicates secrets (`.env*`, `secrets.*`/`credentials.*`/
+  `*password*`, `*.pem`/`*.key`/`*.pfx`/keystores, `id_rsa`, `.npmrc`/`.netrc`, …)
+  BEFORE reading them — so a text-extension secret file (e.g. `secrets.yaml`,
+  `credentials.json`) can never be embedded in the prompt. Such files are listed in
+  `dropped` → disclosed in `unknowns` (name only, never content). This upholds the
+  hard rule: never feed credentials to an LLM.
 
 ## Error handling
 
@@ -232,3 +239,13 @@ tyani-tolkai profile <path> [--engine claude] [--out <dir>]
 - Exact token budget / file-selection thresholds for payload assembly
   (default cap ~120k tokens; tune during build).
 - `profile.md` layout (sections, ordering) — cosmetic, decided during build.
+
+## Known limitations (P1.1 follow-ups)
+
+- **Extension-less meaningful files are not analyzed** (`Dockerfile`, `Makefile`,
+  `Procfile`). They are silently not-selected (not in `dropped`), so a
+  container-defined bot could be profiled without the LLM seeing its build/run
+  definition. Acceptable for P1; add an allowlist of such filenames in P1.1.
+- **Secret detection is name/suffix based**, not content based — a secret hard-coded
+  inside an ordinary `.py`/`.json` with a non-secret name would still be sent. The
+  guard covers the common secret-file conventions, not arbitrary inline secrets.
