@@ -54,9 +54,16 @@ def test_full_profile_validates():
     )
     assert p.entry_point.location == "strategy.py:signals"
     assert p.tunable_surface[0].name == "leverage"
+    assert p.data_source.format == "csv: time,open,high,low,close,volume"
+    assert p.extractable_metrics[0].trustworthy is False
+    assert p.risks[0].severity == "high"
+    assert p.unknowns == ["fee model unclear"]
 
 
 def test_confidence_out_of_range_rejected():
     with pytest.raises(ValidationError):
         EntryPoint(kind="script", location="x.py", inputs="", outputs="",
                    confidence=1.5, evidence=[])
+    with pytest.raises(ValidationError):
+        EntryPoint(kind="script", location="x.py", inputs="", outputs="",
+                   confidence=-0.1, evidence=[])
