@@ -81,45 +81,36 @@ Karpathy's `autoresearch`, and the `consilium` adapter pattern.
 
 ## Install & run
 
-You need **Python 3.10+** and **Git**. That is enough to open the dashboard and create a
-project; to actually run an optimization you also need one AI agent CLI (step 5).
-
-**1 — Get the code**
+You need **Python 3.10+** (CPython, not PyPy) and **Git**. To run a real optimization you
+also need one AI agent CLI (see the bottom of this section).
 
 ```bash
 git clone https://github.com/Lexus2016/Pull-and-Push.git
 cd Pull-and-Push
+./start.sh
 ```
 
-**2 — Create an isolated environment and install**
+`start.sh` creates the virtualenv, installs everything, and opens the dashboard at
+**http://127.0.0.1:8765**. It is re-runnable — pass `--port 8080` to use another port, or
+`--update` to reinstall after a `git pull`. Then, in the browser: **🚀 New project from an
+example** → pick a card → name it → describe the goal → **Create** → press **▶ Run**.
+
+To run a *real* optimization you need one AI coding CLI (no API keys are stored here):
+install and log in to **claude** (Anthropic), **codex** (OpenAI), or **opencode**, then pick
+it in the project. Tip: use *different* providers for the executor and the validator.
+
+<details><summary><b>Prefer to install by hand (or on Windows)?</b></summary>
 
 ```bash
 python3.12 -m venv .venv           # any CPython 3.10+ works (not PyPy)
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -e ".[web]"
+pull-and-push web                  # then open the printed URL (default http://127.0.0.1:8765)
 ```
 
-**3 — Start the dashboard**
+Run the tests: `pip install -e ".[dev]"` then `pytest` (151 pass, 1 docker test skipped).
 
-```bash
-pull-and-push web
-```
-
-Open the URL it prints — by default **http://127.0.0.1:8765**.
-
-**4 — Create your first project (in the browser)**
-
-Click **🚀 New project from an example** → pick a card → give it a name → describe the goal
-→ **Create** → press **▶ Run**.
-
-**5 — To run a real optimization, add an agent CLI**
-
-Pull-and-Push drives an existing AI coding CLI; no API keys are stored here. Install and log
-in to at least one, then choose it in the project: **claude** (Anthropic), **codex** (OpenAI),
-or **opencode**. Tip: use *different* providers for the executor and the validator — the same
-model on both sides shares blind spots.
-
-> **Run the tests?** `pip install -e ".[dev]"` then `pytest` — 151 pass (1 docker test skipped).
+</details>
 
 ## Configuration & troubleshooting
 
