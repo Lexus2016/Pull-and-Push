@@ -265,3 +265,18 @@ def test_render_markdown_empty_profile_uses_fallbacks():
     assert "_none found_" in md               # tunable surface / metrics fallback
     assert "_none flagged_" in md             # risks fallback
     assert "_none_" in md                     # unknowns fallback
+
+
+def test_assemble_payload_skips_sensitive_files(tmp_path):
+    from tyani_tolkai.profiler import assemble_payload
+    (tmp_path / "strategy.py").write_text("PARAMS = {}\n", encoding="utf-8")
+    (tmp_path / "secrets.yaml").write_text("api_key: SECRET123\n", encoding="utf-8")
+    (tmp_path / "credentials.json").write_text('{"token": "abc"}\n', encoding="utf-8")
+    (tmp_path / ".env.local").write_text("API_KEY=zzz\n", encoding="utf-8")
+    res = assemble_payload(tmp_path)
+    assert "strategy.py" in res.text
+    assert "SECRET123" not in res.text            # secret CONTENT never embedded
+    assert "abc" not in res.text
+    assert "zzz" not in res.text
+    assert "secrets.yaml" in res.dropped
+    assert "credentials.json" in res.dropped

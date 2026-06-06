@@ -121,6 +121,22 @@ _TEXT_EXT = _CODE_EXT | {".json", ".yaml", ".yml", ".toml", ".cfg", ".ini",
                          ".txt", ".md", ".csv"}
 _MANIFESTS = {"requirements.txt", "package.json", "pyproject.toml", "cargo.toml",
               "setup.py", "go.mod", "gemfile", "environment.yml"}
+_SENSITIVE_SUFFIXES = {".pem", ".key", ".pfx", ".p12", ".keystore", ".crt", ".cer"}
+_SENSITIVE_NAMES = {"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
+                    ".npmrc", ".pypirc", ".netrc", ".htpasswd", ".pgpass"}
+_SENSITIVE_SUBSTRINGS = ("secret", "credential", "password", "passwd")
+
+
+def _is_sensitive(p: Path) -> bool:
+    """True if a file likely contains secrets — never read or send it to the LLM."""
+    name = p.name.lower()
+    if name.startswith(".env"):
+        return True
+    if name in _SENSITIVE_NAMES:
+        return True
+    if p.suffix.lower() in _SENSITIVE_SUFFIXES:
+        return True
+    return any(s in name for s in _SENSITIVE_SUBSTRINGS)
 
 
 @dataclass
@@ -174,6 +190,9 @@ def assemble_payload(source_root: str | Path, *,
     used = 0
     for p in selected:
         rel = p.relative_to(base).as_posix()
+        if _is_sensitive(p):
+            res.dropped.append(rel)            # never read or send a secrets file to the LLM
+            continue
         try:
             with p.open("r", encoding="utf-8") as fh:
                 txt = fh.read(max_file_chars + 1)   # bounded: never load a huge file fully; +1 detects "longer than cap"
