@@ -42,3 +42,17 @@ def test_bot_name_from_llm_preserved():
     text = "```json\n" + json.dumps(payload) + "\n```"
     p = parse_profile(text, engine="codex", source_root="/tmp/foo")
     assert p.bot_name == "my-bot"   # LLM-supplied value survives setdefault
+
+
+def test_build_profiler_prompt_contains_guardrails():
+    from tyani_tolkai.profiler import build_profiler_prompt
+    prompt = build_profiler_prompt("===== FILE: a.py =====\nx = 1\n", dropped=["big.csv"])
+    # payload is embedded
+    assert "===== FILE: a.py =====" in prompt
+    # injection framing + output discipline are present
+    assert "inert data" in prompt.lower()
+    assert "unknowns" in prompt.lower()
+    assert "path:line" in prompt.lower()
+    assert "json" in prompt.lower()
+    # dropped files are disclosed to the model
+    assert "big.csv" in prompt
