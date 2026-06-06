@@ -59,3 +59,59 @@ def test_build_profiler_prompt_contains_guardrails():
     prompt2 = build_profiler_prompt("payload", truncated=["large.py"])
     assert "large.py" in prompt2
     assert "INCLUDED ONLY IN PART" in prompt2
+
+
+def test_assemble_payload_labels_files_and_skips_binary(tmp_path):
+    from tyani_tolkai.profiler import assemble_payload
+    (tmp_path / "strategy.py").write_text("PARAMS = {}\n", encoding="utf-8")
+    (tmp_path / "README.md").write_text("# my bot\n", encoding="utf-8")
+    (tmp_path / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\x00\x01binary")  # non-text ext → ignored
+    (tmp_path / "data.csv").write_bytes(b"\xff\xfe\x00\x01\x02\x03bad")       # text ext, undecodable → dropped
+    (tmp_path / ".git").mkdir()
+    (tmp_path / ".git" / "HEAD").write_text("ref: x\n", encoding="utf-8")
+
+    res = assemble_payload(tmp_path)
+
+    assert "FILE: strategy.py" in res.text
+    assert "FILE: README.md" in res.text
+    assert "PARAMS = {}" in res.text
+    assert "logo.png" not in res.text        # non-text extension: not source, not embedded, not dropped
+    assert "data.csv" in res.dropped         # text ext but undecodable → recorded in dropped
+    assert "HEAD" not in res.text            # .git skipped entirely
+
+
+def test_assemble_payload_single_file(tmp_path):
+    from tyani_tolkai.profiler import assemble_payload
+    f = tmp_path / "bot.py"
+    f.write_text("x = 1\n", encoding="utf-8")
+    res = assemble_payload(f)
+    assert "FILE: bot.py" in res.text
+    assert res.dropped == []
+    assert res.truncated == []
+
+
+def test_assemble_payload_budget_drops_overflow(tmp_path):
+    from tyani_tolkai.profiler import assemble_payload
+    (tmp_path / "a.py").write_text("a" * 50, encoding="utf-8")
+    (tmp_path / "b.py").write_text("b" * 5000, encoding="utf-8")
+    res = assemble_payload(tmp_path, budget_chars=200)
+    # at least one file dropped for budget; payload stays under a sane bound
+    assert res.dropped != []
+    assert len(res.text) <= 400
+
+
+def test_assemble_payload_truncates_large_file(tmp_path):
+    from tyani_tolkai.profiler import assemble_payload
+    (tmp_path / "big.py").write_text("z" * 500, encoding="utf-8")
+    res = assemble_payload(tmp_path, max_file_chars=10)
+    assert "big.py" in res.truncated         # head-only inclusion is disclosed
+    assert "[truncated]" in res.text
+    assert res.dropped == []                 # truncated ≠ dropped
+
+
+def test_assemble_payload_empty_dir(tmp_path):
+    from tyani_tolkai.profiler import assemble_payload
+    res = assemble_payload(tmp_path)
+    assert res.text == ""
+    assert res.dropped == []
+    assert res.truncated == []

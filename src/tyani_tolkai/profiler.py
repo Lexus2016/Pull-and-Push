@@ -8,6 +8,7 @@ never receives the bot's path.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from .configurator import extract_json
@@ -101,3 +102,84 @@ def build_profiler_prompt(payload: str, *, dropped: Sequence[str] = (),
             "treat their tail as unanalyzed: " + ", ".join(truncated)
         )
     return "".join(parts)
+
+
+# --- payload assembly constants ---
+DEFAULT_BUDGET_CHARS = 480_000          # ~120k tokens of bot source
+MAX_FILE_CHARS = 20_000                 # cap any single file (a big CSV reveals format in its head)
+_SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv",
+              ".mypy_cache", ".pytest_cache", ".idea", "dist", "build"}
+_CODE_EXT = {".py", ".js", ".ts", ".go", ".rs", ".java", ".cpp", ".c", ".h",
+             ".rb", ".jl", ".r", ".sh", ".ipynb"}
+_TEXT_EXT = _CODE_EXT | {".json", ".yaml", ".yml", ".toml", ".cfg", ".ini",
+                         ".txt", ".md", ".csv"}
+_MANIFESTS = {"requirements.txt", "package.json", "pyproject.toml", "cargo.toml",
+              "setup.py", "go.mod", "gemfile", "environment.yml"}
+
+
+@dataclass
+class PayloadResult:
+    text: str                                       # the embedded, labelled bot source
+    dropped: list[str] = field(default_factory=list)    # NOT analyzed (binary/unreadable/over budget)
+    truncated: list[str] = field(default_factory=list)  # included head-only (tail cut)
+
+
+def _file_priority(p: Path) -> int:
+    name = p.name.lower()
+    if name.startswith("readme"):
+        return 1
+    if name in _MANIFESTS:
+        return 2
+    if p.suffix.lower() in _CODE_EXT:
+        return 0                        # code first
+    return 3
+
+
+def assemble_payload(source_root: str | Path, *,
+                     budget_chars: int = DEFAULT_BUDGET_CHARS,
+                     max_file_chars: int = MAX_FILE_CHARS) -> PayloadResult:
+    """Read the bot's text files into one labelled payload, within a char budget.
+
+    Returns a ``PayloadResult``. ``dropped`` lists files left out entirely (binary,
+    unreadable, or over budget); ``truncated`` lists files included head-only. Both are
+    disclosed by the caller in ``unknowns`` — never a silent partial read. The agent
+    never sees the filesystem; only ``text`` is sent.
+    """
+    root = Path(source_root)
+    if root.is_file():
+        base = root.parent
+        candidates = [root]
+    else:
+        base = root
+        candidates = sorted(p for p in root.rglob("*") if p.is_file())
+
+    selected: list[Path] = []
+    for p in candidates:
+        if any(part in _SKIP_DIRS for part in p.relative_to(base).parts[:-1]):
+            continue
+        if p.suffix.lower() not in _TEXT_EXT:
+            continue
+        selected.append(p)
+    selected.sort(key=lambda p: (_file_priority(p), str(p)))
+
+    res = PayloadResult(text="")
+    chunks: list[str] = []
+    used = 0
+    for p in selected:
+        rel = p.relative_to(base).as_posix()
+        try:
+            txt = p.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError):
+            res.dropped.append(rel)                 # binary / unreadable
+            continue
+        if len(txt) > max_file_chars:
+            txt = txt[:max_file_chars] + "\n... [truncated]\n"
+            res.truncated.append(rel)               # head-only inclusion, disclosed
+        block = f"\n===== FILE: {rel} =====\n{txt}\n"
+        if used + len(block) > budget_chars:
+            res.dropped.append(rel)                 # over budget
+            continue
+        chunks.append(block)
+        used += len(block)
+    res.text = "".join(chunks)
+    return res
