@@ -13,6 +13,7 @@ import sys
 from pathlib import Path
 
 from .config import Config, load_config
+from .profiler import analyze_bot as _analyze_bot, render_markdown as _render_markdown
 from .metrics import get_metric_adapter
 from .orchestrator import Orchestrator
 from .projects import (
@@ -110,6 +111,23 @@ def cmd_projects(args) -> int:
     return 0
 
 
+def cmd_profile(args) -> int:
+    """Analyze an existing bot (read-only) and write profile.json + profile.md."""
+    from pathlib import Path
+
+    src = Path(args.path)
+    if not src.exists():
+        print(f"path not found: {src}")
+        return 2
+    profile = _analyze_bot(src, engine=args.engine, model=args.model, timeout=args.timeout)
+    out_dir = Path(args.out) if args.out else Path.cwd()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "profile.json").write_text(profile.model_dump_json(indent=2), encoding="utf-8")
+    (out_dir / "profile.md").write_text(_render_markdown(profile), encoding="utf-8")
+    print(f"wrote {out_dir / 'profile.json'} and {out_dir / 'profile.md'}")
+    return 0
+
+
 def cmd_web(args) -> int:
     from .web.server import create_app
     import logging
@@ -149,6 +167,14 @@ def main(argv=None) -> int:
     pw.add_argument("--port", type=int, default=8765)
     pw.add_argument("--password", default=None, help="protect the UI (else open locally)")
     pw.set_defaults(func=cmd_web)
+
+    pf = sub.add_parser("profile", help="analyze an existing bot (read-only) -> BotProfile")
+    pf.add_argument("path", help="path to the bot file or directory")
+    pf.add_argument("--engine", default="claude", help="LLM engine (default: claude)")
+    pf.add_argument("--model", default=None, help="optional model override")
+    pf.add_argument("--out", default=None, help="output dir for profile.json/md (default: cwd)")
+    pf.add_argument("--timeout", type=int, default=180, help="agent timeout seconds")
+    pf.set_defaults(func=cmd_profile)
 
     args = p.parse_args(argv)
     return args.func(args)
