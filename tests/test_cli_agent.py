@@ -1,3 +1,6 @@
+import os
+import sys
+
 from tyani_tolkai.agents.cli_agent import CLIAgentAdapter, build_cli_prefix
 
 
@@ -37,13 +40,17 @@ def test_subprocess_detaches_stdin_and_new_session(tmp_path):
         CLIAgentAdapter(["true"], engine="claude").run("brief", tmp_path, "read-only", 5)
     k = m.call_args[1]
     assert k.get("stdin") == sp.DEVNULL
-    assert k.get("start_new_session") is True
+    # detach kwarg differs by OS: new process group on Windows, new session on POSIX
+    if os.name == "nt":
+        assert "creationflags" in k
+    else:
+        assert k.get("start_new_session") is True
 
 
 def test_kill_terminates_a_running_agent(tmp_path):
     # a real long-running child must die promptly when kill() is called from another thread
     import threading, time
-    adapter = CLIAgentAdapter(["/bin/sh", "-c", "sleep 30", "sh"])
+    adapter = CLIAgentAdapter([sys.executable, "-c", "import time; time.sleep(30)"])
     result = {}
     t = threading.Thread(target=lambda: result.update(
         r=adapter.run("brief", tmp_path, "writeable", 30)))
@@ -56,8 +63,8 @@ def test_kill_terminates_a_running_agent(tmp_path):
 
 
 def test_cli_adapter_runs_subprocess_and_edits(tmp_path):
-    # fake "agent": writes the brief ($1) into out.txt inside the workdir
-    adapter = CLIAgentAdapter(["/bin/sh", "-c", 'printf "%s" "$1" > out.txt', "sh"])
+    # fake "agent" (portable): writes the brief (last argv) into out.txt inside the workdir
+    adapter = CLIAgentAdapter([sys.executable, "-c", "import sys; open('out.txt','w').write(sys.argv[1])"])
     res = adapter.run("hello-brief", tmp_path, "writeable", 10)
     assert res.status == "success"
     assert (tmp_path / "out.txt").read_text() == "hello-brief"
@@ -66,7 +73,7 @@ def test_cli_adapter_runs_subprocess_and_edits(tmp_path):
 def test_writeable_tees_output_to_agent_log(tmp_path):
     # executor (writeable) output is captured to <project>/agent.log for live monitoring
     wd = tmp_path / "artifact"; wd.mkdir()
-    adapter = CLIAgentAdapter(["/bin/sh", "-c", "echo HELLO-AGENT", "sh"])
+    adapter = CLIAgentAdapter([sys.executable, "-c", "print('HELLO-AGENT')"])
     res = adapter.run("brief", wd, "writeable", 10)
     assert res.status == "success" and "HELLO-AGENT" in res.stdout
     assert "HELLO-AGENT" in (tmp_path / "agent.log").read_text()   # file outside artifact tree
@@ -169,7 +176,8 @@ def test_pipe_logged_path_tees_output(tmp_path):
     # the no-PTY logged runner (the Windows path) also works on POSIX: capture + tee to agent.log
     from tyani_tolkai.agents.cli_agent import CLIAgentAdapter
     wd = tmp_path / "artifact"; wd.mkdir()
-    a = CLIAgentAdapter(["/bin/sh", "-c", "echo HELLO-PIPE", "sh"])
-    res = a._run_pipe_logged(["/bin/sh", "-c", "echo HELLO-PIPE", "sh"], wd, 10)
+    fake = [sys.executable, "-c", "print('HELLO-PIPE')"]
+    a = CLIAgentAdapter(fake)
+    res = a._run_pipe_logged([*fake, "brief"], wd, 10)
     assert res.status == "success" and "HELLO-PIPE" in res.stdout
     assert "HELLO-PIPE" in (tmp_path / "agent.log").read_text()

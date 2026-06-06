@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 
@@ -15,7 +16,11 @@ def _docker_up() -> bool:
         return False
 
 
-docker = pytest.mark.skipif(not _docker_up(), reason="docker daemon not available")
+# DockerBackend isolates untrusted code in a LINUX container; skip the live run on Windows
+# (the runner's docker is in Windows-container mode and can't pull a linux image) and when
+# no docker daemon is reachable. The non-live config test below still runs everywhere.
+docker = pytest.mark.skipif(os.name == "nt" or not _docker_up(),
+                            reason="docker linux-container run not applicable on Windows / no daemon")
 
 
 def test_get_backend_docker_configures():
