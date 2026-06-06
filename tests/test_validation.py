@@ -93,3 +93,37 @@ def test_hash_artifacts_missing_file_raises(tmp_path):
 def test_insample_oos_gap():
     assert insample_oos_gap({"in_sample_return_pct": 50.0, "return_oos_pct": 10.0}) == 40.0
     assert insample_oos_gap({"in_sample_return_pct": 5.0, "return_oos_pct": 8.0}) == -3.0
+
+
+def test_build_evidence_report_pass_and_flag():
+    from tyani_tolkai.validation import build_evidence_report
+    hashes = {"engine": "a" * 64, "data": "b" * 64, "config": "c" * 64}
+    controls = {"flat": {"return_oos_pct": 0.0}, "random": {"return_oos_pct": 3.0},
+                "buy_and_hold": {"return_oos_pct": 8.0}}
+
+    # PASS: bot beats flat+random, deterministic, small gap
+    md = build_evidence_report(
+        bot_name="mybot",
+        bot_metrics={"return_oos_pct": 12.0, "in_sample_return_pct": 14.0},
+        control_metrics=controls,
+        beats={"beats_flat": True, "beats_random": True},
+        determinism_ok=True, hashes=hashes, gap=2.0,
+    )
+    assert md.startswith("# Evidence Report")
+    assert "mybot" in md
+    assert "## Provenance" in md and "a" * 64 in md           # hashes surfaced
+    assert "## Control spectrum" in md and "buy_and_hold" in md and "12.0" in md
+    assert "## Determinism" in md
+    assert "PASS" in md
+    assert "flat" in md and "random" in md
+
+    # FLAG: bot loses to flat
+    md2 = build_evidence_report(
+        bot_name="weak",
+        bot_metrics={"return_oos_pct": -2.0, "in_sample_return_pct": 50.0},
+        control_metrics=controls,
+        beats={"beats_flat": False, "beats_random": False},
+        determinism_ok=True, hashes=hashes, gap=52.0,
+    )
+    assert "FLAG" in md2
+    assert "does not beat" in md2.lower() or "beats_flat" in md2.lower()   # reason surfaced

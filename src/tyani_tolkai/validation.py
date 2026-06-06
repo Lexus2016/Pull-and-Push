@@ -74,3 +74,58 @@ def hash_artifacts(*, engine_path, data_path, config: dict) -> dict[str, str]:
 def insample_oos_gap(metrics: dict) -> float:
     """In-sample minus out-of-sample return (large positive = overfitting signal)."""
     return metrics["in_sample_return_pct"] - metrics["return_oos_pct"]
+
+
+# A large in-sample-minus-OOS gap (percentage points) is treated as an overfit warning.
+_OVERFIT_GAP_FLAG = 30.0
+
+
+def build_evidence_report(*, bot_name: str, bot_metrics: dict, control_metrics: dict,
+                          beats: dict, determinism_ok: bool, hashes: dict, gap: float) -> str:
+    """Render the secondary-validation evidence report (Markdown) for human approval.
+
+    Overall verdict is FLAG if the bot fails to beat a control, is non-deterministic, or shows a
+    large in-sample/OOS overfit gap; otherwise PASS. These are SECONDARY checks — a PASS is
+    supporting evidence, not a guarantee.
+    """
+    reasons = []
+    if not beats.get("beats_flat", False):
+        reasons.append("does not beat the flat (do-nothing) baseline")
+    if not beats.get("beats_random", False):
+        reasons.append("does not beat the random baseline")
+    if not determinism_ok:
+        reasons.append("non-deterministic (same input produced different scores)")
+    if gap > _OVERFIT_GAP_FLAG:
+        reasons.append(f"large in-sample/OOS gap ({gap:.1f} pts) — possible overfitting")
+    verdict = "PASS" if not reasons else "FLAG"
+
+    out: list[str] = []
+    out.append(f"# Evidence Report — {bot_name}\n")
+    out.append("> SECONDARY checks. A PASS is supporting evidence, not a guarantee; the vetted "
+               "engine + sandbox remain the trust mechanism.\n")
+
+    out.append("## Provenance (approve this exact frozen triple)")
+    out.append(f"- engine: `{hashes.get('engine', '?')}`")
+    out.append(f"- data:   `{hashes.get('data', '?')}`")
+    out.append(f"- config: `{hashes.get('config', '?')}`\n")
+
+    out.append("## Control spectrum (scored by the same vetted engine)")
+    out.append(f"- flat:         {control_metrics['flat']['return_oos_pct']}")
+    out.append(f"- random:       {control_metrics['random']['return_oos_pct']}")
+    out.append(f"- buy_and_hold: {control_metrics['buy_and_hold']['return_oos_pct']}")
+    out.append(f"- **{bot_name}: {bot_metrics['return_oos_pct']}**  "
+               f"(beats flat: {beats.get('beats_flat')}, beats random: {beats.get('beats_random')})\n")
+
+    out.append("## Determinism")
+    out.append(f"- {'OK — identical scores across runs' if determinism_ok else 'FAILED — scores diverged'}\n")
+
+    out.append("## Overfit gap")
+    out.append(f"- in-sample minus OOS return: {gap:.1f} pts"
+               f"{' (FLAGGED)' if gap > _OVERFIT_GAP_FLAG else ''}\n")
+
+    out.append(f"## Overall: {verdict}")
+    if reasons:
+        for r in reasons:
+            out.append(f"- {r}")
+    out.append("")
+    return "\n".join(out)
