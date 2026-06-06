@@ -32,70 +32,40 @@ def test_flat_market_long_no_profit_only_fees():
     assert m["return_oos_pct"] <= 0.0     # flat market: only commission lost, never profit
 
 
-# Hand-computed PnL correctness test
+# ---------------------------------------------------------------------------
+# Hand-computed PnL — HARDCODED regression anchor.
+#
+# The expected return is a HARDCODED literal (19.781), NOT recomputed with the
+# engine's own arithmetic. A shared formula error therefore cannot hide. The
+# literal was confirmed by independent hand arithmetic below.
+#
 # Setup:
-#   - 5 bars total, price = [100, 100, 100, 110, 100]
-#   - orders =       [0,   0,   1,   -1,  0  ]
+#   - 5 bars, close price = [100, 100, 100, 110, 100]
+#   - orders =              [0,   0,   1,   -1,  0  ]
 #   - oos_start = 2  (OOS covers bars 2,3,4)
 #   - params: leverage=2.0, risk_frac=0.5, stop_pct=50.0, take_pct=0.0
-#     (stop_pct=50% → stop at 50, liquidation at 50 — never triggers on 10% move)
+#     (stop_pct=50% -> stop at 50, liquidation at 50 -> never triggers on a 10% move)
 #
-# Execution trace:
-#   bar 0 (i=0): want=0, no pos → nothing
-#   bar 1 (i=1): want=0, no pos → nothing
-#   bar 2 (i=2): i==oos_start → oos.eq0 = 100.0 (START_EQUITY, no fees yet)
-#                want=1, pos is None → OPEN LONG at close=100.0
-#                  margin = 0.5 * 100.0 = 50.0
-#                  notional = 50.0 * 2.0 = 100.0
-#                  entry_fee = 100.0 * 0.0005 = 0.05
-#                  equity = 100.0 - 0.05 = 99.95
-#                  stop = 100 * (1 - 0.50) = 50.0
-#                  liq  = 100 * (1 - 1/2)  = 50.0
-#   bar 3 (i=3): pos exists, side=1, lo=110 > liq(50) and lo > stop(50) → no trigger
-#                want=-1, pos.side=1, want != pos.side → close at close=110.0
-#                  move = (110 - 100)/100 * 1 = 0.10
-#                  gross = 100.0 * 0.10 - 100.0 * 0.0005 = 10.0 - 0.05 = 9.95
-#                  equity = 99.95 + 9.95 = 109.90
-#                  trade PnL recorded = gross - entry_fee = 9.95 - 0.05 = 9.90
-#                want=-1 now, pos is None → OPEN SHORT at close=110.0
-#                  margin = 0.5 * 109.90 = 54.95
-#                  notional = 54.95 * 2.0 = 109.90
-#                  entry_fee2 = 109.90 * 0.0005 = 0.054950
-#                  equity = 109.90 - 0.054950 = 109.845050
-#   bar 4 (i=4): pos exists, side=-1, hi=100 < liq_short(110*(1+0.5)=165) → no liq
-#                hi=100 < stop_short(110*(1+0.50)=165) → no stop trigger
-#                want=0, pos not None, want==0 → no close (only close when want != 0 and want != side)
-#                [pos remains open, not closed mid-run by want=0]
-#   End of bars: pos not None → close at bars[-1][4] = close of bar 4 = 100.0
-#                move = (100 - 110)/110 * (-1) = (-10/110) * (-1) = 10/110
-#                gross = 109.90 * (10/110) - 109.90 * 0.0005
-#                      = 9.99090909... - 0.054950 = 9.935959...
-#                equity = 109.845050 + 9.935959... = 119.781009...
-#
-# oos_eq0 = 100.0 (equity at i==oos_start, before open on that bar)
-# return_oos_pct = (final_equity / 100.0 - 1.0) * 100.0
-#
-# But wait: the harness sets oos.eq0 at i==oos_start BEFORE the trade processing on that bar.
-# At i=2, equity is still 100.0 before any trade → oos.eq0 = 100.0
-#
-# Let's compute final_equity more precisely:
-# After bar 2 open: equity = 100.0 - 0.05 = 99.95
-# After bar 3 close+open:
-#   close long:  gross = 100*0.10 - 100*0.0005 = 9.95; equity = 99.95 + 9.95 = 109.90
-#   open short:  entry_fee2 = 109.90*0.5*2*0.0005 = 0.05495; equity = 109.90 - 0.05495 = 109.84505
-# After final close of short at price 100:
-#   notional_short = 109.90*0.5*2 = 109.90
-#   move = (100 - 110)/110 * (-1) = 10/110
-#   gross2 = 109.90 * (10/110) - 109.90 * 0.0005
-#           = 9.990909090... - 0.05495 = 9.935959...
-#   equity_final = 109.84505 + 9.935959... = 119.781009...
-#
-# return_oos_pct = (119.781009... / 100.0 - 1.0) * 100.0 = 19.781009...%
-#
-# We check with a generous tolerance (1e-4) to allow for floating-point.
-
+# Execution trace (COMMISSION=0.0005, START_EQUITY=100):
+#   bar 2 (i==oos_start): oos.eq0 = 100.0 (captured before the trade on this bar)
+#                         OPEN LONG at close=100.0
+#                           margin   = 0.5 * 100 = 50.0
+#                           notional = 50 * 2    = 100.0
+#                           entry_fee= 100 * 0.0005 = 0.05  -> equity = 99.95
+#   bar 3: close long at 110 (opposite order want=-1)
+#                           move  = (110-100)/100 = 0.10
+#                           gross = 100*0.10 - 100*0.0005 = 9.95 -> equity = 109.90
+#                         OPEN SHORT at close=110.0
+#                           margin   = 0.5 * 109.90 = 54.95
+#                           notional = 54.95 * 2    = 109.90
+#                           entry_fee= 109.90*0.0005 = 0.05495 -> equity = 109.84505
+#   bar 4: want=0 -> no close (want==0 never closes); position stays open
+#   END: close open short at bars[-1][3] (close = 100.0)
+#                           move  = (100-110)/110 * (-1) = 10/110
+#                           gross = 109.90*(10/110) - 109.90*0.0005 = 9.935959...
+#                           equity_final = 109.84505 + 9.935959... = 119.781009...
+#   return_oos_pct = (119.781009.../100 - 1)*100 = 19.781009... -> round(.,4) = 19.781
 def test_hand_computed_trade_pnl():
-    # prices: bar0=100, bar1=100, bar2=100, bar3=110, bar4=100
     bars = [
         (100.0, 100.0, 100.0, 100.0, 1.0),
         (100.0, 100.0, 100.0, 100.0, 1.0),
@@ -106,39 +76,132 @@ def test_hand_computed_trade_pnl():
     orders = [0, 0, 1, -1, 0]
     params = {"leverage": 2.0, "risk_frac": 0.5, "stop_pct": 50.0, "take_pct": 0.0}
 
-    COMMISSION = 0.0005
-    START_EQUITY = 100.0
-
-    # --- hand calculation ---
-    # bar 2: open long at 100.0
-    eq0 = START_EQUITY  # oos.eq0 captured at start of bar 2 (before trade)
-    margin1 = 0.5 * START_EQUITY           # 50.0
-    notional1 = margin1 * 2.0              # 100.0
-    entry_fee1 = notional1 * COMMISSION    # 0.05
-    eq_after_open = START_EQUITY - entry_fee1  # 99.95
-
-    # bar 3: close long at 110.0, then open short at 110.0
-    move1 = (110.0 - 100.0) / 100.0       # 0.10
-    gross1 = notional1 * move1 - notional1 * COMMISSION  # 9.95
-    eq_after_close = eq_after_open + gross1   # 109.90
-
-    margin2 = 0.5 * eq_after_close        # 54.95
-    notional2 = margin2 * 2.0             # 109.90
-    entry_fee2 = notional2 * COMMISSION   # 0.05495
-    eq_after_open2 = eq_after_close - entry_fee2  # 109.84505
-
-    # bar 4: no close; end-of-run: close short at 100.0
-    move2 = (100.0 - 110.0) / 110.0 * (-1)   # 10/110
-    gross2 = notional2 * move2 - notional2 * COMMISSION
-    eq_final = eq_after_open2 + gross2
-
-    expected_return_oos = (eq_final / eq0 - 1.0) * 100.0
-
     m = simulate(bars, orders, oos_start=2, params=params)
 
-    assert abs(m["return_oos_pct"] - expected_return_oos) < 1e-4, (
-        f"return_oos_pct={m['return_oos_pct']!r}, expected={expected_return_oos!r}"
+    # HARDCODED anchor — independently verified by the hand trace above.
+    assert abs(m["return_oos_pct"] - 19.781) < 1e-3, (
+        f"return_oos_pct={m['return_oos_pct']!r}, expected 19.781"
     )
     # OOS trades: long (closed in OOS) + short (closed at end)
     assert m["num_trades"] == 2
     assert m["liquidations"] == 0
+
+
+# ---------------------------------------------------------------------------
+# LIQUIDATION — long position whose liq level is pierced.
+#
+#   params: leverage=5.0 -> liq = entry*(1 - 1/5) = entry*0.80 = 80.0
+#           risk_frac=0.5, stop_pct=50% (stop=50, well below liq so liq fires first)
+#   bars (close): [100,100,100,79,79], orders=[0,0,1,0,0], oos_start=2
+#
+# Trace:
+#   bar 2: OPEN LONG at 100
+#            margin   = 0.5*100 = 50.0
+#            notional = 50*5     = 250.0
+#            entry_fee= 250*0.0005 = 0.125 -> equity = 99.875
+#            liq = 100*(1 - 1/5) = 80.0
+#   bar 3: low = 79.0 <= liq(80.0) -> LIQUIDATE
+#            equity -= margin  =>  99.875 - 50.0 = 49.875
+#   return_oos_pct = (49.875/100 - 1)*100 = -50.125
+#
+# Equity drops by EXACTLY the margin (50.0): 99.875 -> 49.875.
+def test_liquidation_hits_and_wipes_margin():
+    bars = [
+        (100.0, 100.0, 100.0, 100.0, 1.0),
+        (100.0, 100.0, 100.0, 100.0, 1.0),
+        (100.0, 100.0, 100.0, 100.0, 1.0),
+        (100.0, 100.0, 79.0, 79.0, 1.0),   # low pierces liq=80
+        (79.0, 79.0, 79.0, 79.0, 1.0),
+    ]
+    orders = [0, 0, 1, 0, 0]
+    params = {"leverage": 5.0, "risk_frac": 0.5, "stop_pct": 50.0, "take_pct": 0.0}
+
+    m = simulate(bars, orders, oos_start=2, params=params)
+
+    assert m["liquidations"] == 1
+    assert m["num_trades"] == 1
+    # HARDCODED anchor: equity 99.875 -> 49.875 (lost exactly the 50.0 margin).
+    assert abs(m["return_oos_pct"] - (-50.125)) < 1e-3, (
+        f"return_oos_pct={m['return_oos_pct']!r}, expected -50.125"
+    )
+
+
+# ---------------------------------------------------------------------------
+# STOP-LOSS — long closes at the STOP PRICE, not the bar close.
+#
+#   params: leverage=2.0 -> liq = 100*(1-1/2) = 50.0
+#           stop_pct=5% -> stop = 100*(1-0.05) = 95.0
+#   bars (close): [100,100,100,96,96], with bar 3 LOW=94 (pierces stop=95, NOT liq=50)
+#   orders=[0,0,1,0,0], oos_start=2
+#
+# Trace:
+#   bar 2: OPEN LONG at 100
+#            margin=50, notional=100, entry_fee=0.05 -> equity=99.95
+#            stop=95.0, liq=50.0
+#   bar 3: low=94 <= stop(95) and > liq(50) -> CLOSE AT STOP PRICE 95.0 (NOT close 96)
+#            move = (95-100)/100 = -0.05
+#            gross= 100*(-0.05) - 100*0.0005 = -5.0 - 0.05 = -5.05
+#            equity = 99.95 - 5.05 = 94.90
+#   return_oos_pct = (94.90/100 - 1)*100 = -5.10
+#
+# Sanity: closing at the bar close (96) instead would give -4.10, so -5.10
+# proves the exit used the STOP price.
+def test_stop_loss_closes_at_stop_price():
+    bars = [
+        (100.0, 100.0, 100.0, 100.0, 1.0),
+        (100.0, 100.0, 100.0, 100.0, 1.0),
+        (100.0, 100.0, 100.0, 100.0, 1.0),
+        (100.0, 100.0, 94.0, 96.0, 1.0),   # low=94 pierces stop=95, not liq=50
+        (96.0, 96.0, 96.0, 96.0, 1.0),
+    ]
+    orders = [0, 0, 1, 0, 0]
+    params = {"leverage": 2.0, "risk_frac": 0.5, "stop_pct": 5.0, "take_pct": 0.0}
+
+    m = simulate(bars, orders, oos_start=2, params=params)
+
+    assert m["num_trades"] == 1
+    assert m["liquidations"] == 0
+    # HARDCODED anchor: closed at stop=95 -> -5.10 (NOT -4.10 from bar close 96).
+    assert abs(m["return_oos_pct"] - (-5.1)) < 1e-3, (
+        f"return_oos_pct={m['return_oos_pct']!r}, expected -5.1"
+    )
+
+
+# ---------------------------------------------------------------------------
+# SHORT trade — profits when price FALLS (sign correctness).
+#
+#   params: leverage=2.0, risk_frac=0.5, stop_pct=50% (no trigger), take_pct=0
+#   bars (close): [100,100,100,90,90], orders=[0,0,-1,1,0], oos_start=2
+#
+# Trace:
+#   bar 2: OPEN SHORT at 100
+#            margin=50, notional=100, entry_fee=0.05 -> equity=99.95
+#   bar 3: opposite order want=1 -> CLOSE SHORT at close=90
+#            move = (90-100)/100 * (-1) = +0.10   (short gains as price falls)
+#            gross= 100*0.10 - 100*0.0005 = 9.95 -> equity = 109.90
+#          then OPEN LONG at 90
+#            margin=54.95, notional=109.90, entry_fee=0.05495 -> equity=109.84505
+#   bar 4: want=0 -> no close
+#   END: close long at bars[-1][3]=90 (no move): gross = -109.90*0.0005 = -0.05495
+#            equity_final = 109.84505 - 0.05495 = 109.79010
+#   return_oos_pct = (109.79010/100 - 1)*100 = 9.7901
+def test_short_trade_profits_on_falling_price():
+    bars = [
+        (100.0, 100.0, 100.0, 100.0, 1.0),
+        (100.0, 100.0, 100.0, 100.0, 1.0),
+        (100.0, 100.0, 100.0, 100.0, 1.0),
+        (90.0, 90.0, 90.0, 90.0, 1.0),     # short closed here at 90 (profit)
+        (90.0, 90.0, 90.0, 90.0, 1.0),
+    ]
+    orders = [0, 0, -1, 1, 0]
+    params = {"leverage": 2.0, "risk_frac": 0.5, "stop_pct": 50.0, "take_pct": 0.0}
+
+    m = simulate(bars, orders, oos_start=2, params=params)
+
+    assert m["liquidations"] == 0
+    assert m["num_trades"] == 2   # short (closed at bar3) + long (closed at end)
+    # HARDCODED anchor: short profited from the fall -> positive return.
+    assert abs(m["return_oos_pct"] - 9.7901) < 1e-3, (
+        f"return_oos_pct={m['return_oos_pct']!r}, expected 9.7901"
+    )
+    assert m["return_oos_pct"] > 0.0   # short side sign correct
