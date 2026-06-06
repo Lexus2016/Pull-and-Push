@@ -13,7 +13,10 @@ import sys
 from pathlib import Path
 
 from .config import Config, load_config
+from pydantic import ValidationError
+from .profile_schema import BotProfile
 from .profiler import analyze_bot as _analyze_bot, render_markdown as _render_markdown
+from .proposer import propose_evaluation as _propose_evaluation, render_markdown as _render_proposal_md
 from .metrics import get_metric_adapter
 from .orchestrator import Orchestrator
 from .projects import (
@@ -126,6 +129,27 @@ def cmd_profile(args) -> int:
     return 0
 
 
+def cmd_propose(args) -> int:
+    """Propose evaluation metrics + tunable ranges from a P1 profile.json + a goal."""
+    src = Path(args.profile)
+    if not src.exists():
+        print(f"profile not found: {src}")
+        return 2
+    try:
+        profile = BotProfile.model_validate_json(src.read_text(encoding="utf-8"))
+    except ValidationError as exc:
+        print(f"invalid profile.json: {exc}")
+        return 2
+    proposal = _propose_evaluation(profile, args.goal, engine=args.engine,
+                                   model=args.model, timeout=args.timeout)
+    out_dir = Path(args.out) if args.out else Path.cwd()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "proposal.json").write_text(proposal.model_dump_json(indent=2), encoding="utf-8")
+    (out_dir / "proposal.md").write_text(_render_proposal_md(proposal), encoding="utf-8")
+    print(f"wrote {out_dir / 'proposal.json'} and {out_dir / 'proposal.md'}")
+    return 0
+
+
 def cmd_web(args) -> int:
     from .web.server import create_app
     import logging
@@ -173,6 +197,15 @@ def main(argv=None) -> int:
     pf.add_argument("--out", default=None, help="output dir for profile.json/md (default: cwd)")
     pf.add_argument("--timeout", type=int, default=180, help="agent timeout seconds")
     pf.set_defaults(func=cmd_profile)
+
+    pp2 = sub.add_parser("propose", help="propose evaluation metrics + tunable ranges from a profile + goal")
+    pp2.add_argument("profile", help="path to a P1 profile.json")
+    pp2.add_argument("--goal", required=True, help="free-text optimization goal")
+    pp2.add_argument("--engine", default="claude", help="LLM engine (default: claude)")
+    pp2.add_argument("--model", default=None, help="optional model override")
+    pp2.add_argument("--out", default=None, help="output dir for proposal.json/md (default: cwd)")
+    pp2.add_argument("--timeout", type=int, default=180, help="agent timeout seconds")
+    pp2.set_defaults(func=cmd_propose)
 
     args = p.parse_args(argv)
     return args.func(args)
