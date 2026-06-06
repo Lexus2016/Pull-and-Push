@@ -42,7 +42,8 @@ class LocalBackend:
         full_env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", **(env or {})}
         try:
             proc = subprocess.run(
-                shlex.split(cmd),
+                # posix=False on Windows so backslash paths (C:\...\python.exe) aren't mangled
+                shlex.split(cmd, posix=(os.name != "nt")),
                 cwd=str(cwd),
                 timeout=timeout,
                 capture_output=True,

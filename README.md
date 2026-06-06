@@ -90,8 +90,14 @@ cd Pull-and-Push
 ./start.sh
 ```
 
-`start.sh` creates the virtualenv, installs everything, and opens the dashboard at
-**http://127.0.0.1:8765**. It is re-runnable — pass `--port 8080` to use another port, or
+On **Windows**, use the PowerShell launcher instead of the last line:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\start.ps1
+```
+
+`start.sh` (macOS/Linux) and `start.ps1` (Windows) create the virtualenv, install everything,
+and open the dashboard at **http://127.0.0.1:8765**. It is re-runnable — pass `--port 8080` to use another port, or
 `--update` to reinstall after a `git pull`. Then, in the browser: **🚀 New project from an
 example** → pick a card → name it → describe the goal → **Create** → press **▶ Run**.
 

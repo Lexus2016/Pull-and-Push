@@ -127,3 +127,49 @@ def test_ansi_trailing_partial_escape_is_detected_for_carry():
     carry, head = buf[m.start():], buf[:m.start()]
     rest = carry + b"1mRED\x1b[0m done"                 # read 2 completes it
     assert _ANSI.sub(b"", head) + _ANSI.sub(b"", rest) == b"value=RED done"
+
+
+def test_popen_group_matches_platform():
+    # detach kwargs differ by OS: new session on POSIX, new process group on Windows
+    import os
+    from tyani_tolkai.agents.cli_agent import _POPEN_GROUP
+    if os.name == "nt":
+        assert "creationflags" in _POPEN_GROUP and "start_new_session" not in _POPEN_GROUP
+    else:
+        assert _POPEN_GROUP == {"start_new_session": True}
+
+
+def test_kill_on_windows_uses_taskkill(monkeypatch):
+    # Windows has no killpg → kill() must shell out to taskkill /F /T /PID <pid>
+    import tyani_tolkai.agents.cli_agent as cli
+    seen = {}
+
+    def fake_run(argv, **kw):
+        seen["argv"] = list(argv)
+        class _R:
+            pass
+        return _R()
+
+    monkeypatch.setattr(cli.os, "name", "nt")
+    monkeypatch.setattr(cli.subprocess, "run", fake_run)
+    a = cli.CLIAgentAdapter(["x"])
+
+    class FakeProc:
+        pid = 4321
+        def poll(self):
+            return None       # still running
+
+    a._proc = FakeProc()
+    a.kill()
+    assert seen["argv"][:4] == ["taskkill", "/F", "/T", "/PID"]
+    assert seen["argv"][4] == "4321"
+
+
+def test_pipe_logged_path_tees_output(tmp_path):
+    # the no-PTY logged runner (the Windows path) also works on POSIX: capture + tee to agent.log
+    from tyani_tolkai.agents.cli_agent import CLIAgentAdapter
+    wd = tmp_path / "artifact"; wd.mkdir()
+    a = CLIAgentAdapter(["/bin/sh", "-c", "echo HELLO-PIPE", "sh"])
+    res = a._run_pipe_logged(["/bin/sh", "-c", "echo HELLO-PIPE", "sh"], wd, 10)
+    assert res.status == "success" and "HELLO-PIPE" in res.stdout
+    assert "HELLO-PIPE" in (tmp_path / "agent.log").read_text()

@@ -24,3 +24,11 @@ def test_get_backend():
 
 def test_local_backend_python_is_host_interpreter():
     assert LocalBackend.python == sys.executable
+
+
+def test_windows_split_keeps_backslash_paths():
+    # On Windows the sandbox splits with posix=False so C:\...\python.exe isn't mangled.
+    import shlex
+    argv = shlex.split(r'C:\Py\python.exe ..\metrics\run.py --x', posix=False)
+    assert argv[0] == r'C:\Py\python.exe'
+    assert argv[1] == r'..\metrics\run.py'

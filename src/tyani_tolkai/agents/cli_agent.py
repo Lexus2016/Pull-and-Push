@@ -16,6 +16,11 @@ from pathlib import Path
 
 from .base import RunResult
 
+# Detach the agent into its own process group so Force-Stop can kill the whole tree.
+# POSIX: a new session; Windows: a new process group (taskkill /T then finishes the tree).
+_POPEN_GROUP = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+                if os.name == "nt" else {"start_new_session": True})
+
 # strip terminal control sequences (colors, cursor moves, charset designation, carriage
 # returns) so the tee'd agent.log is readable plain text rather than raw ANSI from a TTY.
 # Order matters: OSC and CSI are tried before the generic nF/2-char escape, and a lone ESC
@@ -124,17 +129,29 @@ class CLIAgentAdapter:
         self._killed = False
 
     def kill(self) -> None:
-        """Force-terminate the running agent and its process group (any thread)."""
+        """Force-terminate the running agent and its whole process tree (any thread)."""
         self._killed = True
         p = self._proc
-        if p is not None and p.poll() is None:
+        if p is None or p.poll() is not None:
+            return
+        if os.name == "nt":
+            # Windows has no killpg: kill the tree via taskkill, fall back to Popen.kill()
             try:
-                os.killpg(os.getpgid(p.pid), signal.SIGKILL)   # whole tree (node children etc.)
-            except (ProcessLookupError, PermissionError, OSError):
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(p.pid)],
+                               capture_output=True, check=False)
+            except Exception:
                 try:
                     p.kill()
                 except Exception:
                     pass
+            return
+        try:
+            os.killpg(os.getpgid(p.pid), signal.SIGKILL)   # whole tree (node children etc.)
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                p.kill()
+            except Exception:
+                pass
 
     def _classify(self, full: str, returncode: int, timed_out: bool) -> RunResult:
         if self._killed and not timed_out:
@@ -163,6 +180,13 @@ class CLIAgentAdapter:
         elif self.engine == "agy":
             cmd += ["--add-dir", str(workdir)]
         argv = [*cmd, brief]
+        if os.name == "nt":
+            # Windows Popen (shell=False) won't resolve .cmd/.bat shims (many CLIs are installed
+            # that way via npm) through PATHEXT — do it explicitly so the agent actually launches.
+            import shutil
+            resolved = shutil.which(argv[0])
+            if resolved:
+                argv[0] = resolved
         if profile == "writeable":
             return self._run_logged(argv, workdir, timeout)   # executor → live agent.log
         return self._run_plain(argv, workdir, timeout)        # validator → pipe (not logged)
@@ -171,7 +195,7 @@ class CLIAgentAdapter:
         try:
             proc = subprocess.Popen(
                 argv, cwd=str(workdir), text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL, start_new_session=True)
+                stdin=subprocess.DEVNULL, **_POPEN_GROUP)
         except FileNotFoundError:
             return RunResult(status="crashed", stdout=f"{self.prefix[0]!r} not installed")
         self._proc = proc
@@ -193,8 +217,11 @@ class CLIAgentAdapter:
         """Run under a PTY so the agent (a TTY app) line-buffers and FLUSHES live; tee that
         stream to <project>/agent.log as it arrives so the dashboard can follow it in real
         time. Falls back to a pipe if a PTY isn't available."""
-        import pty
-        import select
+        try:
+            import pty                       # POSIX only — Windows has no pty
+            import select
+        except ImportError:
+            return self._run_pipe_logged(argv, workdir, timeout)   # Windows: pipe + background tee
         import time
         log_path = Path(workdir).parent / "agent.log"
         try:
@@ -204,7 +231,7 @@ class CLIAgentAdapter:
         try:
             proc = subprocess.Popen(
                 argv, cwd=str(workdir), stdin=subprocess.DEVNULL,
-                stdout=slave, stderr=slave, start_new_session=True, close_fds=True)
+                stdout=slave, stderr=slave, close_fds=True, **_POPEN_GROUP)
         except FileNotFoundError:
             os.close(master); os.close(slave)
             return RunResult(status="crashed", stdout=f"{self.prefix[0]!r} not installed")
@@ -262,3 +289,44 @@ class CLIAgentAdapter:
             self._proc = None
         full = b"".join(chunks).decode("utf-8", errors="replace")
         return self._classify(full, proc.returncode if proc.returncode is not None else 0, timed_out)
+
+    def _run_pipe_logged(self, argv, workdir, timeout) -> RunResult:
+        """No-PTY fallback (Windows): run the agent over a pipe and tee its output to
+        <project>/agent.log from a background thread; the main thread enforces the timeout."""
+        import threading
+        log_path = Path(workdir).parent / "agent.log"
+        try:
+            proc = subprocess.Popen(
+                argv, cwd=str(workdir), stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **_POPEN_GROUP)
+        except FileNotFoundError:
+            return RunResult(status="crashed", stdout=f"{self.prefix[0]!r} not installed")
+        self._proc = proc
+        chunks: list[bytes] = []
+
+        def _pump():
+            try:
+                with open(log_path, "ab") as lf:                 # APPEND, like the PTY path
+                    for line in iter(proc.stdout.readline, b""):
+                        clean = _ANSI.sub(b"", line)
+                        if clean:
+                            lf.write(clean); lf.flush(); chunks.append(clean)
+            except Exception:
+                pass
+
+        th = threading.Thread(target=_pump, daemon=True)
+        th.start()
+        timed_out = False
+        try:
+            proc.wait(timeout=max(1, timeout))
+        except subprocess.TimeoutExpired:
+            self.kill(); timed_out = True
+            try:
+                proc.wait(timeout=10)
+            except Exception:
+                pass
+        finally:
+            self._proc = None
+        th.join(timeout=2)
+        rc = proc.returncode if proc.returncode is not None else 0
+        return self._classify(b"".join(chunks).decode("utf-8", errors="replace"), rc, timed_out)
