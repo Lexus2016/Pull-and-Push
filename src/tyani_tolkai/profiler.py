@@ -7,9 +7,12 @@ never receives the bot's path.
 """
 from __future__ import annotations
 
+import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from pydantic import ValidationError
 
 from .configurator import extract_json
 from .profile_schema import BotProfile
@@ -188,3 +191,69 @@ def assemble_payload(source_root: str | Path, *,
             res.truncated.append(rel)               # recorded ONLY when actually included head-only
     res.text = "".join(chunks)
     return res
+
+
+def _default_runner(engine: str, model: str | None, timeout: int):
+    """Build a callable prompt->stdout backed by a real read-only CLI agent.
+
+    Same isolation as configurator.generate_config: a read-only adapter run in an
+    empty TemporaryDirectory. The agent gets the prompt only — never the bot's path.
+    """
+    from .registry import build_adapter
+
+    def run(prompt: str) -> str:
+        adapter = build_adapter(engine, model, "read-only")
+        with tempfile.TemporaryDirectory() as d:
+            return adapter.run(prompt, d, "read-only", timeout).stdout
+
+    return run
+
+
+def analyze_bot(source_root: str | Path, *, engine: str = "claude",
+                model: str | None = None, runner=None, timeout: int = 180) -> BotProfile:
+    """Analyze an existing bot (read-only) and return a validated BotProfile.
+
+    ``runner`` (callable prompt->stdout) is injectable for tests; by default a real
+    read-only CLI agent is used. The bot is never executed.
+    """
+    root = Path(source_root)
+    payload = assemble_payload(root)
+    if not payload.text.strip():
+        unknowns = ["could not read source: no analyzable text files found"]
+        if payload.dropped:
+            unknowns.append("unreadable: " + ", ".join(payload.dropped[:20]))
+        return BotProfile(
+            analyzer_engine=engine, bot_name=(root.name or "bot"),
+            source_root=str(root), language="unknown", framework="unknown",
+            unknowns=unknowns,
+        )
+
+    prompt = build_profiler_prompt(payload.text, dropped=payload.dropped,
+                                   truncated=payload.truncated)
+    run = runner if runner is not None else _default_runner(engine, model, timeout)
+
+    out = run(prompt)
+    try:
+        profile = parse_profile(out, engine=engine, source_root=root)
+    except (ValueError, ValidationError) as first_err:
+        repair = (prompt + "\n\n[REPAIR] Your previous output was invalid: "
+                  + str(first_err) + "\nReturn ONLY a single valid JSON object for the schema above.")
+        out2 = run(repair)
+        try:
+            profile = parse_profile(out2, engine=engine, source_root=root)
+        except (ValueError, ValidationError) as second_err:
+            raise ProfileError(
+                f"analyzer produced invalid output after one repair: {second_err}\n"
+                f"--- raw output (truncated) ---\n{out2[:4000]}"
+            ) from second_err
+
+    # Disclose incomplete coverage in the profile itself — never a silent partial read.
+    if payload.dropped:
+        profile.unknowns.append(
+            f"not analyzed ({len(payload.dropped)} file(s)): " + ", ".join(payload.dropped[:20])
+        )
+    if payload.truncated:
+        profile.unknowns.append(
+            f"analyzed head-only ({len(payload.truncated)} file(s)): " + ", ".join(payload.truncated[:20])
+        )
+    return profile

@@ -126,3 +126,77 @@ def test_assemble_payload_truncated_then_over_budget_is_dropped_only(tmp_path):
     assert "big.py" in res.dropped
     assert "big.py" not in res.truncated   # not included → must NOT claim head-only
     assert res.text == ""
+
+
+def _canned(extra=None):
+    import json as _json
+    d = dict(_VALID)
+    if extra:
+        d.update(extra)
+    return "```json\n" + _json.dumps(d) + "\n```"
+
+
+def test_analyze_bot_happy_path(tmp_path):
+    from tyani_tolkai.profiler import analyze_bot
+    (tmp_path / "bot.py").write_text("PARAMS = {'leverage': 3}\n", encoding="utf-8")
+    seen = {}
+
+    def runner(prompt):
+        seen["prompt"] = prompt
+        return _canned()
+
+    p = analyze_bot(tmp_path, engine="claude", runner=runner)
+    assert p.analyzer_engine == "claude"
+    assert p.source_root == str(tmp_path)
+    assert "FILE: bot.py" in seen["prompt"]          # bot embedded in prompt, not path
+
+
+def test_analyze_bot_empty_dir_no_llm_call(tmp_path):
+    from tyani_tolkai.profiler import analyze_bot
+
+    def runner(prompt):
+        raise AssertionError("runner must not be called for an empty bot")
+
+    p = analyze_bot(tmp_path, engine="claude", runner=runner)
+    assert p.language == "unknown"
+    assert p.entry_point is None
+    assert any("could not read source" in u for u in p.unknowns)
+
+
+def test_analyze_bot_records_dropped_in_unknowns(tmp_path):
+    from tyani_tolkai.profiler import analyze_bot
+    (tmp_path / "bot.py").write_text("x = 1\n", encoding="utf-8")
+    (tmp_path / "data.csv").write_bytes(b"\xff\xfe\x00\x01\x02bad")   # text ext, undecodable → dropped
+
+    p = analyze_bot(tmp_path, engine="claude", runner=lambda _p: _canned())
+    assert any("data.csv" in u for u in p.unknowns)
+
+
+def test_analyze_bot_discloses_truncation_in_unknowns(tmp_path):
+    from tyani_tolkai.profiler import analyze_bot, MAX_FILE_CHARS
+    (tmp_path / "big.py").write_text("z" * (MAX_FILE_CHARS + 1000), encoding="utf-8")
+
+    p = analyze_bot(tmp_path, engine="claude", runner=lambda _p: _canned())
+    assert any("head-only" in u and "big.py" in u for u in p.unknowns)
+
+
+def test_analyze_bot_repairs_once_then_succeeds(tmp_path):
+    from tyani_tolkai.profiler import analyze_bot
+    (tmp_path / "bot.py").write_text("x = 1\n", encoding="utf-8")
+    calls = {"n": 0}
+
+    def runner(prompt):
+        calls["n"] += 1
+        return "not json" if calls["n"] == 1 else _canned()
+
+    p = analyze_bot(tmp_path, engine="claude", runner=runner)
+    assert calls["n"] == 2                            # one repair retry
+    assert p.language == "python"
+
+
+def test_analyze_bot_raises_after_failed_repair(tmp_path):
+    from tyani_tolkai.profiler import analyze_bot, ProfileError
+    (tmp_path / "bot.py").write_text("x = 1\n", encoding="utf-8")
+
+    with pytest.raises(ProfileError):
+        analyze_bot(tmp_path, engine="claude", runner=lambda _p: "still not json")
