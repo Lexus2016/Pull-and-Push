@@ -57,7 +57,8 @@ def _iso(ms: int) -> str:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--strategy", default="strategy.py")
-    ap.add_argument("--symbol", default="BTCUSDT")
+    ap.add_argument("--symbol", default="BTCUSDT",
+                    help="label only — bars are read from data.csv; swap that file to backtest another instrument")
     ap.add_argument("--oos", type=float, default=0.3)   # fraction held out for scoring (last 30%)
     args = ap.parse_args()
 
