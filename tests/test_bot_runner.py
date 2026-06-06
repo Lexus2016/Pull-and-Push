@@ -64,3 +64,15 @@ def test_drive_bot_masks_bad_command():
     bars = _bars([1.0])
     with pytest.raises(BotProtocolError):
         drive_bot(["/nonexistent/x"], bars, params={}, per_read_timeout=1.0, total_timeout=3.0)
+
+
+def test_score_bot_end_to_end_with_reference():
+    from tyani_tolkai.bot_runner import score_bot
+    bars = _bars([1.0, 2.0, 3.0, 2.0, 4.0, 5.0, 1.0, 2.0, 3.0, 4.0])
+    m = score_bot(_ADAPTER, bars, params={}, seed="proj-x",
+                  per_read_timeout=10.0, total_timeout=30.0)
+    assert "return_oos_pct" in m and "num_trades" in m
+    # deterministic: same seed + same bot + same bars → identical metrics
+    m2 = score_bot(_ADAPTER, bars, params={}, seed="proj-x",
+                   per_read_timeout=10.0, total_timeout=30.0)
+    assert m == m2

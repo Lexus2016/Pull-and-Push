@@ -28,6 +28,7 @@ import time
 from typing import Any
 
 from tyani_tolkai import bot_protocol as bp
+from tyani_tolkai.bot_engine import simulate
 
 
 class BotProtocolError(Exception):
@@ -281,3 +282,19 @@ def drive_bot(
             # Join the reader thread so the thread is fully cleaned up.
             if reader is not None:
                 reader.join(timeout=5.0)
+
+
+def score_bot(cmd, bars, *, params, seed, allow_untrusted=False,
+              per_read_timeout=10.0, total_timeout=120.0):
+    """Score a bot end-to-end: stream bars to it over the protocol, then the vetted engine
+    computes the metrics itself from the orders it returned.
+
+    SAFETY: this provides PROCESS separation (close_fds, bounded I/O, timeouts, watchdog kill)
+    but NO OS sandbox yet (that is P3.2 — Linux namespaces/seccomp/rlimits). Do NOT point this
+    at an UNTRUSTED bot until P3.2 lands; for now it is for trusted/reference bots only.
+    ``allow_untrusted`` is reserved and currently has no effect beyond documenting intent.
+    """
+    oos_start = bp.seeded_oos_start(len(bars), seed=seed)
+    orders = drive_bot(cmd, bars, params=params,
+                       per_read_timeout=per_read_timeout, total_timeout=total_timeout)
+    return simulate(bars, orders, oos_start=oos_start, params=params)
