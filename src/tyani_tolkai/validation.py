@@ -6,7 +6,10 @@ check the scorer discriminates and that the bot beats trivial baselines. NOT the
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import random
+from pathlib import Path
 
 from .bot_engine import simulate
 
@@ -44,3 +47,30 @@ def beats_controls(bot_metrics: dict, control_metrics: dict) -> dict:
         "beats_flat": bot >= control_metrics["flat"]["return_oos_pct"],
         "beats_random": bot >= control_metrics["random"]["return_oos_pct"],
     }
+
+
+def check_determinism(score_callable, *, runs: int = 2) -> tuple[bool, list[dict]]:
+    """Call score_callable `runs` times; ok iff every result equals the first.
+
+    Generic over any scorer (engine, subprocess, or sandbox) — catches a bot that is
+    deterministic on some runs then diverges once it infers it is 'in production'.
+    """
+    scores = [score_callable() for _ in range(max(1, runs))]
+    ok = all(s == scores[0] for s in scores)
+    return ok, scores
+
+
+def hash_artifacts(*, engine_path, data_path, config: dict) -> dict[str, str]:
+    """sha256 provenance fingerprint of the engine source, the data bytes, and the config.
+
+    The human approves an exact frozen (engine, data, config) triple before trusting a run.
+    """
+    eng = hashlib.sha256(Path(engine_path).read_bytes()).hexdigest()
+    data = hashlib.sha256(Path(data_path).read_bytes()).hexdigest()
+    cfg = hashlib.sha256(json.dumps(config, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    return {"engine": eng, "data": data, "config": cfg}
+
+
+def insample_oos_gap(metrics: dict) -> float:
+    """In-sample minus out-of-sample return (large positive = overfitting signal)."""
+    return metrics["in_sample_return_pct"] - metrics["return_oos_pct"]
