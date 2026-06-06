@@ -1,5 +1,6 @@
 import json
 import pytest
+from pydantic import ValidationError
 from tyani_tolkai.profiler import parse_profile, ProfileError
 
 _VALID = {
@@ -25,5 +26,19 @@ def test_parse_profile_no_json_raises():
 
 def test_parse_profile_invalid_schema_raises():
     bad = json.dumps({"language": "python"})     # missing required 'framework'
-    with pytest.raises(Exception):               # pydantic ValidationError
+    with pytest.raises(ValidationError):
         parse_profile(bad, engine="claude", source_root="/tmp/x")
+
+
+def test_analyzer_engine_overrides_llm_supplied():
+    payload = {**_VALID, "analyzer_engine": "llm-supplied-value"}
+    text = "```json\n" + json.dumps(payload) + "\n```"
+    p = parse_profile(text, engine="codex", source_root="/tmp/foo")
+    assert p.analyzer_engine == "codex"   # our stamped value wins
+
+
+def test_bot_name_from_llm_preserved():
+    payload = {**_VALID, "bot_name": "my-bot"}
+    text = "```json\n" + json.dumps(payload) + "\n```"
+    p = parse_profile(text, engine="codex", source_root="/tmp/foo")
+    assert p.bot_name == "my-bot"   # LLM-supplied value survives setdefault

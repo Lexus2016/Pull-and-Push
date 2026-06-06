@@ -14,7 +14,14 @@ from .profile_schema import BotProfile
 
 
 class ProfileError(Exception):
-    """Raised when the analyzer cannot produce a valid BotProfile."""
+    """Raised when the analyzer cannot produce a valid BotProfile.
+
+    NOTE: parse_profile intentionally lets ValueError (no JSON) and pydantic
+    ValidationError (bad shape) propagate RAW — the orchestrator analyze_bot
+    (Task 5) catches exactly those to drive its one-shot repair retry, and only
+    then wraps a final failure as ProfileError. Do NOT wrap exceptions inside
+    parse_profile, or analyze_bot's repair path will stop working.
+    """
 
 
 def parse_profile(text: str, *, engine: str, source_root: str | Path) -> BotProfile:
