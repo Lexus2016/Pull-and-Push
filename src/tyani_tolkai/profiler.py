@@ -155,12 +155,13 @@ def assemble_payload(source_root: str | Path, *,
 
     selected: list[Path] = []
     for p in candidates:
+        # parts[:-1] = parent-dir components only (exclude the file name itself)
         if any(part in _SKIP_DIRS for part in p.relative_to(base).parts[:-1]):
             continue
         if p.suffix.lower() not in _TEXT_EXT:
             continue
         selected.append(p)
-    selected.sort(key=lambda p: (_file_priority(p), str(p)))
+    selected.sort(key=lambda p: (_file_priority(p), p.as_posix()))
 
     res = PayloadResult(text="")
     chunks: list[str] = []
@@ -168,7 +169,8 @@ def assemble_payload(source_root: str | Path, *,
     for p in selected:
         rel = p.relative_to(base).as_posix()
         try:
-            txt = p.read_text(encoding="utf-8")
+            with p.open("r", encoding="utf-8") as fh:
+                txt = fh.read(max_file_chars + 1)   # bounded: never load a huge file fully; +1 detects "longer than cap"
         except (UnicodeDecodeError, OSError):
             res.dropped.append(rel)                 # binary / unreadable
             continue

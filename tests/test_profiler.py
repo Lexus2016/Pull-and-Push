@@ -78,6 +78,7 @@ def test_assemble_payload_labels_files_and_skips_binary(tmp_path):
     assert "logo.png" not in res.text        # non-text extension: not source, not embedded, not dropped
     assert "data.csv" in res.dropped         # text ext but undecodable → recorded in dropped
     assert "HEAD" not in res.text            # .git skipped entirely
+    assert res.text.index("strategy.py") < res.text.index("README.md")  # code before README
 
 
 def test_assemble_payload_single_file(tmp_path):
@@ -97,7 +98,7 @@ def test_assemble_payload_budget_drops_overflow(tmp_path):
     res = assemble_payload(tmp_path, budget_chars=200)
     # at least one file dropped for budget; payload stays under a sane bound
     assert res.dropped != []
-    assert len(res.text) <= 400
+    assert len(res.text) <= 200   # must stay within the stated budget_chars
 
 
 def test_assemble_payload_truncates_large_file(tmp_path):
