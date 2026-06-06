@@ -204,3 +204,26 @@ def test_analyze_bot_raises_after_failed_repair(tmp_path):
 
     with pytest.raises(ProfileError):
         analyze_bot(tmp_path, engine="claude", runner=lambda _p: "still not json")
+
+
+def test_render_markdown_has_sections_and_evidence():
+    from tyani_tolkai.profiler import render_markdown
+    from tyani_tolkai.profile_schema import BotProfile, Risk, Tunable
+    p = BotProfile(
+        analyzer_engine="claude", bot_name="bot", source_root="/tmp/bot",
+        language="python", framework="custom",
+        tunable_surface=[Tunable(name="lev", location="b.py:1", inferred_type="float",
+                                 semantic_role="leverage", confidence=0.8,
+                                 evidence=["b.py:1"])],
+        risks=[Risk(kind="look-ahead", severity="high", detail="future bar",
+                    evidence=["b.py:9"])],
+        unknowns=["fee model"],
+    )
+    md = render_markdown(p)
+    assert md.startswith("# Bot Profile")
+    assert "## Tunable surface" in md
+    assert "## Risks" in md
+    assert "## Unknowns" in md
+    assert "leverage" in md
+    assert "b.py:1" in md                # evidence surfaced
+    assert "claude" in md                # provenance surfaced

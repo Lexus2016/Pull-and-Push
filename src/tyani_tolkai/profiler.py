@@ -262,3 +262,72 @@ def analyze_bot(source_root: str | Path, *, engine: str = "claude",
             f"analyzed head-only ({len(payload.truncated)} file(s)): " + ", ".join(payload.truncated[:_MAX_FILES_LISTED])
         )
     return profile
+
+
+def render_markdown(profile: BotProfile) -> str:
+    """Render a BotProfile as a human review report."""
+    p = profile
+    out: list[str] = []
+    out.append(f"# Bot Profile — {p.bot_name}\n")
+    out.append(f"- **Analyzer engine:** {p.analyzer_engine} (single LLM pass — non-deterministic)")
+    out.append(f"- **Source root:** {p.source_root}")
+    out.append(f"- **Language / runtime:** {p.language} / {p.runtime or '—'}")
+    out.append(f"- **Framework:** {p.framework}\n")
+
+    out.append("## Entry point")
+    if p.entry_point:
+        e = p.entry_point
+        out.append(f"- `{e.location}` ({e.kind}, confidence {e.confidence:.2f})")
+        out.append(f"  - inputs: {e.inputs}")
+        out.append(f"  - outputs: {e.outputs}")
+        out.append(f"  - evidence: {', '.join(e.evidence) or '—'}")
+    else:
+        out.append("- _not determined_")
+    out.append("")
+
+    out.append("## Tunable surface")
+    if p.tunable_surface:
+        for t in p.tunable_surface:
+            out.append(f"- **{t.name}** ({t.semantic_role}) = {t.current_value or '?'} "
+                       f"[{t.inferred_type}] @ {t.location} — conf {t.confidence:.2f} "
+                       f"— evidence: {', '.join(t.evidence) or '—'}")
+    else:
+        out.append("- _none found_")
+    out.append("")
+
+    out.append("## Data source")
+    if p.data_source:
+        d = p.data_source
+        out.append(f"- {d.kind}: {d.location or '—'} ({d.format or 'format unknown'}) "
+                   f"— conf {d.confidence:.2f} — evidence: {', '.join(d.evidence) or '—'}")
+    else:
+        out.append("- _not determined_")
+    out.append("")
+
+    out.append("## Extractable performance facts")
+    if p.extractable_metrics:
+        for m in p.extractable_metrics:
+            trust = "trustworthy" if m.trustworthy else "NOT trustworthy (self-reported)"
+            out.append(f"- **{m.name}** — {m.how} — {trust} — conf {m.confidence:.2f} "
+                       f"— evidence: {', '.join(m.evidence) or '—'}")
+    else:
+        out.append("- _none found_")
+    out.append("")
+
+    out.append("## Risks")
+    if p.risks:
+        for r in p.risks:
+            out.append(f"- **[{r.severity}] {r.kind}** — {r.detail} "
+                       f"— evidence: {', '.join(r.evidence) or '—'}")
+    else:
+        out.append("- _none flagged_")
+    out.append("")
+
+    out.append("## Unknowns")
+    if p.unknowns:
+        for u in p.unknowns:
+            out.append(f"- {u}")
+    else:
+        out.append("- _none_")
+    out.append("")
+    return "\n".join(out)
