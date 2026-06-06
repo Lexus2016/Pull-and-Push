@@ -227,3 +227,41 @@ def test_render_markdown_has_sections_and_evidence():
     assert "leverage" in md
     assert "b.py:1" in md                # evidence surfaced
     assert "claude" in md                # provenance surfaced
+
+
+def test_render_markdown_full_profile_shows_all_sections():
+    from tyani_tolkai.profiler import render_markdown
+    from tyani_tolkai.profile_schema import (
+        BotProfile, EntryPoint, DataSource, ExtractableFact,
+    )
+    p = BotProfile(
+        analyzer_engine="codex", bot_name="b", source_root="/tmp/b",
+        language="python", runtime="python3.11", framework="freqtrade",
+        entry_point=EntryPoint(kind="function", location="s.py:signals",
+                               inputs="bars", outputs="orders",
+                               confidence=0.9, evidence=["s.py:40"]),
+        data_source=DataSource(kind="bundled-file", location="data.csv",
+                               format="csv: t,o,h,l,c,v", confidence=0.95,
+                               evidence=["s.py:5"]),
+        extractable_metrics=[ExtractableFact(name="return", how="prints to stdout",
+                                             trustworthy=False, confidence=0.7,
+                                             evidence=["s.py:60"])],
+    )
+    md = render_markdown(p)
+    assert "## Entry point" in md and "s.py:signals" in md
+    assert "## Data source" in md and "bundled-file" in md
+    assert "## Extractable performance facts" in md
+    assert "NOT trustworthy" in md            # self-reported metric flagged
+    assert "python3.11" in md                 # runtime surfaced
+
+
+def test_render_markdown_empty_profile_uses_fallbacks():
+    from tyani_tolkai.profiler import render_markdown
+    from tyani_tolkai.profile_schema import BotProfile
+    p = BotProfile(analyzer_engine="claude", bot_name="b", source_root="/tmp/b",
+                   language="unknown", framework="unknown")
+    md = render_markdown(p)
+    assert "_not determined_" in md           # entry point + data source fallback
+    assert "_none found_" in md               # tunable surface / metrics fallback
+    assert "_none flagged_" in md             # risks fallback
+    assert "_none_" in md                     # unknowns fallback
