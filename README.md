@@ -79,13 +79,47 @@ Karpathy's `autoresearch`, and the `consilium` adapter pattern.
 - **Design spec:** `docs/superpowers/specs/2026-06-03-tyani-tolkai-design.md`
 - **Plan:** `docs/superpowers/plans/2026-06-03-tyani-tolkai-core-mvp.md`
 
-## Install
+## Install & run
+
+You need **Python 3.10+** and **Git**. That is enough to open the dashboard and create a
+project; to actually run an optimization you also need one AI agent CLI (step 5).
+
+**1 — Get the code**
 
 ```bash
-python3.12 -m venv .venv
-.venv/bin/pip install -e ".[dev]"      # includes web deps (fastapi/uvicorn/httpx)
-.venv/bin/pytest                       # full suite passes (1 docker test skipped)
+git clone https://github.com/Lexus2016/Pull-and-Push.git
+cd Pull-and-Push
 ```
+
+**2 — Create an isolated environment and install**
+
+```bash
+python3.12 -m venv .venv           # any CPython 3.10+ works (not PyPy)
+source .venv/bin/activate          # Windows: .venv\Scripts\activate
+pip install -e ".[web]"
+```
+
+**3 — Start the dashboard**
+
+```bash
+pull-and-push web
+```
+
+Open the URL it prints — by default **http://127.0.0.1:8765**.
+
+**4 — Create your first project (in the browser)**
+
+Click **🚀 New project from an example** → pick a card → give it a name → describe the goal
+→ **Create** → press **▶ Run**.
+
+**5 — To run a real optimization, add an agent CLI**
+
+Pull-and-Push drives an existing AI coding CLI; no API keys are stored here. Install and log
+in to at least one, then choose it in the project: **claude** (Anthropic), **codex** (OpenAI),
+or **opencode**. Tip: use *different* providers for the executor and the validator — the same
+model on both sides shares blind spots.
+
+> **Run the tests?** `pip install -e ".[dev]"` then `pytest` — 151 pass (1 docker test skipped).
 
 ## Configuration & troubleshooting
 
