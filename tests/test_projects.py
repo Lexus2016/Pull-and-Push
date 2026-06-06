@@ -88,7 +88,8 @@ def _make_multi(name="p", iters=3):
     rid = st.create_run("asymmetric")
     hashes = {}
     for n in range(1, iters + 1):
-        (st.artifact_dir / "code.py").write_text(f"v{n}\n")
+        # write_bytes (not write_text) → exact LF on every OS; Windows text mode would emit CRLF
+        (st.artifact_dir / "code.py").write_bytes(f"v{n}\n".encode())
         h = st.commit(f"iter {n}")
         hashes[n] = h
         st.record_iteration(rid, n=n, git_hash=h, score=float(70 + n), verdict="keep", metrics=[])

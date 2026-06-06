@@ -4,13 +4,15 @@ from tyani_tolkai.config import EvaluationCfg, MetricCfg
 from tyani_tolkai.metrics import get_metric_adapter
 from tyani_tolkai.sandbox import LocalBackend
 
+PY = sys.executable.replace("\\", "/")   # forward-slashed so it survives shlex(posix) on Windows
+
 
 def _eval(adapter, command, metrics, harness_dir=None):
     return EvaluationCfg(adapter=adapter, command=command, metrics=metrics, harness_dir=harness_dir)
 
 
 def test_numeric_parses_json(tmp_path):
-    cmd = f'{sys.executable} -c "import json; print(json.dumps({{\'sharpe\': 1.8, \'max_dd\': 0.12}}))"'
+    cmd = f'{PY} -c "import json; print(json.dumps({{\'sharpe\': 1.8, \'max_dd\': 0.12}}))"'
     ev = _eval("numeric", cmd, [
         MetricCfg(name="sharpe", dir="higher", weight=0.6, worst=0.0, target=2.5),
         MetricCfg(name="max_dd", dir="lower", weight=0.4, worst=0.5, target=0.05),
@@ -31,7 +33,7 @@ def test_numeric_resolves_python_placeholder(tmp_path):
 
 
 def test_numeric_broken_artifact(tmp_path):
-    cmd = f'{sys.executable} -c "raise SystemExit(2)"'
+    cmd = f'{PY} -c "raise SystemExit(2)"'
     ev = _eval("numeric", cmd, [MetricCfg(name="x", dir="higher", weight=1, worst=0, target=1)])
     res = get_metric_adapter("numeric").run(tmp_path, LocalBackend(), ev, timeout=10)
     assert not res.ok
@@ -44,7 +46,7 @@ def test_numeric_data_carries_report_fields_and_survives_stderr(tmp_path):
     h.write_text("import sys, json\n"
                  "sys.stderr.write('DeprecationWarning: noise\\n')\n"
                  "print(json.dumps({'r': 80.0, 'win_rate_pct': 57.1, 'num_trades': 7}))\n")
-    ev = _eval("numeric", f'{sys.executable} {h}',
+    ev = _eval("numeric", f'{PY} {h.as_posix()}',
                [MetricCfg(name="r", dir="higher", weight=1, worst=0, target=100)])
     res = get_metric_adapter("numeric").run(tmp_path, LocalBackend(), ev, timeout=10)
     assert res.ok
@@ -54,12 +56,12 @@ def test_numeric_data_carries_report_fields_and_survives_stderr(tmp_path):
 
 
 def test_command_exit(tmp_path):
-    ev0 = _eval("command-exit", f'{sys.executable} -c "raise SystemExit(0)"',
+    ev0 = _eval("command-exit", f'{PY} -c "raise SystemExit(0)"',
                 [MetricCfg(name="passed", dir="higher", weight=1, worst=0, target=1)])
     r0 = get_metric_adapter("command-exit").run(tmp_path, LocalBackend(), ev0, timeout=10)
     assert r0.metrics[0]["value"] == 1.0
 
-    ev1 = _eval("command-exit", f'{sys.executable} -c "raise SystemExit(1)"',
+    ev1 = _eval("command-exit", f'{PY} -c "raise SystemExit(1)"',
                 [MetricCfg(name="passed", dir="higher", weight=1, worst=0, target=1)])
     r1 = get_metric_adapter("command-exit").run(tmp_path, LocalBackend(), ev1, timeout=10)
     assert r1.metrics[0]["value"] == 0.0

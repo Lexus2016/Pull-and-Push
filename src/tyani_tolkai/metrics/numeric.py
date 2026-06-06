@@ -13,7 +13,8 @@ def _resolve_python(command: str, sandbox) -> str:
     """Substitute the portable ``{python}`` placeholder with the sandbox's interpreter
     (sys.executable locally, the image's ``python`` in docker). A bare ``python`` in a command
     is NOT portable — many systems only have ``python3`` — so templates use ``{python}``."""
-    py = str(getattr(sandbox, "python", sys.executable))
+    # forward slashes so the path survives shlex.split(posix=True) on Windows (C:/...\python.exe)
+    py = str(getattr(sandbox, "python", sys.executable)).replace("\\", "/")
     return (command or "").replace("{python}", py)
 
 

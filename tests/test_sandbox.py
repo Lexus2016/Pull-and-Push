@@ -5,7 +5,8 @@ from tyani_tolkai.sandbox import LocalBackend, get_backend
 
 def test_local_runs_command(tmp_path):
     be = LocalBackend()
-    res = be.run(f'{sys.executable} -c "print(\'hi\')"', cwd=tmp_path, timeout=10)
+    # use the forward-slashed interpreter (as the app does) so the command splits on Windows too
+    res = be.run(f'{LocalBackend.python} -c "print(\'hi\')"', cwd=tmp_path, timeout=10)
     assert res.exit_code == 0
     assert "hi" in res.stdout
     assert not res.timed_out
@@ -13,7 +14,7 @@ def test_local_runs_command(tmp_path):
 
 def test_local_timeout(tmp_path):
     be = LocalBackend()
-    res = be.run(f'{sys.executable} -c "import time; time.sleep(5)"', cwd=tmp_path, timeout=1)
+    res = be.run(f'{LocalBackend.python} -c "import time; time.sleep(5)"', cwd=tmp_path, timeout=1)
     assert res.timed_out
     assert res.exit_code == 124
 
@@ -23,7 +24,8 @@ def test_get_backend():
 
 
 def test_local_backend_python_is_host_interpreter():
-    assert LocalBackend.python == sys.executable
+    # same interpreter as the host, but forward-slashed for cross-platform command splitting
+    assert LocalBackend.python == sys.executable.replace("\\", "/")
 
 
 def test_python_is_forward_slashed_for_cross_platform_split():
