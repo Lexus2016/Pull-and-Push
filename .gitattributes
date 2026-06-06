@@ -1,0 +1,7 @@
+# Shell scripts MUST stay LF. A Windows clone with core.autocrlf=true would otherwise
+# check start.sh out with CRLF, and bash / Git-Bash / WSL fail with:
+#   bash: ./start.sh: /usr/bin/env: bad interpreter: No such file or directory  (the ^M)
+*.sh text eol=lf
+
+# Market-data CSVs: keep byte-exact — do not normalise line endings either way.
+*.csv -text
