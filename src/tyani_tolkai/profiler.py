@@ -172,14 +172,17 @@ def assemble_payload(source_root: str | Path, *,
         except (UnicodeDecodeError, OSError):
             res.dropped.append(rel)                 # binary / unreadable
             continue
+        was_truncated = False
         if len(txt) > max_file_chars:
             txt = txt[:max_file_chars] + "\n... [truncated]\n"
-            res.truncated.append(rel)               # head-only inclusion, disclosed
+            was_truncated = True
         block = f"\n===== FILE: {rel} =====\n{txt}\n"
         if used + len(block) > budget_chars:
-            res.dropped.append(rel)                 # over budget
+            res.dropped.append(rel)                 # over budget — not included at all
             continue
         chunks.append(block)
         used += len(block)
+        if was_truncated:
+            res.truncated.append(rel)               # recorded ONLY when actually included head-only
     res.text = "".join(chunks)
     return res

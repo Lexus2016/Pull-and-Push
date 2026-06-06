@@ -115,3 +115,13 @@ def test_assemble_payload_empty_dir(tmp_path):
     assert res.text == ""
     assert res.dropped == []
     assert res.truncated == []
+
+
+def test_assemble_payload_truncated_then_over_budget_is_dropped_only(tmp_path):
+    from tyani_tolkai.profiler import assemble_payload
+    (tmp_path / "big.py").write_text("z" * 500, encoding="utf-8")
+    # head-only would be ~100 chars, but the budget is smaller than even that block
+    res = assemble_payload(tmp_path, budget_chars=20, max_file_chars=100)
+    assert "big.py" in res.dropped
+    assert "big.py" not in res.truncated   # not included → must NOT claim head-only
+    assert res.text == ""
