@@ -106,3 +106,20 @@ def test_ground_empty_extractable_warns():
     p = MetricProposal(proposer_engine="c", bot_name="b", goal="g")
     g = ground_proposal(p, profile)
     assert any("no extractable" in w.lower() or "engine must define" in w.lower() for w in g.warnings)
+
+
+def test_ground_dedups_duplicate_metric_names():
+    from tyani_tolkai.proposer import ground_proposal
+    from tyani_tolkai.proposal_schema import MetricProposal, ProposedMetric
+    p = MetricProposal(
+        proposer_engine="c", bot_name="mybot", goal="g",
+        proposed_metrics=[
+            ProposedMetric(name="return_oos_pct", dir="higher", weight=1.0, target=100.0,
+                           rationale="first", confidence=0.8),
+            ProposedMetric(name="return_oos_pct", dir="higher", weight=0.5, target=50.0,
+                           rationale="dup", confidence=0.6),
+        ],
+    )
+    g = ground_proposal(p, _PROFILE)
+    assert [m.name for m in g.proposed_metrics] == ["return_oos_pct"]   # only first kept
+    assert any("duplicate" in w.lower() for w in g.warnings)

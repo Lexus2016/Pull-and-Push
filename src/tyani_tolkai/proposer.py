@@ -77,15 +77,20 @@ def ground_proposal(proposal: MetricProposal, profile: BotProfile) -> MetricProp
     """Enforce, in code, that the proposal stays within what the profile supports.
 
     - drop metrics/tunables not present in the profile (+ warn);
-    - keep but warn metrics that map to a self-reported (untrustworthy) fact — the P3
+    - drop duplicate-named metrics/tunables, keeping the first (+ warn);
+    - keep but warn metrics mapping to a self-reported (untrustworthy) fact — the P3
       engine must measure those itself, the bot's value is never trusted;
     - warn if the profile exposes no measurable metrics at all.
     The LLM cannot will these guarantees away — they live here, not in the prompt.
+
+    Mutates ``proposal`` in place and returns it. Call exactly once per proposal object
+    (it is not idempotent — a second call would re-append warnings).
     """
     extractable = {m.name: m for m in profile.extractable_metrics}
     tunable_names = {t.name for t in profile.tunable_surface}
 
     kept_metrics = []
+    seen_metrics: set[str] = set()
     for m in proposal.proposed_metrics:
         fact = extractable.get(m.name)
         if fact is None:
@@ -94,6 +99,12 @@ def ground_proposal(proposal: MetricProposal, profile: BotProfile) -> MetricProp
                 f"(the engine cannot measure it)"
             )
             continue
+        if m.name in seen_metrics:
+            proposal.warnings.append(
+                f"dropped duplicate metric '{m.name}': keeping the first occurrence only"
+            )
+            continue
+        seen_metrics.add(m.name)
         if not fact.trustworthy:
             proposal.warnings.append(
                 f"metric '{m.name}' is self-reported by the bot — the P3 engine must "
@@ -103,16 +114,24 @@ def ground_proposal(proposal: MetricProposal, profile: BotProfile) -> MetricProp
     proposal.proposed_metrics = kept_metrics
 
     kept_tunables = []
+    seen_tunables: set[str] = set()
     for t in proposal.proposed_tunables:
         if t.name not in tunable_names:
             proposal.warnings.append(
-                f"dropped tunable '{t.name}': not in the profile's tunable_surface"
+                f"dropped tunable '{t.name}': not in the profile's tunable_surface "
+                f"(the bot does not expose this parameter)"
             )
             continue
+        if t.name in seen_tunables:
+            proposal.warnings.append(
+                f"dropped duplicate tunable '{t.name}': keeping the first occurrence only"
+            )
+            continue
+        seen_tunables.add(t.name)
         kept_tunables.append(t)
     proposal.proposed_tunables = kept_tunables
 
-    if not extractable:
+    if not profile.extractable_metrics:
         proposal.warnings.append(
             "profile has no extractable metrics — the P3 engine must define what it "
             "measures; no grounded metrics could be proposed"
