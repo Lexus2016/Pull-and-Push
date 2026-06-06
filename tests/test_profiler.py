@@ -153,11 +153,13 @@ def test_analyze_bot_happy_path(tmp_path):
 
 def test_analyze_bot_empty_dir_no_llm_call(tmp_path):
     from tyani_tolkai.profiler import analyze_bot
+    from tyani_tolkai.profile_schema import BotProfile
 
     def runner(prompt):
         raise AssertionError("runner must not be called for an empty bot")
 
     p = analyze_bot(tmp_path, engine="claude", runner=runner)
+    assert isinstance(p, BotProfile)
     assert p.language == "unknown"
     assert p.entry_point is None
     assert any("could not read source" in u for u in p.unknowns)
@@ -183,14 +185,16 @@ def test_analyze_bot_discloses_truncation_in_unknowns(tmp_path):
 def test_analyze_bot_repairs_once_then_succeeds(tmp_path):
     from tyani_tolkai.profiler import analyze_bot
     (tmp_path / "bot.py").write_text("x = 1\n", encoding="utf-8")
-    calls = {"n": 0}
+    prompts = []
 
     def runner(prompt):
-        calls["n"] += 1
-        return "not json" if calls["n"] == 1 else _canned()
+        prompts.append(prompt)
+        return "not json" if len(prompts) == 1 else _canned()
 
     p = analyze_bot(tmp_path, engine="claude", runner=runner)
-    assert calls["n"] == 2                            # one repair retry
+    assert len(prompts) == 2                 # exactly one repair retry
+    assert "[REPAIR]" in prompts[1]          # second call is the repair prompt
+    assert prompts[0] in prompts[1]          # original instructions preserved
     assert p.language == "python"
 
 

@@ -110,6 +110,9 @@ def build_profiler_prompt(payload: str, *, dropped: Sequence[str] = (),
 # --- payload assembly constants ---
 DEFAULT_BUDGET_CHARS = 480_000          # ~120k tokens of bot source
 MAX_FILE_CHARS = 20_000                 # cap any single file (a big CSV reveals format in its head)
+_MAX_FILES_LISTED = 20            # cap how many file names we list in unknowns disclosures
+_MAX_REPAIR_ERROR_CHARS = 500     # bound the error text we feed back into the repair prompt
+_MAX_RAW_ERROR_CHARS = 4000       # bound the raw output embedded in a ProfileError
 _SKIP_DIRS = {".git", "__pycache__", "node_modules", ".venv", "venv",
               ".mypy_cache", ".pytest_cache", ".idea", "dist", "build"}
 _CODE_EXT = {".py", ".js", ".ts", ".go", ".rs", ".java", ".cpp", ".c", ".h",
@@ -196,8 +199,9 @@ def assemble_payload(source_root: str | Path, *,
 def _default_runner(engine: str, model: str | None, timeout: int):
     """Build a callable prompt->stdout backed by a real read-only CLI agent.
 
-    Same isolation as configurator.generate_config: a read-only adapter run in an
-    empty TemporaryDirectory. The agent gets the prompt only — never the bot's path.
+    Same adapter + TemporaryDirectory isolation as configurator.generate_config,
+    wrapped as a factory so a fresh adapter is created on each call. The agent
+    gets the prompt only — never the bot's path.
     """
     from .registry import build_adapter
 
@@ -221,7 +225,7 @@ def analyze_bot(source_root: str | Path, *, engine: str = "claude",
     if not payload.text.strip():
         unknowns = ["could not read source: no analyzable text files found"]
         if payload.dropped:
-            unknowns.append("unreadable: " + ", ".join(payload.dropped[:20]))
+            unknowns.append("unreadable: " + ", ".join(payload.dropped[:_MAX_FILES_LISTED]))
         return BotProfile(
             analyzer_engine=engine, bot_name=(root.name or "bot"),
             source_root=str(root), language="unknown", framework="unknown",
@@ -237,23 +241,24 @@ def analyze_bot(source_root: str | Path, *, engine: str = "claude",
         profile = parse_profile(out, engine=engine, source_root=root)
     except (ValueError, ValidationError) as first_err:
         repair = (prompt + "\n\n[REPAIR] Your previous output was invalid: "
-                  + str(first_err) + "\nReturn ONLY a single valid JSON object for the schema above.")
+                  + str(first_err)[:_MAX_REPAIR_ERROR_CHARS]
+                  + "\nReturn ONLY a single valid JSON object for the schema above.")
         out2 = run(repair)
         try:
             profile = parse_profile(out2, engine=engine, source_root=root)
         except (ValueError, ValidationError) as second_err:
             raise ProfileError(
                 f"analyzer produced invalid output after one repair: {second_err}\n"
-                f"--- raw output (truncated) ---\n{out2[:4000]}"
+                f"--- raw output (truncated) ---\n{out2[:_MAX_RAW_ERROR_CHARS]}"
             ) from second_err
 
     # Disclose incomplete coverage in the profile itself — never a silent partial read.
     if payload.dropped:
         profile.unknowns.append(
-            f"not analyzed ({len(payload.dropped)} file(s)): " + ", ".join(payload.dropped[:20])
+            f"not analyzed ({len(payload.dropped)} file(s)): " + ", ".join(payload.dropped[:_MAX_FILES_LISTED])
         )
     if payload.truncated:
         profile.unknowns.append(
-            f"analyzed head-only ({len(payload.truncated)} file(s)): " + ", ".join(payload.truncated[:20])
+            f"analyzed head-only ({len(payload.truncated)} file(s)): " + ", ".join(payload.truncated[:_MAX_FILES_LISTED])
         )
     return profile
