@@ -7,7 +7,9 @@ CLI-agent adapters; `projects` is CRUD over saved runs; `web` serves the dashboa
 from __future__ import annotations
 
 import argparse
+import json
 import os
+import shlex
 import shutil
 import sys
 from pathlib import Path
@@ -26,6 +28,9 @@ from .projects import (
 from .registry import build_adapter
 from .sandbox import get_backend
 from .state import StateStore
+from .bot_io import load_bars_csv
+from .bot_sandbox import score_bot_sandboxed as _score_bot_sandboxed, SandboxUnavailable
+from .bot_runner import BotProtocolError
 
 
 def _print_iter(o):
@@ -158,6 +163,38 @@ def cmd_propose(args) -> int:
     return 0
 
 
+def cmd_score_bot(args) -> int:
+    """Score a bot in the Docker sandbox and print the metrics JSON (stdout only).
+
+    Designed to be the `command` of a `numeric` evaluation adapter: stdout is ONLY the metrics
+    dict; diagnostics go to stderr; a failure exits non-zero so the adapter records a failed eval.
+    """
+    data = Path(args.data)
+    if not data.exists():
+        print(f"data not found: {data}", file=sys.stderr)
+        return 2
+    bot_dir = Path(args.bot_dir)
+    if not bot_dir.exists():
+        print(f"bot-dir not found: {bot_dir}", file=sys.stderr)
+        return 2
+    try:
+        params = json.loads(args.params) if args.params else {}
+    except json.JSONDecodeError as exc:
+        print(f"invalid --params JSON: {exc}", file=sys.stderr)
+        return 2
+    bars = load_bars_csv(data)
+    bot_cmd = shlex.split(args.bot_cmd)
+    try:
+        metrics = _score_bot_sandboxed(bot_cmd, bars, bot_dir=str(bot_dir), seed=args.seed,
+                                       params=params, per_read_timeout=args.per_read_timeout,
+                                       total_timeout=args.total_timeout)
+    except (SandboxUnavailable, BotProtocolError) as exc:
+        print(f"scoring failed: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(metrics))   # stdout = ONLY the metrics dict
+    return 0
+
+
 def cmd_web(args) -> int:
     from .web.server import create_app
     import logging
@@ -214,6 +251,16 @@ def main(argv=None) -> int:
     pp2.add_argument("--out", default=None, help="output dir for proposal.json/md (default: cwd)")
     pp2.add_argument("--timeout", type=int, default=180, help="agent timeout seconds")
     pp2.set_defaults(func=cmd_propose)
+
+    ps = sub.add_parser("score-bot", help="score a bot in the Docker sandbox -> metrics JSON (for a numeric adapter command)")
+    ps.add_argument("--data", required=True, help="OHLCV CSV (time,open,high,low,close,volume)")
+    ps.add_argument("--bot-dir", required=True, help="dir mounted read-only into the sandbox")
+    ps.add_argument("--bot-cmd", required=True, help="command to run the bot inside the container (shlex-split)")
+    ps.add_argument("--seed", required=True, help="per-project seed for the hidden OOS split")
+    ps.add_argument("--params", default=None, help="JSON dict of tunable params")
+    ps.add_argument("--per-read-timeout", type=float, default=10.0)
+    ps.add_argument("--total-timeout", type=float, default=120.0)
+    ps.set_defaults(func=cmd_score_bot)
 
     args = p.parse_args(argv)
     return args.func(args)
