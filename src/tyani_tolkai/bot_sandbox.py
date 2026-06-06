@@ -47,3 +47,31 @@ def build_docker_cmd(bot_cmd, *, bot_dir, container_name, image=SANDBOX_IMAGE,
         "-e", "PYTHONPATH=/bot", "-e", "PYTHONDONTWRITEBYTECODE=1",
         image, *bot_cmd,
     ]
+
+
+def score_bot_sandboxed(bot_cmd, bars, *, bot_dir, seed, params,
+                        image=SANDBOX_IMAGE, mem_mb: int = 512, cpus: float = 1.0,
+                        pids: int = 64, per_read_timeout: float = 10.0,
+                        total_timeout: float = 120.0) -> dict:
+    """Score a bot that runs inside a hardened Docker container.
+
+    Unlike bot_runner.score_bot (trusted only), this MAY run an untrusted bot — Docker provides
+    the network/FS/caps/resource jail. The engine still computes all metrics itself; the held-out
+    data never enters the container (only bars stream over the pipe). Raises SandboxUnavailable if
+    Docker is not present (never silently runs unsandboxed).
+    """
+    if not docker_available():
+        raise SandboxUnavailable(
+            "Docker is required to sandbox an untrusted bot but is not available"
+        )
+    name = "tt-bot-" + uuid.uuid4().hex
+    cmd = build_docker_cmd(bot_cmd, bot_dir=str(bot_dir), container_name=name, image=image,
+                           mem_mb=mem_mb, cpus=cpus, pids=pids)
+    try:
+        oos_start = bot_protocol.seeded_oos_start(len(bars), seed=seed)
+        orders = drive_bot(cmd, bars, params=params,
+                           per_read_timeout=per_read_timeout, total_timeout=total_timeout)
+        return simulate(bars, orders, oos_start=oos_start, params=params)
+    finally:
+        subprocess.run(["docker", "rm", "-f", name],
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False)
