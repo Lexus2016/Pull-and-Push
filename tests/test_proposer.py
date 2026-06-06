@@ -123,3 +123,55 @@ def test_ground_dedups_duplicate_metric_names():
     g = ground_proposal(p, _PROFILE)
     assert [m.name for m in g.proposed_metrics] == ["return_oos_pct"]   # only first kept
     assert any("duplicate" in w.lower() for w in g.warnings)
+
+
+def _canned(extra=None):
+    d = dict(_VALID_PROPOSAL)
+    if extra:
+        d.update(extra)
+    return "```json\n" + json.dumps(d) + "\n```"
+
+
+def test_propose_evaluation_happy_path():
+    from tyani_tolkai.proposer import propose_evaluation
+    seen = {}
+
+    def runner(prompt):
+        seen["prompt"] = prompt
+        return _canned()
+
+    p = propose_evaluation(_PROFILE, "max return", engine="claude", runner=runner)
+    assert p.proposer_engine == "claude"
+    assert p.goal == "max return"
+    assert "max return" in seen["prompt"]
+    assert [m.name for m in p.proposed_metrics] == ["return_oos_pct"]
+
+
+def test_propose_evaluation_grounds_result():
+    from tyani_tolkai.proposer import propose_evaluation
+    bad = {"proposed_metrics": [{"name": "made_up", "dir": "higher", "weight": 1.0,
+                                 "target": 1.0, "rationale": "x", "confidence": 0.5}],
+           "proposed_tunables": [], "warnings": []}
+    p = propose_evaluation(_PROFILE, "g", engine="claude",
+                           runner=lambda _p: "```json\n" + json.dumps(bad) + "\n```")
+    assert p.proposed_metrics == []
+    assert any("made_up" in w for w in p.warnings)
+
+
+def test_propose_evaluation_repairs_once():
+    from tyani_tolkai.proposer import propose_evaluation
+    calls = {"n": 0}
+
+    def runner(prompt):
+        calls["n"] += 1
+        return "not json" if calls["n"] == 1 else _canned()
+
+    p = propose_evaluation(_PROFILE, "g", engine="claude", runner=runner)
+    assert calls["n"] == 2
+    assert p.proposed_metrics[0].name == "return_oos_pct"
+
+
+def test_propose_evaluation_raises_after_failed_repair():
+    from tyani_tolkai.proposer import propose_evaluation, ProposalError
+    with pytest.raises(ProposalError):
+        propose_evaluation(_PROFILE, "g", engine="claude", runner=lambda _p: "still not json")

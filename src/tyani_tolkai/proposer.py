@@ -6,8 +6,13 @@ is proposed. Reuses profiler.default_runner and configurator.extract_json. Nothi
 """
 from __future__ import annotations
 
+from collections.abc import Callable
+
+from pydantic import ValidationError
+
 from .configurator import extract_json
 from .profile_schema import BotProfile
+from .profiler import default_runner
 from .proposal_schema import MetricProposal
 
 _MAX_REPAIR_ERROR_CHARS = 500
@@ -137,3 +142,34 @@ def ground_proposal(proposal: MetricProposal, profile: BotProfile) -> MetricProp
             "measures; no grounded metrics could be proposed"
         )
     return proposal
+
+
+def propose_evaluation(profile: BotProfile, goal: str, *, engine: str = "claude",
+                       model: str | None = None,
+                       runner: Callable[[str], str] | None = None,
+                       timeout: int = 180) -> MetricProposal:
+    """Propose a grounded evaluation plan (metrics + tunable ranges) from a profile + goal.
+
+    ``runner`` (callable prompt->stdout) is injectable for tests; by default a real
+    read-only CLI agent is used. Nothing is executed.
+    """
+    prompt = build_proposer_prompt(profile, goal)
+    run = runner if runner is not None else default_runner(engine, model, timeout)
+
+    out = run(prompt)
+    try:
+        proposal = parse_proposal(out, engine=engine, profile=profile, goal=goal)
+    except (ValueError, ValidationError) as first_err:
+        repair = (prompt + "\n\n[REPAIR] Your previous output was invalid: "
+                  + str(first_err)[:_MAX_REPAIR_ERROR_CHARS]
+                  + "\nReturn ONLY a single valid JSON object for the schema above.")
+        out2 = run(repair)
+        try:
+            proposal = parse_proposal(out2, engine=engine, profile=profile, goal=goal)
+        except (ValueError, ValidationError) as second_err:
+            raise ProposalError(
+                f"proposer produced invalid output after one repair: {second_err}\n"
+                f"--- raw output (truncated) ---\n{out2[:_MAX_RAW_ERROR_CHARS]}"
+            ) from second_err
+
+    return ground_proposal(proposal, profile)
