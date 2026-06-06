@@ -215,7 +215,7 @@ def assemble_payload(source_root: str | Path, *,
     return res
 
 
-def _default_runner(engine: str, model: str | None, timeout: int) -> Callable[[str], str]:
+def default_runner(engine: str, model: str | None, timeout: int) -> Callable[[str], str]:
     """Build a callable prompt->stdout backed by a real read-only CLI agent.
 
     Same adapter + TemporaryDirectory isolation as configurator.generate_config,
@@ -254,7 +254,7 @@ def analyze_bot(source_root: str | Path, *, engine: str = "claude",
 
     prompt = build_profiler_prompt(payload.text, dropped=payload.dropped,
                                    truncated=payload.truncated)
-    run = runner if runner is not None else _default_runner(engine, model, timeout)
+    run = runner if runner is not None else default_runner(engine, model, timeout)
 
     out = run(prompt)
     try:
