@@ -56,3 +56,6 @@ def test_build_profiler_prompt_contains_guardrails():
     assert "json" in prompt.lower()
     # dropped files are disclosed to the model
     assert "big.csv" in prompt
+    prompt2 = build_profiler_prompt("payload", truncated=["large.py"])
+    assert "large.py" in prompt2
+    assert "INCLUDED ONLY IN PART" in prompt2
