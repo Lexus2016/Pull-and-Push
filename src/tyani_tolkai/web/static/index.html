@@ -198,8 +198,8 @@
   .mcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin:4px 0 10px}
   .mcard{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;cursor:pointer;transition:border-color .15s,box-shadow .15s}
   .mcard:hover{border-color:var(--cold)}
-  .mcard.active{border-color:var(--cold);box-shadow:0 0 0 1px var(--cold) inset}
   .mcard.reached{border-color:var(--good)}
+  .mcard.active{border-color:var(--cold);box-shadow:0 0 0 1px var(--cold) inset}   /* selected wins over reached */
   .mc-top{display:flex;justify-content:space-between;align-items:center}
   .mc-name{font-family:var(--mono);font-size:13px;color:var(--ink-dim)}
   .mc-dir{color:var(--mut);font-size:12px}
