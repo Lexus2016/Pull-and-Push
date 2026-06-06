@@ -31,3 +31,16 @@ def test_propose_subcommand_writes_both_files(tmp_path, monkeypatch):
 def test_propose_subcommand_missing_profile_returns_2(tmp_path):
     rc = cli.main(["propose", str(tmp_path / "nope.json"), "--goal", "x"])
     assert rc == 2
+
+
+def test_propose_subcommand_proposal_error_returns_2(tmp_path, monkeypatch):
+    from tyani_tolkai.proposer import ProposalError
+    pf = tmp_path / "profile.json"
+    _write_profile(pf)
+
+    def boom(profile, goal, *, engine, model, timeout):
+        raise ProposalError("llm failed twice")
+
+    monkeypatch.setattr(cli, "_propose_evaluation", boom, raising=False)
+    rc = cli.main(["propose", str(pf), "--goal", "x"])
+    assert rc == 2

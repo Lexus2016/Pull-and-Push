@@ -27,3 +27,17 @@ def test_profile_subcommand_writes_both_files(tmp_path, monkeypatch):
 def test_profile_subcommand_missing_path_returns_2(tmp_path):
     rc = cli.main(["profile", str(tmp_path / "nope")])
     assert rc == 2
+
+
+def test_profile_subcommand_profile_error_returns_2(tmp_path, monkeypatch):
+    from tyani_tolkai.profiler import ProfileError
+    bot = tmp_path / "bot"
+    bot.mkdir()
+    (bot / "s.py").write_text("x = 1\n", encoding="utf-8")
+
+    def boom(src, *, engine, model, timeout):
+        raise ProfileError("llm failed twice")
+
+    monkeypatch.setattr(cli, "_analyze_bot", boom, raising=False)
+    rc = cli.main(["profile", str(bot)])
+    assert rc == 2

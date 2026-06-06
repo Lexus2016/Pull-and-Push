@@ -15,8 +15,8 @@ from pathlib import Path
 from .config import Config, load_config
 from pydantic import ValidationError
 from .profile_schema import BotProfile
-from .profiler import analyze_bot as _analyze_bot, render_markdown as _render_markdown
-from .proposer import propose_evaluation as _propose_evaluation, render_markdown as _render_proposal_md
+from .profiler import analyze_bot as _analyze_bot, render_markdown as _render_markdown, ProfileError
+from .proposer import propose_evaluation as _propose_evaluation, render_markdown as _render_proposal_md, ProposalError
 from .metrics import get_metric_adapter
 from .orchestrator import Orchestrator
 from .projects import (
@@ -120,7 +120,11 @@ def cmd_profile(args) -> int:
     if not src.exists():
         print(f"path not found: {src}")
         return 2
-    profile = _analyze_bot(src, engine=args.engine, model=args.model, timeout=args.timeout)
+    try:
+        profile = _analyze_bot(src, engine=args.engine, model=args.model, timeout=args.timeout)
+    except ProfileError as exc:
+        print(f"analysis failed: {exc}")
+        return 2
     out_dir = Path(args.out) if args.out else Path.cwd()
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "profile.json").write_text(profile.model_dump_json(indent=2), encoding="utf-8")
@@ -140,8 +144,12 @@ def cmd_propose(args) -> int:
     except ValidationError as exc:
         print(f"invalid profile.json: {exc}")
         return 2
-    proposal = _propose_evaluation(profile, args.goal, engine=args.engine,
-                                   model=args.model, timeout=args.timeout)
+    try:
+        proposal = _propose_evaluation(profile, args.goal, engine=args.engine,
+                                       model=args.model, timeout=args.timeout)
+    except ProposalError as exc:
+        print(f"proposal failed: {exc}")
+        return 2
     out_dir = Path(args.out) if args.out else Path.cwd()
     out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "proposal.json").write_text(proposal.model_dump_json(indent=2), encoding="utf-8")
