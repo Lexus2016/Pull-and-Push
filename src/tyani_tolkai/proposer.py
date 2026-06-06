@@ -71,3 +71,50 @@ def parse_proposal(text: str, *, engine: str, profile: BotProfile, goal: str) ->
     data["bot_name"] = profile.bot_name
     data["goal"] = goal
     return MetricProposal.model_validate(data)     # raises ValidationError on bad shape
+
+
+def ground_proposal(proposal: MetricProposal, profile: BotProfile) -> MetricProposal:
+    """Enforce, in code, that the proposal stays within what the profile supports.
+
+    - drop metrics/tunables not present in the profile (+ warn);
+    - keep but warn metrics that map to a self-reported (untrustworthy) fact — the P3
+      engine must measure those itself, the bot's value is never trusted;
+    - warn if the profile exposes no measurable metrics at all.
+    The LLM cannot will these guarantees away — they live here, not in the prompt.
+    """
+    extractable = {m.name: m for m in profile.extractable_metrics}
+    tunable_names = {t.name for t in profile.tunable_surface}
+
+    kept_metrics = []
+    for m in proposal.proposed_metrics:
+        fact = extractable.get(m.name)
+        if fact is None:
+            proposal.warnings.append(
+                f"dropped metric '{m.name}': not in the profile's extractable_metrics "
+                f"(the engine cannot measure it)"
+            )
+            continue
+        if not fact.trustworthy:
+            proposal.warnings.append(
+                f"metric '{m.name}' is self-reported by the bot — the P3 engine must "
+                f"measure it independently; do not trust the bot's value"
+            )
+        kept_metrics.append(m)
+    proposal.proposed_metrics = kept_metrics
+
+    kept_tunables = []
+    for t in proposal.proposed_tunables:
+        if t.name not in tunable_names:
+            proposal.warnings.append(
+                f"dropped tunable '{t.name}': not in the profile's tunable_surface"
+            )
+            continue
+        kept_tunables.append(t)
+    proposal.proposed_tunables = kept_tunables
+
+    if not extractable:
+        proposal.warnings.append(
+            "profile has no extractable metrics — the P3 engine must define what it "
+            "measures; no grounded metrics could be proposed"
+        )
+    return proposal
