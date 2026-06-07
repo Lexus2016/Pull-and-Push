@@ -7,6 +7,8 @@ from fastapi.testclient import TestClient
 from tyani_tolkai.web.server import create_app
 from tyani_tolkai.config import load_config
 from tyani_tolkai.projects import project_dir
+from tyani_tolkai.profile_schema import BotProfile, EntryPoint
+from tyani_tolkai.proposal_schema import MetricProposal, ProposedMetric
 
 
 @pytest.fixture
@@ -130,3 +132,47 @@ def test_onboard_duplicate_409(client, tmp_path):
             "proposal": _proposal(), "bot_cmd": "python bot.py"}
     assert client.post("/api/onboard", json=body).status_code == 200
     assert client.post("/api/onboard", json=body).status_code == 409
+
+
+# ---------------- /api/profile + /api/propose (LLM, mocked at the module boundary) ----------------
+
+def _canned_profile():
+    return BotProfile(analyzer_engine="claude", bot_name="mybot", source_root=".", language="python",
+                      framework="custom",
+                      entry_point=EntryPoint(kind="function", location="bot.py:decide",
+                                             inputs="OHLCV", outputs="+1/-1", confidence=0.8))
+
+
+def _canned_proposal():
+    return MetricProposal(proposer_engine="claude", bot_name="mybot", goal="max return",
+                          proposed_metrics=[ProposedMetric(name="return_oos_pct", dir="higher",
+                                                           weight=1.0, target=100.0,
+                                                           rationale="profit", confidence=0.9)])
+
+
+def test_profile_returns_profile_and_markdown(client, tmp_path, monkeypatch):
+    monkeypatch.setattr("tyani_tolkai.profiler.analyze_bot", lambda *a, **k: _canned_profile())
+    d = _botdir(tmp_path)
+    r = client.post("/api/profile", json={"bot_dir": str(d)})
+    assert r.status_code == 200
+    j = r.json()
+    assert j["profile"]["bot_name"] == "mybot" and j["profile"]["language"] == "python"
+    assert "markdown" in j and j["markdown"]
+
+
+def test_profile_missing_path_422(client, tmp_path):
+    assert client.post("/api/profile", json={"bot_dir": str(tmp_path / "nope")}).status_code == 422
+
+
+def test_propose_returns_proposal(client, monkeypatch):
+    monkeypatch.setattr("tyani_tolkai.proposer.propose_evaluation", lambda *a, **k: _canned_proposal())
+    r = client.post("/api/propose", json={"profile": _canned_profile().model_dump(),
+                                          "goal": "maximize risk-adjusted return"})
+    assert r.status_code == 200
+    j = r.json()
+    assert [m["name"] for m in j["proposal"]["proposed_metrics"]] == ["return_oos_pct"]
+    assert "markdown" in j
+
+
+def test_propose_requires_goal(client):
+    assert client.post("/api/propose", json={"profile": _canned_profile().model_dump()}).status_code == 400

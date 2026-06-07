@@ -629,6 +629,48 @@ def create_app(token: str | None = None) -> FastAPI:
         except (ValueError, FileNotFoundError) as e:
             raise HTTPException(422, str(e))
 
+    @app.post("/api/profile")
+    def api_profile(payload: dict = Body(...), token: str | None = Query(None)):
+        """Analyze an existing bot (read-only, LLM) → BotProfile (json + markdown). Synchronous,
+        like /api/configure; the UI shows a spinner while the analyzer runs."""
+        auth(token)
+        from ..profiler import analyze_bot, render_markdown, ProfileError
+        src = Path((payload.get("bot_dir") or payload.get("path") or "").strip()).expanduser()
+        if not src.exists():
+            raise HTTPException(422, f"bot path not found: {src}")
+        try:
+            profile = analyze_bot(src, engine=payload.get("engine", "claude"),
+                                  model=payload.get("model"), timeout=int(payload.get("timeout") or 180))
+        except ProfileError as e:
+            raise HTTPException(502, f"analysis failed: {e}")
+        return {"profile": profile.model_dump(), "markdown": render_markdown(profile)}
+
+    @app.post("/api/propose")
+    def api_propose(payload: dict = Body(...), token: str | None = Query(None)):
+        """Propose evaluation metrics + tunable ranges from a profile + goal (LLM). Synchronous.
+
+        The human reviews/edits the proposal before it becomes the onboarding config (ADR gate)."""
+        auth(token)
+        from ..proposer import propose_evaluation, render_markdown as render_proposal_md, ProposalError
+        from ..profile_schema import BotProfile
+        prof = payload.get("profile")
+        if not prof:
+            raise HTTPException(400, "profile required")
+        goal = (payload.get("goal") or "").strip()
+        if not goal:
+            raise HTTPException(400, "goal required")
+        try:
+            profile = (BotProfile.model_validate(prof) if isinstance(prof, dict)
+                       else BotProfile.model_validate_json(Path(prof).read_text(encoding="utf-8")))
+        except Exception as e:
+            raise HTTPException(422, f"invalid profile: {e}")
+        try:
+            proposal = propose_evaluation(profile, goal, engine=payload.get("engine", "claude"),
+                                          model=payload.get("model"), timeout=int(payload.get("timeout") or 180))
+        except ProposalError as e:
+            raise HTTPException(502, f"proposal failed: {e}")
+        return {"proposal": proposal.model_dump(), "markdown": render_proposal_md(proposal)}
+
     @app.get("/api/projects/{name}/config")
     def api_get_config(name: str, token: str | None = Query(None)):
         auth(token)
