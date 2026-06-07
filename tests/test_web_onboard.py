@@ -176,3 +176,33 @@ def test_propose_returns_proposal(client, monkeypatch):
 
 def test_propose_requires_goal(client):
     assert client.post("/api/propose", json={"profile": _canned_profile().model_dump()}).status_code == 400
+
+
+# ---------------- /api/validate (trusted subprocess path → no Docker needed) ----------------
+
+def test_validate_trusted_runs_and_reports(client, tmp_path):
+    d = _botdir(tmp_path, _MOMENTUM)
+    r = client.post("/api/validate", json={
+        "bot_dir": str(d), "data": str(_csv(tmp_path)), "bot_cmd": f"{sys.executable} {d / 'bot.py'}",
+        "seed": "proj-x", "trusted": True, "per_read_timeout": 30, "total_timeout": 60})
+    assert r.status_code == 200
+    j = r.json()
+    assert j["verdict"] in ("PASS", "FLAG")
+    assert j["report"].startswith("# Evidence Report")
+    assert "process-separation only" in j["isolation"]
+
+
+def test_validate_missing_data_422(client, tmp_path):
+    d = _botdir(tmp_path, _MOMENTUM)
+    r = client.post("/api/validate", json={
+        "bot_dir": str(d), "data": str(tmp_path / "no.csv"),
+        "bot_cmd": f"{sys.executable} {d / 'bot.py'}", "trusted": True})
+    assert r.status_code == 422
+
+
+def test_validate_untrusted_without_docker_409(client, tmp_path, monkeypatch):
+    monkeypatch.setattr("tyani_tolkai.bot_sandbox.docker_available", lambda: False)
+    d = _botdir(tmp_path, _MOMENTUM)
+    r = client.post("/api/validate", json={
+        "bot_dir": str(d), "data": str(_csv(tmp_path)), "bot_cmd": f"{sys.executable} {d / 'bot.py'}"})
+    assert r.status_code == 409

@@ -671,6 +671,63 @@ def create_app(token: str | None = None) -> FastAPI:
             raise HTTPException(502, f"proposal failed: {e}")
         return {"proposal": proposal.model_dump(), "markdown": render_proposal_md(proposal)}
 
+    @app.post("/api/validate")
+    def api_validate(payload: dict = Body(...), token: str | None = Query(None)):
+        """P4 secondary validation of a bot → evidence report (PASS/FLAG). Synchronous.
+
+        Untrusted bots need Docker (isolation = trust); trusted=true uses a process-separation
+        subprocess (usable without Docker, for a reference/own bot)."""
+        auth(token)
+        import shlex
+        from .. import bot_engine
+        from ..bot_io import load_bars_csv
+        from ..bot_runner import score_bot, BotProtocolError
+        from ..bot_sandbox import score_bot_sandboxed, SandboxUnavailable, docker_available
+        from ..validation import run_secondary_validation
+        bot_dir = Path((payload.get("bot_dir") or "").strip()).expanduser()
+        data = Path((payload.get("data") or "").strip()).expanduser()
+        bot_cmd_s = (payload.get("bot_cmd") or "").strip()
+        if not bot_dir.is_dir():
+            raise HTTPException(422, f"bot-dir not found: {bot_dir}")
+        if not data.is_file():
+            raise HTTPException(422, f"data not found: {data}")
+        if not bot_cmd_s:
+            raise HTTPException(422, "bot_cmd required")
+        params = payload.get("params") or {}
+        if isinstance(params, str):
+            try:
+                params = json.loads(params) if params else {}
+            except json.JSONDecodeError as e:
+                raise HTTPException(422, f"invalid params JSON: {e}")
+        seed = payload.get("seed") or bot_dir.name
+        bars = load_bars_csv(data)
+        bot_cmd = shlex.split(bot_cmd_s)
+        prt = float(payload.get("per_read_timeout") or 10.0)
+        tt = float(payload.get("total_timeout") or 120.0)
+        if payload.get("trusted"):
+            isolation = "subprocess (process-separation only; trusted asserted by operator)"
+            def score_bars(b):
+                return score_bot(bot_cmd, b, params=params, seed=seed, per_read_timeout=prt, total_timeout=tt)
+        elif docker_available():
+            isolation = "docker-sandbox"
+            def score_bars(b):
+                return score_bot_sandboxed(bot_cmd, b, bot_dir=str(bot_dir), seed=seed, params=params,
+                                           per_read_timeout=prt, total_timeout=tt)
+        else:
+            raise HTTPException(409, "validating an untrusted bot requires Docker; start Docker or "
+                                     "pass trusted=true only if you fully trust this bot")
+        try:
+            result = run_secondary_validation(
+                bars=bars, score_bars=score_bars, isolation=isolation, seed=seed, params=params,
+                name=(payload.get("name") or bot_dir.name), data_path=data,
+                engine_path=bot_engine.__file__)
+        except (SandboxUnavailable, BotProtocolError) as e:
+            raise HTTPException(502, f"scoring failed: {e}")
+        return {"report": result["report"], "verdict": result["verdict"], "reasons": result["reasons"],
+                "beats": result["beats"], "determinism_ok": result["determinism_ok"],
+                "gap": result["gap"], "anti_lookahead": result["anti_lookahead"],
+                "isolation": result["isolation"]}
+
     @app.get("/api/projects/{name}/config")
     def api_get_config(name: str, token: str | None = Query(None)):
         auth(token)
