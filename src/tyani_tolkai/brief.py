@@ -96,8 +96,11 @@ def direction_diversity(diffs: list[str]) -> float:
     search. Empty or single-attempt history → 1.0 (nothing to compare)."""
     if len(diffs) <= 1:
         return 1.0
-    sigs = [frozenset(_added_removed(d)[0] | _added_removed(d)[1]) for d in diffs]
-    return len(set(sigs)) / len(sigs)
+    sigs = set()
+    for d in diffs:
+        added, removed = _added_removed(d)
+        sigs.add(frozenset(added | removed))
+    return len(sigs) / len(diffs)
 
 
 def _attempt_diff(state: StateStore, verdict: str | None, git_hash: str | None,
