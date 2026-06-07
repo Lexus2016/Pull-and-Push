@@ -542,6 +542,93 @@ def create_app(token: str | None = None) -> FastAPI:
             raise
         return {"created": name}
 
+    # ---- onboarding an existing bot: expose the P4.5/P4.6 backend (adapter + onboard) ----
+    @app.post("/api/gen-adapter")
+    def api_gen_adapter(payload: dict = Body(...), token: str | None = Query(None)):
+        """Scaffold adapter.py (vetted protocol plumbing + a decide() stub) into the bot dir."""
+        auth(token)
+        from ..adapter_gen import render_adapter_stub
+        from ..profile_schema import BotProfile
+        bot_dir = Path((payload.get("bot_dir") or "").strip()).expanduser()
+        if not bot_dir.is_dir():
+            raise HTTPException(422, f"bot-dir not found: {bot_dir}")
+        profile = None
+        prof = payload.get("profile")
+        if prof:
+            try:
+                profile = (BotProfile.model_validate(prof) if isinstance(prof, dict)
+                           else BotProfile.model_validate_json(Path(prof).read_text(encoding="utf-8")))
+            except Exception as e:
+                raise HTTPException(422, f"invalid profile: {e}")
+        out = Path(payload["out"]).expanduser() if payload.get("out") else bot_dir / "adapter.py"
+        if out.exists() and not payload.get("force"):
+            raise HTTPException(409, f"{out} already exists; pass force=true to overwrite")
+        out.write_text(render_adapter_stub(profile=profile), encoding="utf-8")
+        return {"wrote": str(out)}
+
+    @app.post("/api/check-adapter")
+    def api_check_adapter(payload: dict = Body(...), token: str | None = Query(None)):
+        """Trust gate: drive the adapter over the protocol on synthetic bars → verdict PASS/FLAG.
+
+        Proves protocol soundness + determinism + non-degeneracy — NOT semantics (sign/scale);
+        run `validate` for that. Returns the check_adapter_orders verdict dict (200 even on FLAG;
+        the verdict's ``ok`` carries PASS/FLAG so the UI can render either).
+        """
+        auth(token)
+        import shlex
+        from ..bot_runner import drive_bot, BotProtocolError
+        from ..validation import synth_bars, check_adapter_orders
+        bot_dir = Path((payload.get("bot_dir") or "").strip()).expanduser()
+        if not bot_dir.is_dir():
+            raise HTTPException(422, f"bot-dir not found: {bot_dir}")
+        bot_cmd = (payload.get("bot_cmd") or "").strip()
+        if not bot_cmd:
+            raise HTTPException(422, "bot_cmd required")
+        bars = synth_bars(int(payload.get("n") or 40))
+        cmd = shlex.split(bot_cmd)
+        prt = float(payload.get("per_read_timeout") or 10.0)
+        tt = float(payload.get("total_timeout") or 120.0)
+        try:
+            run1 = drive_bot(cmd, bars, params={}, per_read_timeout=prt, total_timeout=tt)
+            run2 = drive_bot(cmd, bars, params={}, per_read_timeout=prt, total_timeout=tt)
+        except BotProtocolError as e:
+            return {"ok": False, "well_formed": False, "deterministic": False, "degenerate": False,
+                    "reasons": [f"adapter failed the protocol: {e}"]}
+        return check_adapter_orders(run1, run2, len(bars))
+
+    @app.post("/api/onboard")
+    def api_onboard(payload: dict = Body(...), token: str | None = Query(None)):
+        """Create a runnable optimization project from a bot + its data + a P2 proposal."""
+        auth(token)
+        from ..scaffold import scaffold_onboarding
+        from ..proposal_schema import MetricProposal
+        name = (payload.get("project") or payload.get("name") or "").strip()
+        if not name:
+            raise HTTPException(400, "project name required")
+        bot_dir = Path((payload.get("bot_dir") or "").strip()).expanduser()
+        data = Path((payload.get("data") or "").strip()).expanduser()
+        bot_cmd = (payload.get("bot_cmd") or "").strip()
+        if not bot_dir.is_dir():
+            raise HTTPException(422, f"bot-dir not found: {bot_dir}")
+        if not data.is_file():
+            raise HTTPException(422, f"data not found: {data}")
+        if not bot_cmd:
+            raise HTTPException(422, "bot_cmd required")
+        prop = payload.get("proposal")
+        try:
+            proposal = (MetricProposal.model_validate(prop) if isinstance(prop, dict)
+                        else MetricProposal.model_validate_json(Path(prop).read_text(encoding="utf-8")))
+        except Exception as e:
+            raise HTTPException(422, f"invalid proposal: {e}")
+        try:
+            return scaffold_onboarding(name, bot_dir=bot_dir, data_path=data, proposal=proposal,
+                                       bot_cmd=bot_cmd, seed_token=payload.get("seed"),
+                                       goal=payload.get("goal"))
+        except FileExistsError as e:
+            raise HTTPException(409, str(e))
+        except (ValueError, FileNotFoundError) as e:
+            raise HTTPException(422, str(e))
+
     @app.get("/api/projects/{name}/config")
     def api_get_config(name: str, token: str | None = Query(None)):
         auth(token)
