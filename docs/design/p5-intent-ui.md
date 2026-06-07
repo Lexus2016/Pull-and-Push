@@ -1,6 +1,6 @@
 # P5 — Intent-first onboarding UI
 
-Status: **building (incremental)**. The final phase of
+Status: **built** (P5.1–P5.3). The final phase of
 [`onboarding-existing-bots.md`](./onboarding-existing-bots.md): a web path that lets a user OPTIMIZE
 an existing bot, alongside the existing "start from a template" path. It surfaces the already-built,
 tested P1–P4.6 backend (profile → propose → gen-adapter → check-adapter → onboard → validate → run).
@@ -41,8 +41,12 @@ Adapter (gen + "fill decide() then Check") → Onboard → Validate → Run. Ver
 
 ## Incremental plan
 1. **Deterministic backend endpoints** (gen-adapter, check-adapter, onboard) + tests. ✅ DONE.
-2. Async LLM/Docker endpoints (profile, propose, validate) on the run-thread pattern + tests.
-3. The "Improve my bot" stepper UI + visual verification.
+2. **LLM/Docker endpoints** (profile, propose, validate) — built SYNCHRONOUS (like /api/configure),
+   not async; `run_secondary_validation` extracted so the CLI + web share the P4 battery. + tests. ✅ DONE.
+3. **The "Improve my bot" stepper UI** in static/index.html. ✅ DONE — verified live: node --check on
+   the inline JS, the card renders in the running server's DOM (0 console errors), and the
+   deterministic endpoints (gen/check/onboard) pass end-to-end via curl + Playwright. The LLM steps
+   (profile/propose) and Docker validate need a real env to click through.
 
 ## Out of scope
 LLM auto-fill of `decide()`; embedded web code editor; multi-language bots; one-click no-gate chain.
