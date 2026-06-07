@@ -375,6 +375,26 @@
   .md th{color:var(--ink);background:rgba(124,166,206,.08)}
   .md-plain{white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:var(--ink-dim)}
   @keyframes feedin{from{opacity:0;transform:translateY(-7px)}to{opacity:1;transform:none}}
+  /* ── ambient "alive" background: state-driven aurora (JS sets body[data-run] from RUN_STATUS) ── */
+  #aurora{position:fixed;inset:-25%;z-index:-2;pointer-events:none;overflow:hidden;
+    --a:#3a4654;--b:#2a3340;opacity:.10;filter:blur(64px) saturate(45%);
+    transition:opacity .9s ease, filter .9s ease}
+  #aurora .blob{position:absolute;border-radius:50%;mix-blend-mode:screen;will-change:transform,opacity;
+    animation:auroraDrift 30s ease-in-out infinite, auroraPulse 7.5s ease-in-out infinite;animation-play-state:paused}
+  #aurora .b1{width:62vmax;height:62vmax;left:-12vmax;top:-16vmax;background:radial-gradient(circle at 50% 50%,var(--a),transparent 62%)}
+  #aurora .b2{width:54vmax;height:54vmax;right:-14vmax;top:2vmax;background:radial-gradient(circle at 50% 50%,var(--b),transparent 62%);animation-delay:-11s,-3.5s}
+  #aurora .b3{width:50vmax;height:50vmax;left:28vmax;bottom:-20vmax;background:radial-gradient(circle at 50% 50%,var(--a),transparent 62%);animation-delay:-21s,-6s}
+  @keyframes auroraDrift{0%{transform:translate(0,0) scale(1)}25%{transform:translate(6vmax,4vmax) scale(1.08)}50%{transform:translate(-5vmax,7vmax) scale(.96)}75%{transform:translate(-7vmax,-4vmax) scale(1.05)}100%{transform:translate(0,0) scale(1)}}
+  @keyframes auroraPulse{0%,100%{opacity:.38}50%{opacity:.62}}
+  @keyframes auroraErr{0%,100%{opacity:.28}50%{opacity:.56}}
+  body[data-run="running"] #aurora{--a:var(--cold);--b:var(--warm);opacity:.42;filter:blur(56px) saturate(125%)}
+  body[data-run="running"] #aurora .blob{animation-play-state:running}
+  body[data-run="done"] #aurora{--a:var(--good);--b:#2bbf9e;opacity:.34;filter:blur(58px) saturate(120%)}
+  body[data-run="done"] #aurora .blob{animation-play-state:running}
+  body[data-run="error"] #aurora{--a:var(--bad);--b:#b23b3b;opacity:.40;filter:blur(56px) saturate(135%);animation:auroraErr 2.2s ease-in-out infinite}
+  body[data-run="error"] #aurora .blob{animation-play-state:running}
+  body[data-run="paused"] #aurora{--a:var(--warm);--b:var(--warm-dim);opacity:.22;filter:blur(66px) saturate(90%)}
+  @media (prefers-reduced-motion:reduce){#aurora .blob{animation:none!important}body[data-run="error"] #aurora{animation:none!important}}
   /* edge tab — visible only while the rail is closed */
   .feed-tab{position:fixed;top:50%;right:0;transform:translateY(-50%);z-index:54;
     writing-mode:vertical-rl;background:linear-gradient(180deg,var(--panel-2),var(--panel));color:var(--cold);
@@ -399,6 +419,7 @@
 </style>
 </head>
 <body>
+<div id="aurora" aria-hidden="true"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
 <header>
   <button class="iconbtn tipd" id="navBtn" data-i18n-title="nav.toggle" title="Toggle sidebar">☰</button>
   <div class="brand">
@@ -1042,6 +1063,12 @@ function iterFork(e,n){e.stopPropagation();e.preventDefault();if(!current)return
   fetch(api('/api/projects/'+current+'/fork?iter='+n+'&to='+encodeURIComponent(to)),{method:'POST'}).then(async r=>{
     if(!r.ok){const d=await r.json().catch(()=>({}));toast(t('toast.forkFail')+(d&&d.detail?': '+d.detail:''),'err');return;}
     toast(t('toast.forked',to),'ok');loadProjects();});}
+function setRunVisual(s){
+  // map a run status → an ambient page state; the CSS aurora reacts via body[data-run]
+  const m={running:'running',error:'error',finished:'done',target:'done',
+           awaiting_review:'paused',paused:'paused',stopped:'idle',idle:'idle'};
+  document.body.dataset.run=m[s]||'idle';
+}
 function setStatus(s,score,sum,cost){const tg=$('tag');tg.className='tag '+(s||'idle');tg.textContent=s||'idle';
   $('score').textContent=score==null?'—':(+score).toFixed(1);
   const c=(cost&&cost>0)?('  ·  ≈ $'+(+cost).toFixed(2)):'';
@@ -1053,7 +1080,8 @@ function setStatus(s,score,sum,cost){const tg=$('tag');tg.className='tag '+(s||'
   }
   sm.textContent=txt+c; sm.classList.toggle('err-hint',warn);   // red ⚠ when the objective is mis-specified / errored
   const live=(s==='running');                            // pulse the feed status dot while running
-  $('feedDot').classList.toggle('live',live);}
+  $('feedDot').classList.toggle('live',live);
+  setRunVisual(s);}
 async function loadState(name){CHART_VIEW=null;const d=await(await fetch(api('/api/projects/'+name))).json();
   BASELINE=d.baseline||{};
   const its=d.iterations||[];RUN_STATUS=d.status||'idle';_logSig='';setStatus(d.status||'idle',d.best_score,null,d.cost);plot(its);renderLog(its);renderCheckpoint(d);
