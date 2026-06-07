@@ -26,6 +26,7 @@ import yaml
 
 from .config import Config
 from .projects import project_dir, valid_name
+from .proposal_schema import MetricProposal
 from .state import StateStore
 
 _JUNK = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store")
@@ -153,3 +154,92 @@ def scaffold_project(name: str, description: str, template_id: str | None = None
         state.close()
     return {"created": name, "template": template_id,
             "harness": harness_dir if laid_harness else None}
+
+
+# --------------------------------------------------------------------------- P4.5 onboarding
+def build_onboarding_config(name: str, *, proposal: MetricProposal, bot_cmd: str, seed_token: str,
+                            data_rel: str = "../metrics/data.csv", goal: str | None = None,
+                            harness_dir: str = "metrics") -> dict:
+    """Assemble + validate a runnable config that optimizes an existing bot via the `score-bot`
+    numeric adapter (spec: docs/design/p4.5-onboarding-integration.md).
+
+    The bot IS the artifact (cwd of the eval command); the OOS data sits in ``../metrics`` outside
+    the artifact so the bot/executor cannot peek the held-out tail. Metrics come straight from the
+    P2 proposal. Raises if the proposal carries no metrics (EvaluationCfg needs ≥1).
+    """
+    if not proposal.proposed_metrics:
+        raise ValueError("proposal has no metrics; cannot build an evaluation config")
+    goal = (goal or proposal.goal or "").strip()
+    metrics = [{"name": m.name, "dir": m.dir, "weight": m.weight, "target": m.target}
+               for m in proposal.proposed_metrics]
+    # cwd is the artifact → `--bot-dir .` is the live edited bot, `../metrics/data.csv` the read-only
+    # sibling. `{python}` is substituted by the numeric adapter; `-m tyani_tolkai.cli` avoids relying
+    # on the console script being on PATH inside the run sandbox.
+    command = (f'{{python}} -m tyani_tolkai.cli score-bot '
+               f'--data {data_rel} --bot-dir . --bot-cmd "{bot_cmd}" --seed {seed_token}')
+    cfg = {
+        "project": name,
+        "description": goal,
+        "mode": "asymmetric",
+        "agents": {"executor": {"engine": "claude", "timeout": 600},
+                   "validator": {"engine": "claude", "timeout": 300}},
+        "roles": {
+            "executor": {"goal": goal,
+                         "task": "Improve the bot's score by tuning its parameters and/or refining "
+                                 "its logic. Do NOT read, modify, or run anything under ../metrics "
+                                 "(the hidden scorer + held-out data). One focused change per step."},
+            "validator": {"goal": "Review the bot and the change: whether the approach is sound, why "
+                                  "the score moved, and one or two concrete ideas to try next."},
+        },
+        "seed": {"mode": "empty"},
+        "evaluation": {"adapter": "numeric", "command": command, "metrics": metrics,
+                       "target_score": 100},
+        "limits": {"max_iterations": 40, "plateau_N": 8, "step_seconds": 600},
+        # local: the orchestrator runs score-bot as a subprocess; score-bot spawns the Docker
+        # sandbox for the bot itself, so a docker backend here would nest containers.
+        "sandbox": {"backend": "local"},
+    }
+    Config(**cfg)                                       # raises on any invalid field
+    return cfg
+
+
+def scaffold_onboarding(name: str, *, bot_dir, data_path, proposal: MetricProposal, bot_cmd: str,
+                        seed_token: str | None = None, goal: str | None = None) -> dict:
+    """Create a runnable optimization project from an existing bot + its data + a P2 proposal.
+
+    Lays the bot into the artifact (the editable surface), the OHLCV data into ``metrics/data.csv``
+    (outside the artifact), writes the generated config, and commits the bot as the reset baseline.
+    Mirrors `scaffold_project`. Returns ``{created, data, metrics}``. No Docker needed to scaffold;
+    a real run needs Docker (score-bot sandboxes the bot).
+    """
+    valid_name(name)
+    bot_dir = Path(bot_dir)
+    data_path = Path(data_path)
+    if not bot_dir.is_dir():
+        raise FileNotFoundError(f"bot-dir not found: {bot_dir}")
+    if not data_path.is_file():
+        raise FileNotFoundError(f"data not found: {data_path}")
+    if not proposal.proposed_metrics:
+        raise ValueError("proposal has no metrics; cannot onboard")
+    seed_token = seed_token or name
+    harness_dir = "metrics"
+
+    base = project_dir(name)
+    if (base / "config.yaml").exists():
+        raise FileExistsError(f"project {name!r} already exists")
+
+    cfg = build_onboarding_config(name, proposal=proposal, bot_cmd=bot_cmd, seed_token=seed_token,
+                                  data_rel=f"../{harness_dir}/data.csv", goal=goal,
+                                  harness_dir=harness_dir)
+    state = StateStore(base)
+    try:
+        state.artifact_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(bot_dir, state.artifact_dir, dirs_exist_ok=True, ignore=_JUNK)
+        (base / harness_dir).mkdir(parents=True, exist_ok=True)
+        shutil.copy2(data_path, base / harness_dir / "data.csv")
+        state.git_init()                                # commits the bot as the reset baseline
+        (base / "config.yaml").write_text(
+            yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True), encoding="utf-8")
+    finally:
+        state.close()
+    return {"created": name, "data": str(base / harness_dir / "data.csv"), "metrics": harness_dir}
