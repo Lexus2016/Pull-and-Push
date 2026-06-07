@@ -122,6 +122,25 @@ Run the tests: `pip install -e ".[dev]"` then `pytest` (151 pass, 1 docker test 
 
 </details>
 
+## Updating (your projects are safe)
+
+Your projects — config, run history, scores and the artifact — live in **`~/.tyani-tolkai/`**
+(override with `TYANI_TOLKAI_HOME`), **outside** this repo. So updating the code never touches them.
+
+```bash
+cd Pull-and-Push
+git pull
+./start.sh --update     # reinstall deps + relaunch · Windows: powershell -ExecutionPolicy Bypass -File .\start.ps1 --update
+```
+
+- **No data loss.** Old project databases are migrated **in place** on first open (new columns added
+  idempotently), so projects you ran on an older version keep working — open one and continue.
+- **Scores stay honest across the upgrade.** If you changed a project's metrics/targets, the next
+  **▶ Run** automatically re-scores its whole history onto the new metric scale (one consistent
+  0–100 scale; the log notes `♻ objective changed → re-scored …`).
+- **Optional backup** before a big jump: `cp -r ~/.tyani-tolkai ~/.tyani-tolkai.bak` (Windows: copy
+  the `%USERPROFILE%\.tyani-tolkai` folder).
+
 ## Configuration & troubleshooting
 
 **Cost cap** — set `limits.usd_per_mtok` (price) and `limits.budget_usd` (cap) in the config (or the
