@@ -453,6 +453,32 @@
       <div class="save-bar"><button class="btn" id="scaffoldBtn" data-i18n="tpl.btn" style="width:auto">🚀 Create runnable project</button>
         <span class="hint" data-i18n="tpl.btnHint">Creates the project with a committed harness and opens it — then press ▶ Run.</span></div>
     </div>
+    <div class="card console" style="border-color:#5a4a1f">
+      <h3 data-i18n="imp.title">🔧 Improve my existing bot</h3>
+      <p class="desc" data-i18n="imp.desc">Already have a trading bot? Point at it and its data — we analyze it, propose how to score it, wrap it so it speaks our protocol, prove the wrapper, then create a project that optimizes YOUR bot on held-out data. Steps run in order; defaults are filled in.</p>
+      <div class="grid">
+        <div class="field"><label data-i18n="imp.name">Project name</label><input id="imp_name" placeholder="my-bot">
+          <div class="hint" data-i18n="imp.nameHint">Letters/digits/._- — becomes a folder; rename later.</div></div>
+        <div class="field"><label data-i18n="imp.botcmd">Bot / adapter command</label><input id="imp_botcmd" placeholder="python adapter.py">
+          <div class="hint" data-i18n="imp.botcmdHint">Command that runs your bot and speaks the protocol (after you wire the adapter in step 3).</div></div>
+        <div class="field"><label data-i18n="imp.botdir">Bot directory</label><input id="imp_botdir" placeholder="/path/to/your/bot">
+          <div class="hint" data-i18n="imp.botdirHint">Folder holding your bot's source (becomes the editable artifact).</div></div>
+        <div class="field"><label data-i18n="imp.data">Market data (OHLCV CSV)</label><input id="imp_data" placeholder="/path/to/data.csv">
+          <div class="hint" data-i18n="imp.dataHint">time,open,high,low,close,volume — kept out of reach of the bot (held-out tail).</div></div>
+        <div class="field full"><label data-i18n="imp.goal">Goal</label>
+          <textarea id="imp_goal" style="min-height:60px" data-i18n-ph="imp.goalPh" placeholder="e.g.: maximize risk-adjusted return with shallow drawdowns."></textarea></div>
+      </div>
+      <div class="impsteps" style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:6px">
+        <button class="btn sec" id="imp_profileBtn" style="width:auto" data-i18n="imp.profile">1 · Analyze</button>
+        <button class="btn sec" id="imp_proposeBtn" style="width:auto" data-i18n="imp.propose">2 · Metrics</button>
+        <button class="btn sec" id="imp_genBtn" style="width:auto" data-i18n="imp.gen">3 · Adapter</button>
+        <button class="btn sec" id="imp_checkBtn" style="width:auto" data-i18n="imp.check">4 · Check</button>
+        <button class="btn" id="imp_onboardBtn" style="width:auto" data-i18n="imp.onboard">5 · Create project</button>
+        <button class="btn sec" id="imp_validateBtn" style="width:auto" data-i18n="imp.validate">6 · Validate</button>
+      </div>
+      <div class="hint" style="margin-top:6px" data-i18n="imp.flowHint">Order: Analyze → Metrics → Adapter (then fill decide() in your editor) → Check → Create → optionally Validate (needs Docker), then ▶ Run.</div>
+      <div id="imp_out" class="why" style="display:none;margin-top:10px;border:1px solid #5a4a1f;border-radius:6px;padding:10px;position:relative"></div>
+    </div>
     <div class="card console">
       <h3 data-i18n="gen.title">🪄 Generate from a description</h3>
       <p class="desc" data-i18n="gen.desc">The simplest path: describe the task in words — the configurator agent drafts the project, then you refine it in the form below.</p>
@@ -680,6 +706,7 @@ const I18N={en:{
  "help.title":"What this is","help.p":"Two agents compete over one project: the <b>Executor</b> improves the artifact, and scoring (deterministic code + optional <b>Validator</b>) decides if it got better. The loop keeps only improvements.",
  "help.s1":"<b>＋ New project</b> → describe the task and 🪄 generate, or fill the form → <b>Create</b>.","help.s2":"<b>▶ Run</b> drives the real agents; the quality curve and log update live.","help.s3":"<b>Live command</b> steers the agent without stopping; <b>Stop</b> — at the iteration boundary.",
  "side.new":"＋ New project","side.newTitle":"Create a new project — from a vetted template or a plain-language description.","prog.collapseHint":"Collapse / expand the controls — keep just the dashboard to watch progress.","prog.renameTitle":"Rename this project (and its folder).","prog.deleteTitle":"Delete this project for good — config, run history and the artifact.","prog.steerTitle":"Queue a hint for the NEXT iteration — steers the agent without stopping the run.","help.btnTitle":"How Pull-and-Push works — a short guide.","lang.title":"Interface language (EN / UK / RU).","side.projects":"Projects","side.empty":"No projects yet.<br>Press <b>＋ New project</b> to start.","side.coord":"// COLD = Executor · WARM = Validator",
+ "imp.title":"🔧 Improve my existing bot","imp.desc":"Already have a trading bot? Point at it and its data — we analyze it, propose how to score it, wrap it so it speaks our protocol, prove the wrapper, then create a project that optimizes YOUR bot on held-out data. Steps run in order; defaults are filled in.","imp.name":"Project name","imp.nameHint":"Letters/digits/._- — becomes a folder; rename later.","imp.botcmd":"Bot / adapter command","imp.botcmdHint":"Command that runs your bot and speaks the protocol (after you wire the adapter in step 3).","imp.botdir":"Bot directory","imp.botdirHint":"Folder holding your bot's source (becomes the editable artifact).","imp.data":"Market data (OHLCV CSV)","imp.dataHint":"time,open,high,low,close,volume — kept out of reach of the bot (held-out tail).","imp.goal":"Goal","imp.goalPh":"e.g.: maximize risk-adjusted return with shallow drawdowns.","imp.profile":"1 · Analyze","imp.propose":"2 · Metrics","imp.gen":"3 · Adapter","imp.check":"4 · Check","imp.onboard":"5 · Create project","imp.validate":"6 · Validate","imp.flowHint":"Order: Analyze → Metrics → Adapter (then fill decide() in your editor) → Check → Create → optionally Validate (needs Docker), then ▶ Run.","imp.needDirData":"Bot directory and data CSV are required.","imp.needGoal":"Describe the goal first.","imp.needProfile":"Run “1 · Analyze” first.","imp.needName":"Project name is required.","imp.analyzing":"Analyzing the bot…","imp.proposing":"Proposing metrics…","imp.checking":"Checking the adapter…","imp.validating":"Validating (this can take a while)…","imp.profileOk":"Analyzed — review the profile, then propose metrics.","imp.proposeOk":"Proposed metrics — review, then scaffold the adapter.","imp.genOk":"Wrote adapter.py. Fill in decide() in your editor to call your bot, then press “4 · Check”.","imp.checkPass":"Adapter PASS — it speaks the protocol. Create the project (and Validate for semantics).","imp.checkFlag":"Adapter FLAG — see reasons; fix decide() and re-check.","imp.onboardOk":"Project created — opening it. Press ▶ Run to optimize.","imp.validatePass":"Validation PASS — see the evidence report.","imp.validateFlag":"Validation FLAG — see the evidence report.",
  "tab.progress":"📊 Progress","tab.config":"⚙ Configuration",
  "tpl.title":"🚀 New project from an example","tpl.desc":"An “example” is a ready-made mini-project that already includes a scorer — code that looks at the result and gives it a mark from 0 to 100. Pick the example closest to your task, give it a name and describe the goal, and it can run right away. On each run an AI rewrites the file over and over, the scorer marks every version, and the system keeps the better ones.","tpl.name":"Project name","tpl.nameHint":"Letters/digits/._- — becomes a folder; rename later.","tpl.pick":"What kind of task is it?","tpl.card.auto.t":"🪄 Pick for me","tpl.card.auto.d":"Not sure? Describe the task below and we'll choose the closest example from your words.","tpl.card.custom.t":"✍️ Anything — my own scorer","tpl.card.custom.d":"The most general option. Improves any text or file against your own scorer — a tiny script that prints a number. Ships with a simple example (improve a tagline) that you replace with your task. Pick this if your task isn't trading or tests.","tpl.card.btcusdt-futures.t":"📈 Trading strategy (backtest)","tpl.card.btcusdt-futures.d":"A ready, realistic backtest: the AI rewrites the strategy while a built-in simulation (leverage, fees, liquidations) scores it only on held-out data, so it can't just overfit the past. Ships with BTCUSDT 5m demo data — swap harness/data.csv for any market or timeframe (ETH, forex, stocks). Pick this for any trading strategy.","tpl.card.pytest-pass.t":"✅ Make the code pass tests","tpl.card.pytest-pass.d":"The AI edits code until a hidden set of checks (tests) all turn green. Score = percent of checks passing. Pick this to write or fix code against ready-made tests.","tpl.descLabel":"Describe the goal in your own words","tpl.descPh":"e.g.: tune a leveraged BTCUSDT futures strategy for maximum return with no liquidations.","tpl.descHint":"This becomes the task for the AI — the more specific, the better.","tpl.btn":"🚀 Create & open project","tpl.btnHint":"Creates the project with its scorer built in and opens it. Then press ▶ Run.","tpl.creating":"Building the project…",
  "gen.title":"🪄 Generate from a description","gen.desc":"The simplest path: describe the task in words — the configurator agent drafts the project, then you refine it in the form below.","gen.descLabel":"Task, metrics, goal, constraints","gen.descPh":"e.g.: push strategy.py to maximum Sharpe with drawdown below 15%. Metrics: sharpe (higher is better), max_dd (lower is better). Target 90. Constraints: edit only strategy.py, one change per step.","gen.descHint":"Plain language — what we do, which metrics, the goal, the constraints.","gen.engine":"Configurator engine","gen.engineHint":"Which CLI agent drafts the config (must be installed and logged in).","gen.btn":"🪄 Generate project","gen.btnHint":"Fills the form below — review it and press “Create”.",
@@ -1143,6 +1170,48 @@ $('genBtn').onclick=async()=>{const desc=$('g_desc').value.trim();if(!desc){toas
     applyGenerated(d.config||{});showView('config');
     toast(d.valid?t('toast.genOk'):t('gen.warnPrefix')+(d.error||''),d.valid?'ok':'err');
   }catch(e){toast(t('err.prefix')+e,'err');}finally{b.disabled=false;b.textContent=t('gen.btn');}};
+// ── "Improve my bot" stepper: walks the P5 onboarding endpoints in order ──
+const IMP={profile:null,proposal:null};
+function impShow(html,kind){const e=$('imp_out');if(!e)return;e.style.display='block';
+  e.style.borderColor=kind==='err'?'#5a2a2a':(kind==='ok'?'#2c7a58':'#5a4a1f');
+  e.innerHTML=`<button class="te-x" onclick="document.getElementById('imp_out').style.display='none'" title="×">×</button>`+html;}
+function impVals(){return{name:$('imp_name').value.trim(),botdir:$('imp_botdir').value.trim(),
+  data:$('imp_data').value.trim(),goal:$('imp_goal').value.trim(),botcmd:$('imp_botcmd').value.trim()};}
+async function impPost(path,body){const r=await fetch(api(path),{method:'POST',
+  headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+  const d=await r.json().catch(()=>({}));return{r,d};}
+function impErr(r,d){toast(t('err.prefix')+((d&&d.detail)||r.status),'err');}
+async function impBtn(id,busyKey,fn){const b=$(id),old=b.textContent;b.disabled=true;b.textContent=t(busyKey);
+  try{await fn();}catch(e){toast(t('err.prefix')+e,'err');}finally{b.disabled=false;b.textContent=old;}}
+$('imp_profileBtn').onclick=()=>impBtn('imp_profileBtn','imp.analyzing',async()=>{
+  const v=impVals();if(!v.botdir){toast(t('imp.needDirData'),'err');return;}
+  const {r,d}=await impPost('/api/profile',{bot_dir:v.botdir});if(!r.ok)return impErr(r,d);
+  IMP.profile=d.profile;impShow(`<b>${esc(t('imp.profileOk'))}</b><pre style="white-space:pre-wrap;margin-top:6px">${esc(d.markdown||'')}</pre>`,'ok');toast(t('imp.profileOk'),'ok');});
+$('imp_proposeBtn').onclick=()=>impBtn('imp_proposeBtn','imp.proposing',async()=>{
+  const v=impVals();if(!IMP.profile){toast(t('imp.needProfile'),'err');return;}if(!v.goal){toast(t('imp.needGoal'),'err');return;}
+  const {r,d}=await impPost('/api/propose',{profile:IMP.profile,goal:v.goal});if(!r.ok)return impErr(r,d);
+  IMP.proposal=d.proposal;impShow(`<b>${esc(t('imp.proposeOk'))}</b><pre style="white-space:pre-wrap;margin-top:6px">${esc(d.markdown||'')}</pre>`,'ok');toast(t('imp.proposeOk'),'ok');});
+$('imp_genBtn').onclick=()=>impBtn('imp_genBtn','imp.gen',async()=>{
+  const v=impVals();if(!v.botdir){toast(t('imp.needDirData'),'err');return;}
+  const {r,d}=await impPost('/api/gen-adapter',{bot_dir:v.botdir,profile:IMP.profile,force:true});if(!r.ok)return impErr(r,d);
+  impShow(`<b>${esc(t('imp.genOk'))}</b><div class="hint" style="margin-top:6px">${esc(d.wrote||'')}</div>`,'ok');toast(t('imp.genOk'),'ok');});
+$('imp_checkBtn').onclick=()=>impBtn('imp_checkBtn','imp.checking',async()=>{
+  const v=impVals();if(!v.botdir||!v.botcmd){toast(t('imp.needDirData'),'err');return;}
+  const {r,d}=await impPost('/api/check-adapter',{bot_dir:v.botdir,bot_cmd:v.botcmd});if(!r.ok)return impErr(r,d);
+  const rs=(d.reasons||[]).map(x=>'· '+esc(x)).join('<br>');
+  impShow(`<b class="${d.ok?'ok':'err'}">${esc(d.ok?t('imp.checkPass'):t('imp.checkFlag'))}</b>`+(rs?`<br>${rs}`:''),d.ok?'ok':'err');
+  toast(d.ok?t('imp.checkPass'):t('imp.checkFlag'),d.ok?'ok':'err');});
+$('imp_onboardBtn').onclick=()=>impBtn('imp_onboardBtn','imp.onboard',async()=>{
+  const v=impVals();if(!v.name){toast(t('imp.needName'),'err');return;}if(!v.botdir||!v.data){toast(t('imp.needDirData'),'err');return;}
+  if(!IMP.proposal){toast(t('imp.needProfile'),'err');return;}
+  const {r,d}=await impPost('/api/onboard',{project:v.name,bot_dir:v.botdir,data:v.data,proposal:IMP.proposal,bot_cmd:v.botcmd||'python adapter.py',goal:v.goal});
+  if(!r.ok)return impErr(r,d);toast(t('imp.onboardOk'),'ok');await loadProjects();await selectProject(v.name);});
+$('imp_validateBtn').onclick=()=>impBtn('imp_validateBtn','imp.validating',async()=>{
+  const v=impVals();if(!v.botdir||!v.data||!v.botcmd){toast(t('imp.needDirData'),'err');return;}
+  const {r,d}=await impPost('/api/validate',{bot_dir:v.botdir,data:v.data,bot_cmd:v.botcmd,name:v.name});if(!r.ok)return impErr(r,d);
+  const pass=d.verdict==='PASS';
+  impShow(`<b class="${pass?'ok':'err'}">${esc(pass?t('imp.validatePass'):t('imp.validateFlag'))}</b><pre style="white-space:pre-wrap;margin-top:6px">${esc(d.report||'')}</pre>`,pass?'ok':'err');
+  toast(pass?t('imp.validatePass'):t('imp.validateFlag'),pass?'ok':'err');});
 function setMetricsErr(msg){const e=$('metricsErr');if(!e)return;   // weight-sum error shown UNDER the metric fields
   e.textContent=msg||'';e.style.display=msg?'block':'none';}
 $('saveBtn').onclick=async()=>{const cfg=buildConfig();
