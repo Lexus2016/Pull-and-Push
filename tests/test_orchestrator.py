@@ -608,3 +608,26 @@ def test_rescore_excludes_iterations_missing_a_new_metric(tmp_path):
     assert its[1] is None and its[2] is None                  # excluded — no value for the new 'q'
     assert s.best_score(run_id) is None                       # no comparable history under new objective
     s.close()
+
+
+def test_rescore_rederives_autopinned_baseline_when_target_crosses_start(tmp_path):
+    # auto-pinned zero-point (worst from baseline_json) must be RE-DERIVED under the new target —
+    # lowering the target below the start would otherwise invert the scale and collapse all to 0.
+    import json as _json
+    from tyani_tolkai.orchestrator import metrics_signature
+    s = StateStore(tmp_path / "proj"); s.git_init()
+    run_id = s.create_run("asymmetric")
+    (s.artifact_dir / "v").write_text("x"); h = s.commit("c")
+    cfgA = _cfg_no_worst(target=100)                          # auto-pinned (no explicit worst)
+    s.update_run(run_id, baseline_json=_json.dumps({"s": 20.0}), best_score=50.0,
+                 metrics_sig=metrics_signature(cfgA.evaluation.metrics))   # original start pinned at 20
+    for n, v in [(1, 20.0), (2, 60.0)]:
+        s.record_iteration(run_id, n=n, git_hash=h, score=float(v), verdict="keep",
+                           metrics=[{"name": "s", "value": v, "dir": "higher", "weight": 1}])
+    cfgB = _cfg_no_worst(target=10)                           # user LOWERS the target below the start (20)
+    Orchestrator(cfgB, s, run_id, MockAdapter([]), FakeMetric(), LocalBackend()) \
+        ._rebaseline_if_metrics_changed(lambda *_: None)
+    its = {it.n: it.score for it in s.last_iterations(run_id, 100)}
+    assert its[1] is not None and its[2] is not None          # NOT collapsed to None/0 by an inverted scale
+    assert s.best_score(run_id) is not None and s.best_score(run_id) > 0
+    s.close()

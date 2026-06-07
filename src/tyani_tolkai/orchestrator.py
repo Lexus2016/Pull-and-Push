@@ -74,6 +74,10 @@ class Orchestrator:
         # estimated cumulative cost (USD) across the run; restored on resume so the budget cap holds
         self.cost_total = float(run["cost_total"]) if (run and "cost_total" in run.keys()
                                                        and run["cost_total"] is not None) else 0.0
+        # which metrics carry an EXPLICIT worst from the config (vs auto-pinned). Captured BEFORE the
+        # baseline_json load below overwrites m.worst, so a later objective change re-derives the
+        # auto-pinned zero-points (under the new dir/target) but honours explicit ones.
+        self._explicit_worst = {m.name for m in cfg.evaluation.metrics if m.worst is not None}
         # Baseline zero-points: metric.worst the user never has to invent. Pinned to the
         # first measured value, persisted so a resumed run keeps the same 0–100 scale.
         raw = run["baseline_json"] if (run and "baseline_json" in run.keys()) else None
@@ -130,12 +134,12 @@ class Orchestrator:
         # 1) zero-points: an explicit worst wins; else pin to the FIRST iteration that measured it
         baseline: dict = {}
         for m in metrics:
-            if m.worst is not None:
+            if m.name in self._explicit_worst:                # user pinned it explicitly → honour it
                 baseline[m.name] = m.worst
                 continue
-            for it in iters:
+            for it in iters:                                  # else RE-DERIVE from the first iteration
                 v = next((mm["value"] for mm in it.metrics if mm["name"] == m.name), None)
-                if v is not None:
+                if v is not None:                             # that measured it, under the NEW dir/target
                     baseline[m.name] = resolve_worst(m.dir, m.target, float(v))
                     break
         for m in metrics:                                      # carry the pinned zero-points forward
