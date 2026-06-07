@@ -61,6 +61,23 @@ def _fire_webhook(cfg, name: str, payload: dict) -> None:
         pass
 
 
+def _select_run_id(state):
+    """Pick the run to (re)use when Run is pressed: ALWAYS RESUME the latest run that has history,
+    so pressing Run CONTINUES from the last iteration — the iteration count carries on and previous
+    iterations are NEVER lost. This holds after every finish reason (plateau / max-iterations /
+    budget / even a target win): raising plateau_N / max_iterations / target_score in Settings and
+    pressing Run extends the SAME run. A genuinely fresh start is a separate, explicit, confirmed
+    action (Reset / Fork) — never a side effect of Run. An empty zombie run (created but with no
+    iterations) is skipped so it can't strand real history behind it. Returns (run_id | None,
+    resuming: bool); None means there is no prior history yet, so the caller creates the first run."""
+    last = state.conn.execute(
+        "SELECT id FROM run WHERE id IN (SELECT DISTINCT run_id FROM iteration) "
+        "ORDER BY id DESC LIMIT 1").fetchone()
+    if last:
+        return int(last["id"]), True
+    return None, False
+
+
 class RunManager:
     """Tracks background runs and their streamed outcomes (in memory)."""
 
@@ -125,12 +142,11 @@ class RunManager:
             base = project_dir(name)
             cfg = load_config(base / "config.yaml")
             state = StateStore(base)
-            # resume the latest unfinished run (continue progress) instead of starting over
-            last = state.conn.execute("SELECT id, status FROM run ORDER BY id DESC LIMIT 1").fetchone()
-            has_hist = last and state.conn.execute(
-                "SELECT 1 FROM iteration WHERE run_id=? LIMIT 1", (last["id"],)).fetchone()
-            if last and last["status"] != "finished" and has_hist:
-                run_id = last["id"]
+            # Run = CONTINUE: resume the latest run that has history (any finish reason), so previous
+            # iterations are never lost and the iteration count carries on. A fresh start is a
+            # separate explicit action (Reset / Fork), never a side effect of pressing Run.
+            run_id, resuming = _select_run_id(state)
+            if resuming:
                 state.reconcile(run_id)
                 if state.has_changes():
                     state.revert_uncommitted()

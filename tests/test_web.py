@@ -283,6 +283,56 @@ def test_export_iter_rewind_fork(client):
     assert "snapfork" in client.get("/api/projects").json()["projects"]
 
 
+def test_run_continues_after_finish_never_loses_iterations(client):
+    """Pressing Run after a FINISHED run (plateau / max-iter / even a target win) RESUMES the same
+    run — history and the iteration count carry on, previous iterations are never lost."""
+    from tyani_tolkai.state import StateStore
+    from tyani_tolkai.projects import project_dir
+    from tyani_tolkai.web import server
+    client.post("/api/projects/create", json=dict(_VALID, project="cont"))
+    _seed_kept_iters("cont", 3)                       # run with 3 kept iterations
+    st = StateStore(project_dir("cont"))
+    try:
+        rid = st.conn.execute("SELECT id FROM run ORDER BY id DESC LIMIT 1").fetchone()["id"]
+        st.set_status(rid, "finished")                # simulate a plateau / max-iter / target finish
+        run_id, resuming = server._select_run_id(st)
+        assert resuming is True and run_id == rid     # Run CONTINUES the finished run, not a new one
+    finally:
+        st.close()
+
+
+def test_select_run_id_fresh_project_starts_first_run(client):
+    """With no prior history at all, _select_run_id signals 'create the first run'."""
+    from tyani_tolkai.state import StateStore
+    from tyani_tolkai.projects import project_dir
+    from tyani_tolkai.web import server
+    client.post("/api/projects/create", json=dict(_VALID, project="fresh"))
+    st = StateStore(project_dir("fresh"))
+    try:
+        run_id, resuming = server._select_run_id(st)
+        assert run_id is None and resuming is False
+    finally:
+        st.close()
+
+
+def test_select_run_id_skips_empty_zombie_run(client):
+    """A newer EMPTY run (created but with no iterations) must not strand real history: resume the
+    latest run that actually HAS iterations."""
+    from tyani_tolkai.state import StateStore
+    from tyani_tolkai.projects import project_dir
+    from tyani_tolkai.web import server
+    client.post("/api/projects/create", json=dict(_VALID, project="zombie"))
+    _seed_kept_iters("zombie", 2)                     # run with history
+    st = StateStore(project_dir("zombie"))
+    try:
+        real = st.conn.execute("SELECT id FROM run ORDER BY id DESC LIMIT 1").fetchone()["id"]
+        st.create_run("asymmetric")                   # newer empty zombie run
+        run_id, resuming = server._select_run_id(st)
+        assert resuming is True and run_id == real     # resume the run WITH history, not the zombie
+    finally:
+        st.close()
+
+
 def test_rewind_fork_blocked_while_running(client, monkeypatch):
     client.post("/api/projects/create", json=dict(_VALID, project="busy2"))
     monkeypatch.setattr(client.app.state.runs, "is_running", lambda n: True)
