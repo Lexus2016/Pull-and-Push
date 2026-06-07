@@ -232,6 +232,13 @@ class StateStore:
         self.conn.execute(f"UPDATE run SET {cols} WHERE id = ?", (*fields.values(), run_id))
         self.conn.commit()
 
+    def update_iteration_score(self, run_id: int, n: int, score: float | None) -> None:
+        """Overwrite a stored iteration's composite score — used when the objective changes and
+        the whole history is re-scored onto the new metric scale (score=None = not comparable)."""
+        self.conn.execute("UPDATE iteration SET score = ? WHERE run_id = ? AND n = ?",
+                          (score, run_id, n))
+        self.conn.commit()
+
     def get_run(self, run_id: int) -> sqlite3.Row:
         return self.conn.execute("SELECT * FROM run WHERE id = ?", (run_id,)).fetchone()
 

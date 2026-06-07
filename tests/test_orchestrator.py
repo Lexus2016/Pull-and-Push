@@ -551,3 +551,60 @@ def test_rebaseline_on_metric_objective_change(tmp_path):
         ._rebaseline_if_metrics_changed(lambda *_: None)
     assert s.best_score(run_id) == 100.0
     s.close()
+
+
+def test_rescore_history_recomputes_all_iterations(tmp_path):
+    # changing the objective re-scores the WHOLE history from each iteration's stored raw values,
+    # onto one new scale (zero-point pinned to the first iteration). No re-running the eval.
+    from tyani_tolkai.orchestrator import metrics_signature
+    s = StateStore(tmp_path / "proj"); s.git_init()
+    run_id = s.create_run("asymmetric")
+    (s.artifact_dir / "val.txt").write_text("80\n"); h = s.commit("c")
+    cfgA = _cfg(target=100)                                   # metric s, worst 0, target 100
+    for n, v in [(1, 10.0), (2, 50.0), (3, 80.0)]:           # stored A-scale scores are irrelevant
+        s.record_iteration(run_id, n=n, git_hash=(h if n == 3 else None), score=float(v),
+                           verdict="keep",
+                           metrics=[{"name": "s", "value": v, "dir": "higher", "weight": 1}])
+    s.update_run(run_id, best_score=80.0, iter_count=3,
+                 metrics_sig=metrics_signature(cfgA.evaluation.metrics))
+    # objective changes: target 100→200, worst now baseline-derived → pins to first iter (s=10)
+    cfgB = Config(project="p", agents={"executor": {"engine": "mock"}},
+                  roles={"executor": {"goal": "raise s"}},
+                  evaluation={"adapter": "numeric", "command": "true",
+                              "metrics": [{"name": "s", "dir": "higher", "weight": 1, "target": 200}],
+                              "target_score": 100, "min_delta": 1.0},
+                  limits={"max_iterations": 20, "plateau_N": 3})
+    Orchestrator(cfgB, s, run_id, MockAdapter([]), FakeMetric(), LocalBackend()) \
+        ._rebaseline_if_metrics_changed(lambda *_: None)
+    its = {it.n: it.score for it in s.last_iterations(run_id, 100)}
+    expect = lambda v: round((v - 10) / (200 - 10) * 100, 2)   # scale: (v-worst)/(target-worst)
+    assert its[1] == 0.0                                       # first iter is the zero-point → 0
+    assert round(its[2], 2) == expect(50)
+    assert round(its[3], 2) == expect(80)
+    assert round(s.best_score(run_id), 2) == expect(80)        # bar = recomputed max, not stale 80
+    s.close()
+
+
+def test_rescore_excludes_iterations_missing_a_new_metric(tmp_path):
+    # an ADDED metric the old iterations never measured → they can't be scored under it → excluded.
+    from tyani_tolkai.orchestrator import metrics_signature
+    s = StateStore(tmp_path / "proj"); s.git_init()
+    run_id = s.create_run("asymmetric")
+    (s.artifact_dir / "v").write_text("x"); h = s.commit("c")
+    cfgA = _cfg(target=100)
+    for n, v in [(1, 30.0), (2, 60.0)]:
+        s.record_iteration(run_id, n=n, git_hash=h, score=float(v), verdict="keep",
+                           metrics=[{"name": "s", "value": v, "dir": "higher", "weight": 1}])
+    s.update_run(run_id, best_score=60.0, metrics_sig=metrics_signature(cfgA.evaluation.metrics))
+    cfgB = Config(project="p", agents={"executor": {"engine": "mock"}}, roles={"executor": {"goal": "g"}},
+                  evaluation={"adapter": "numeric", "command": "true",
+                              "metrics": [{"name": "s", "dir": "higher", "weight": 1, "worst": 0, "target": 100},
+                                          {"name": "q", "dir": "higher", "weight": 1, "worst": 0, "target": 100}],
+                              "target_score": 100, "min_delta": 1.0},
+                  limits={"max_iterations": 20, "plateau_N": 3})
+    Orchestrator(cfgB, s, run_id, MockAdapter([]), FakeMetric(), LocalBackend()) \
+        ._rebaseline_if_metrics_changed(lambda *_: None)
+    its = {it.n: it.score for it in s.last_iterations(run_id, 100)}
+    assert its[1] is None and its[2] is None                  # excluded — no value for the new 'q'
+    assert s.best_score(run_id) is None                       # no comparable history under new objective
+    s.close()

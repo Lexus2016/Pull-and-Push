@@ -1117,7 +1117,8 @@ function stopPolling(){if(poll){clearInterval(poll);poll=null;}}
 function startPolling(name){if(poll)clearInterval(poll);
   poll=setInterval(async()=>{const d=await(await fetch(api('/api/projects/'+name+'/live'))).json();
     if(d.baseline&&Object.keys(d.baseline).length)BASELINE=d.baseline;   // live zero-points
-    const best=(d.outcomes||[]).reduce((m,o)=>o.score!=null&&o.score>m?o.score:m,0)||null;
+    // headline = the scale-correct bar from the backend (DB best_score); fall back to the live max
+    const best=(d.best!=null)?d.best:((d.outcomes||[]).reduce((m,o)=>o.score!=null&&o.score>m?o.score:m,0)||null);
     const oc=d.outcomes||[];RUN_STATUS=d.status;setStatus(d.status,best,d.summary,d.cost);plot(oc);renderLog(oc);renderCheckpoint(d);
     renderMetricCards(lastMetricsOf(oc));
     if(d.status==='running')loadAgentLog();        // live tail of the executor's output

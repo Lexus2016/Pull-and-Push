@@ -110,37 +110,62 @@ class Orchestrator:
 
     def _rebaseline_if_metrics_changed(self, ph) -> None:
         """If the scoring OBJECTIVE changed since this run last ran (metric added/removed, or a
-        target/weight/direction edited), the stored best_score is on the OLD scale — so a genuinely
-        better artifact can read lower and be wrongly discarded. Re-measure the current best under
-        the NEW objective and make THAT the bar: pin any new metric's zero-point (keep existing ones
-        for continuity), set best_score to the fresh measurement, and log it. Runs once per run."""
+        target/weight/direction edited), every stored score is on the OLD scale and incomparable.
+        Re-score the WHOLE history from each iteration's stored raw metric VALUES under the NEW
+        objective (cheap — no re-running the eval), rewrite the stored scores, re-pin each zero-point
+        to the first iteration that measured it (an explicit ``worst`` wins), and set best = the new
+        max. Iterations missing a value for a NEW metric can't be scored under it → recorded as None
+        (not comparable). Idempotent on an unchanged objective."""
         cfg, state = self.cfg, self.state
         run = state.get_run(self.run_id)
         stored = run["metrics_sig"] if (run and "metrics_sig" in run.keys()) else None
         cur = metrics_signature(cfg.evaluation.metrics)
         if stored == cur:
             return
-        best = state.best_score(self.run_id)
-        if stored is None or best is None or state.is_artifact_empty():
-            state.update_run(self.run_id, metrics_sig=cur)     # nothing to re-baseline yet — just record
+        iters = state.last_iterations(self.run_id, 10**9)      # all, oldest-first, with raw values
+        if stored is None or not iters:
+            state.update_run(self.run_id, metrics_sig=cur)     # nothing to re-score yet — just record
             return
-        ph("scoring")
-        mres = self._run_metrics()                             # re-score the current best (HEAD)
-        state.revert_uncommitted()
-        if not mres.ok:
-            return                                             # can't re-measure now → retry next run
-        values = {m["name"]: m["value"] for m in mres.metrics}
-        if any(m.name not in values for m in cfg.evaluation.metrics):
-            return
-        self._resolve_baseline(values)                         # pin zero-points for any NEW metric
-        fresh = score(values, cfg.evaluation.metrics)
-        state.update_run(self.run_id, best_score=fresh, metrics_sig=cur)
+        metrics = list(cfg.evaluation.metrics)
+        # 1) zero-points: an explicit worst wins; else pin to the FIRST iteration that measured it
+        baseline: dict = {}
+        for m in metrics:
+            if m.worst is not None:
+                baseline[m.name] = m.worst
+                continue
+            for it in iters:
+                v = next((mm["value"] for mm in it.metrics if mm["name"] == m.name), None)
+                if v is not None:
+                    baseline[m.name] = resolve_worst(m.dir, m.target, float(v))
+                    break
+        for m in metrics:                                      # carry the pinned zero-points forward
+            if m.name in baseline:
+                m.worst = baseline[m.name]
+        # 2) re-score every iteration from its stored values; exclude those missing a new metric
+        best = None; rescored = 0; excluded = 0
+        for it in iters:
+            vals = {mm["name"]: mm["value"] for mm in it.metrics}
+            if any(m.name not in vals for m in metrics):
+                state.update_iteration_score(self.run_id, it.n, None)
+                excluded += 1
+                continue
+            sc = score(vals, metrics)
+            state.update_iteration_score(self.run_id, it.n, sc)
+            rescored += 1
+            if best is None or sc > best:
+                best = sc
+        # 3) persist the new scale (zero-points + bar + signature)
+        self._baseline = baseline
+        state.update_run(self.run_id, best_score=best, metrics_sig=cur,
+                         baseline_json=json.dumps(baseline))
+        # 4) tell the operator — never silently rewrite history
         try:
             sep = "─" * 60
+            bar = f"{best:.2f}" if best is not None else "—"
+            extra = f" ({excluded} excluded — missing a new metric)" if excluded else ""
             with (state.project_dir / "agent.log").open("a", encoding="utf-8") as f:
-                f.write(f"\n{sep}\n♻ metrics changed → re-baselined: current best re-measured under "
-                        f"the new objective = {fresh:.2f} (was {best:.2f} on the old scale). The loop "
-                        f"now keeps improvements measured the same way.\n{sep}\n")
+                f.write(f"\n{sep}\n♻ objective changed → re-scored {rescored} iteration(s) onto the "
+                        f"new metric scale{extra}. New bar (best) = {bar}.\n{sep}\n")
         except OSError:
             pass
 

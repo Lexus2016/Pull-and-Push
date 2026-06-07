@@ -99,6 +99,7 @@ class RunManager:
             return {"status": r["status"], "summary": r["summary"],
                     "outcomes": list(r["outcomes"]), "phase": r.get("phase"),
                     "baseline": dict(r.get("baseline") or {}), "cost": r.get("cost", 0.0),
+                    "best": r.get("best"),   # scale-correct bar from the DB (not max over mixed scales)
                     "checkpoint": r.get("checkpoint")}
 
     def is_running(self, name: str) -> bool:
@@ -112,7 +113,8 @@ class RunManager:
                 raise HTTPException(409, "run already in progress")
             self._stop.discard(name)   # clear inside the lock so a racing /stop isn't lost
             self._runs[name] = {"status": "running", "summary": None, "outcomes": [],
-                                "phase": None, "baseline": {}, "cost": 0.0, "checkpoint": None}
+                                "phase": None, "baseline": {}, "cost": 0.0, "best": None,
+                                "checkpoint": None}
         threading.Thread(target=self._run, args=(name,), daemon=True).start()
 
     def _run(self, name: str) -> None:
@@ -133,17 +135,6 @@ class RunManager:
                 if state.has_changes():
                     state.revert_uncommitted()
                 state.set_status(run_id, "running")
-                # Seed the live view with THIS run's persisted history. Without it, /live returns
-                # only the outcomes appended this session, so the chart/log collapse to the new
-                # iterations on resume — it looked like the run had reset to iteration 1.
-                hist = state.last_iterations(run_id, 100000)
-                with self._lock:
-                    if name in self._runs:
-                        self._runs[name]["outcomes"] = [
-                            {"n": it.n, "verdict": it.verdict, "score": it.score,
-                             "feedback": it.feedback, "change": it.change_summary, "ts": it.ts,
-                             "metrics": [{"name": m["name"], "value": m["value"]} for m in it.metrics]}
-                            for it in hist]
             else:
                 run_id = state.create_run(cfg.mode)
             log.info("run start: project=%s run_id=%s executor=%s", name, run_id,
@@ -160,6 +151,21 @@ class RunManager:
             with self._lock:
                 self._runs[name]["orch"] = orch   # so Force-Stop can reach the live agent
 
+            # If the objective changed since this run last ran, re-score the WHOLE history onto the
+            # new scale BEFORE seeding the live view — so the chart/log/bar all match the new metrics
+            # (no mixed-scale curve, no stale headline). Idempotent when nothing changed.
+            orch._rebaseline_if_metrics_changed(lambda *_: None)
+            hist = state.last_iterations(run_id, 100000)        # persisted history, now current-scale
+            with self._lock:
+                if name in self._runs:
+                    self._runs[name]["outcomes"] = [
+                        {"n": it.n, "verdict": it.verdict, "score": it.score,
+                         "feedback": it.feedback, "change": it.change_summary, "ts": it.ts,
+                         "metrics": [{"name": m["name"], "value": m["value"]} for m in it.metrics]}
+                        for it in hist]
+                    self._runs[name]["best"] = state.best_score(run_id)
+                    self._runs[name]["baseline"] = dict(orch._baseline)
+
             def on_iter(o):
                 with self._lock:
                     self._runs[name]["outcomes"].append(
@@ -168,6 +174,7 @@ class RunManager:
                          "metrics": [{"name": m["name"], "value": m["value"]} for m in (o.metrics or [])]})
                     self._runs[name]["baseline"] = dict(orch._baseline)   # resolved zero-points (live cards)
                     self._runs[name]["cost"] = orch.cost_total            # estimated spend so far
+                    self._runs[name]["best"] = state.best_score(run_id)   # current-scale bar (DB truth)
 
             def on_ph(p):
                 with self._lock:
