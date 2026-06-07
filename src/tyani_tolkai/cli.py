@@ -30,15 +30,18 @@ from .sandbox import get_backend
 from .state import StateStore
 from .bot_io import load_bars_csv
 from .bot_sandbox import score_bot_sandboxed as _score_bot_sandboxed, SandboxUnavailable, docker_available
-from .bot_runner import BotProtocolError, score_bot
+from .bot_runner import BotProtocolError, score_bot, drive_bot
 from .bot_protocol import seeded_oos_start
 from . import bot_engine
 from .validation import (
     score_controls, beats_controls, check_determinism, hash_artifacts, insample_oos_gap,
     build_evidence_report, evidence_verdict, reverse_oos, anti_lookahead_probe,
+    synth_bars, check_adapter_orders,
 )
 from .scaffold import scaffold_onboarding
 from .proposal_schema import MetricProposal
+from .profile_schema import BotProfile
+from .adapter_gen import render_adapter_stub
 
 
 def _print_iter(o):
@@ -324,6 +327,68 @@ def cmd_onboard(args) -> int:
     return 0
 
 
+def cmd_gen_adapter(args) -> int:
+    """Scaffold a starter adapter.py (vetted protocol plumbing + a decide() stub to fill)."""
+    bot_dir = Path(args.bot_dir)
+    if not bot_dir.is_dir():
+        print(f"bot-dir not found: {bot_dir}", file=sys.stderr)
+        return 2
+    profile = None
+    if args.profile:
+        pp = Path(args.profile)
+        if not pp.exists():
+            print(f"profile not found: {pp}", file=sys.stderr)
+            return 2
+        try:
+            profile = BotProfile.model_validate_json(pp.read_text(encoding="utf-8"))
+        except ValidationError as exc:
+            print(f"invalid profile.json: {exc}", file=sys.stderr)
+            return 2
+    out = Path(args.out) if args.out else bot_dir / "adapter.py"
+    if out.exists() and not args.force:
+        print(f"{out} already exists; pass --force to overwrite", file=sys.stderr)
+        return 2
+    out.write_text(render_adapter_stub(profile=profile), encoding="utf-8")
+    print(f"wrote {out}")
+    print(f'fill in decide(), then: pull-and-push check-adapter --bot-dir {bot_dir} '
+          f'--bot-cmd "python {out.name}"')
+    return 0
+
+
+def cmd_check_adapter(args) -> int:
+    """Prove a bot adapter speaks the P3 protocol: well-formed + deterministic + non-degenerate.
+
+    Drives the adapter over the real protocol on a synthetic series, twice. PASS means it is
+    protocol-sound — NOT that it is semantically correct (sign/scale): run `validate` next for that.
+    Exit 0=PASS, 3=FLAG, 1=adapter protocol/timeout error, 2=bad input.
+    """
+    bot_dir = Path(args.bot_dir)
+    if not bot_dir.is_dir():
+        print(f"bot-dir not found: {bot_dir}", file=sys.stderr)
+        return 2
+    bars = synth_bars(args.n)
+    bot_cmd = shlex.split(args.bot_cmd)
+    try:
+        run1 = drive_bot(bot_cmd, bars, params={}, per_read_timeout=args.per_read_timeout,
+                         total_timeout=args.total_timeout)
+        run2 = drive_bot(bot_cmd, bars, params={}, per_read_timeout=args.per_read_timeout,
+                         total_timeout=args.total_timeout)
+    except BotProtocolError as exc:
+        print(f"adapter failed the protocol: {exc}", file=sys.stderr)
+        return 1
+    v = check_adapter_orders(run1, run2, len(bars))
+    print(f"adapter check: {'PASS' if v['ok'] else 'FLAG'}")
+    print(f"- well-formed:    {v['well_formed']}")
+    print(f"- deterministic:  {v['deterministic']}")
+    print(f"- non-degenerate: {not v['degenerate']}")
+    for r in v["reasons"]:
+        print(f"- {r}")
+    if v["ok"]:
+        print("next: `validate` — check-adapter proves the protocol; validate checks semantics "
+              "(sign/scale) via the control spectrum + the human evidence report.")
+    return 0 if v["ok"] else 3
+
+
 def cmd_web(args) -> int:
     from .web.server import create_app
     import logging
@@ -417,6 +482,23 @@ def main(argv=None) -> int:
     po.add_argument("--seed", default=None, help="OOS-split seed token (default: the project name)")
     po.add_argument("--goal", default=None, help="optimization goal (default: the proposal's goal)")
     po.set_defaults(func=cmd_onboard)
+
+    pg = sub.add_parser("gen-adapter",
+                        help="scaffold a starter adapter.py (vetted plumbing + a decide() stub to fill)")
+    pg.add_argument("--bot-dir", required=True, help="dir to write adapter.py into")
+    pg.add_argument("--profile", default=None, help="optional P1 profile.json for decide() hints")
+    pg.add_argument("--out", default=None, help="output path (default: <bot-dir>/adapter.py)")
+    pg.add_argument("--force", action="store_true", help="overwrite an existing file")
+    pg.set_defaults(func=cmd_gen_adapter)
+
+    pc = sub.add_parser("check-adapter",
+                        help="prove an adapter speaks the P3 protocol (well-formed + deterministic + non-degenerate)")
+    pc.add_argument("--bot-dir", required=True, help="the adapter/bot dir")
+    pc.add_argument("--bot-cmd", required=True, help="command to run the adapter (shlex-split)")
+    pc.add_argument("--n", type=int, default=40, help="number of synthetic probe bars")
+    pc.add_argument("--per-read-timeout", type=float, default=10.0)
+    pc.add_argument("--total-timeout", type=float, default=120.0)
+    pc.set_defaults(func=cmd_check_adapter)
 
     args = p.parse_args(argv)
     return args.func(args)
