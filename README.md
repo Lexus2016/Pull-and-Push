@@ -55,6 +55,10 @@ hits your target or stops improving. The best version is what you take away.
 | ![New project](docs/assets/new-project.png) | ![Overview](docs/assets/progress-overview.png) |
 | Pick a vetted template (ships a working scorer) **or** generate a project from a plain-language description. | Sidebar of projects, the live dashboard, and the activity rail — all in one screen. |
 
+| Improve an existing bot | |
+|---|---|
+| ![Improve my bot](docs/assets/improve-bot.png) | Onboard a bot you already have: analyze → propose metrics → scaffold + check an adapter → create the project, in six guided steps. The loop then optimises **your** bot on held-out data. |
+
 ## Under the hood (for builders)
 
 The technical name is an **adversarial co-evolution orchestrator** — in the spirit of GANs,
@@ -177,6 +181,9 @@ projects run on hosts that only have `python3` (not a bare `python`).
   `btcusdt-futures` (leveraged BTCUSDT 5m backtest) and `pytest-pass` (make a hidden test suite pass).
 - 🪄 **Generate from a description** — describe the task in plain language; a configurator
   agent drafts the whole project, you review it in the form, then **Create**.
+- 🔧 **Improve my existing bot** — onboard a bot you already have (analyze → metrics → adapter →
+  check → create), so the loop optimises *your* bot on held-out data. Full walkthrough:
+  [Improve an existing bot](#improve-an-existing-bot-onboarding).
 - ▶ **Run** drives the real agents. The quality curve and metric cards update live, alongside a
   collapsible **activity feed** (right rail, newest iteration on top): the validator's review and
   the executor's output render as **Markdown**. Your layout — feed open/closed, sidebar, current
@@ -207,6 +214,48 @@ iteration in the activity feed is a real git commit, so each keep card carries t
 
 Snapshots are offered for **kept** iterations (each is a committed checkpoint); discarded
 candidates are reverted and not stored. Rewind/fork are disabled while a run is in progress.
+
+## Improve an existing bot (onboarding)
+
+Already have a trading bot? Optimise **it** — not a template. The dashboard's **🔧 Improve my
+existing bot** card (and the matching CLI) walk a safe, gated flow that wraps your bot, proves the
+wrapper, then builds a project that tunes your bot on held-out data.
+
+![Improve my bot](docs/assets/improve-bot.png)
+
+**In the dashboard** — press **＋ New project** and use the *Improve my existing bot* card: point at
+your bot's folder, an OHLCV CSV and a goal, then walk the six steps (each shows its result/verdict):
+
+1. **Analyze** — a read-only LLM pass produces a *bot profile* (entry point, tunables, risks).
+2. **Metrics** — proposes how to score your bot (metrics + targets); you review and keep them.
+3. **Adapter** — scaffolds `adapter.py` (vetted protocol plumbing + a `decide()` stub). **Fill in
+   `decide()`** in your editor so it calls your bot's logic and returns a position (1 / 0 / -1).
+4. **Check** — proves the adapter speaks the protocol: well-formed + deterministic + non-degenerate.
+5. **Create project** — lays your bot into the artifact, the data into `metrics/` (out of the bot's
+   reach), wires the vetted scorer, and opens the project.
+6. **Validate** *(optional, needs Docker)* — the secondary-validation evidence report (control
+   spectrum, determinism, anti-look-ahead, overfit gap) → **PASS / FLAG**.
+
+Then press **▶ Run**.
+
+**From the CLI** (the same flow, step by step):
+
+```bash
+pull-and-push profile       ./mybot --out ./mybot                       # → profile.json + .md
+pull-and-push propose       ./mybot/profile.json --goal "max risk-adjusted return" --out ./mybot
+pull-and-push gen-adapter   --bot-dir ./mybot                           # writes adapter.py — fill in decide()
+pull-and-push check-adapter --bot-dir ./mybot --bot-cmd "python adapter.py"        # PASS / FLAG
+pull-and-push onboard       --bot-dir ./mybot --data ./data.csv \
+                            --proposal ./mybot/proposal.json --name my-bot --bot-cmd "python adapter.py"
+pull-and-push validate      --bot-dir ./mybot --data ./data.csv --bot-cmd "python adapter.py" --seed my-bot
+pull-and-push run           ~/.tyani-tolkai/projects/my-bot/config.yaml
+```
+
+**Why the wrapper + the gate?** The engine only ever trusts a vetted, hidden scorer — never code the
+AI wrote. So your bot is never the judge: it runs **isolated** (Docker sandbox) and only emits
+orders; our engine computes the PnL. `check-adapter` proves the wrapper is protocol-sound;
+`validate`'s control spectrum then catches semantic mistakes (a sign-flip loses to flat/random).
+Full rationale: [`docs/design/onboarding-existing-bots.md`](docs/design/onboarding-existing-bots.md).
 
 ## Real run (your own task, real agents)
 
