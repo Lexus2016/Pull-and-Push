@@ -14,25 +14,49 @@ from .state import StateStore
 _MAX_DIFF_LINES = 15
 FRESH_LOOK_EVERY = 5   # every Nth iteration BOTH agents deliberately re-examine from the other side
 
+# Pools of distinct SEMANTIC lenses for the fresh-look checkpoint. A single fixed nudge text gets
+# habituated to — the model learns to skim past the same tokens — so it stops shifting behaviour.
+# Instead we ROTATE through genuinely different frames: each checkpoint conditions the agent on a
+# different perspective, which is what actually moves the output into a different region of the
+# solution space. We randomise the FRAME, never raw characters: a random string would be
+# semantically empty and the model would ignore it (or misread it as data). Selection is
+# DETERMINISTIC (checkpoint ordinal + per-run salt) so the brief stays reproducible.
+_LENSES_EXECUTOR = [
+    "Invert the objective: if the goal were the OPPOSITE, what would you build? Use that insight now.",
+    "Red-team your own current solution — name the single way it most easily breaks, then fix THAT.",
+    "Radically simplify: delete half the current approach; what essential core actually survives?",
+    "Cross-domain transfer: view this as a physicist / biologist / economist would; borrow one mechanism.",
+    "Name the most EXPENSIVE assumption baked into the current direction, then challenge it structurally.",
+]
+_LENSES_VALIDATOR = [
+    "Challenge the PREMISE, not the last diff: is the whole approach aimed at the wrong target?",
+    "Hunt the blind spot recent iterations ignore — an unmodelled real-world factor (fees, slippage, risk).",
+    "Look for overfitting / survivorship / look-ahead bias the score would happily hide.",
+    "Has the loop converged on one idea and stopped exploring? Name a fundamentally different approach.",
+]
 
-def _fresh_look(role: str, n: int) -> str:
+
+def _fresh_look(role: str, n: int, *, salt: int = 0, past=None) -> str:
     """An SSoT-style 'fresh-look' nudge injected every FRESH_LOOK_EVERY iterations so the loop does
-    not grind down a single path: the agent steps back and re-examines the problem FROM THE OTHER
-    SIDE, breaking inertia / a local optimum. Returns '' on non-checkpoint iterations."""
+    not grind down a single path. Instead of one fixed sentence (which the model habituates to) it
+    ROTATES through a pool of distinct semantic lenses — a different frame each checkpoint — and may
+    ground the nudge in a real ABANDONED attempt from history. Selection is deterministic (checkpoint
+    ordinal + per-run ``salt``) so the brief stays reproducible. Returns '' off checkpoint."""
     if n <= 0 or n % FRESH_LOOK_EVERY != 0:
         return ""
-    if role == "validator":
-        return (f"⟳ FRESH-LOOK CHECKPOINT (every {FRESH_LOOK_EVERY} iterations): step back and "
-                "look from the OTHER SIDE. Has the loop converged on one idea and stopped exploring? "
-                "Challenge the PREMISE, not just the last diff — name a fundamentally different "
-                "approach or a blind spot the recent iterations ignore (a wrong assumption, an "
-                "unmodelled real-world factor, overfitting), even if the latest change was fine.")
-    return (f"⟳ FRESH-LOOK CHECKPOINT (every {FRESH_LOOK_EVERY} iterations): step back from "
-            "incremental tweaks. You may be stuck in a local optimum or circling one theme. "
-            "Re-examine the problem FROM THE OTHER SIDE: question the core assumption behind the "
-            "current approach and consider a STRUCTURALLY different strategy this step (not another "
-            "small tweak). If the current direction is genuinely sound, say why in one line and "
-            "proceed; otherwise pivot.")
+    cp = n // FRESH_LOOK_EVERY                       # checkpoint ordinal: 1, 2, 3, … (rotation index)
+    pool = _LENSES_VALIDATOR if role == "validator" else _LENSES_EXECUTOR
+    lens = pool[(salt + cp) % len(pool)]            # rotates each checkpoint; salt offsets per run
+    # Stable header keeps the FRESH-LOOK marker and the "look from the OTHER SIDE" signal on every
+    # checkpoint regardless of which lens was drawn; the lens supplies the varying concrete angle.
+    head = (f"⟳ FRESH-LOOK CHECKPOINT (every {FRESH_LOOK_EVERY} iterations): step back and look from "
+            "the OTHER SIDE — break inertia / a local optimum.")
+    parts = [head, lens]
+    if past is not None:
+        parts.append(f"Also reconsider abandoned attempt #{past.n} "
+                     f"(verdict {(past.verdict or '?').upper()}): was dropping that direction a "
+                     "mistake? Salvage anything still useful.")
+    return " ".join(parts)
 
 
 def _truncate(text: str, n: int = _MAX_DIFF_LINES) -> str:
@@ -63,6 +87,17 @@ def detect_oscillation(diffs: list[str]) -> bool:
             if added_i & removed_j:
                 return True
     return False
+
+
+def direction_diversity(diffs: list[str]) -> float:
+    """0..1 — how varied the recent change directions are. 1.0 = every attempt touches a distinct
+    set of lines; low = the loop keeps editing the same lines (inertia / circling). This is the
+    cheap, deterministic signal for whether the rotating fresh-look is actually diversifying the
+    search. Empty or single-attempt history → 1.0 (nothing to compare)."""
+    if len(diffs) <= 1:
+        return 1.0
+    sigs = [frozenset(_added_removed(d)[0] | _added_removed(d)[1]) for d in diffs]
+    return len(set(sigs)) / len(sigs)
 
 
 def _attempt_diff(state: StateStore, verdict: str | None, git_hash: str | None,
@@ -179,8 +214,13 @@ def build_brief(state: StateStore, run_id: int, cfg: Config,
             lines.append(f"      {dl}")
 
     lines.append(f"- Oscillation flag: {'YES' if detect_oscillation(diffs) else 'no'}")
+    lines.append(f"- Direction diversity (last K): {direction_diversity(diffs):.2f}")
     lines.append(f"- Live operator instructions: {context_text.strip() or '(none)'}")
-    fl = _fresh_look(role, n)
+    # Ground the fresh-look in a real abandoned attempt (deterministically picked) when one exists,
+    # so the nudge re-opens concrete past material rather than only rephrasing the same call.
+    rejected = [a for a in attempts if (a.verdict or "") in ("discard", "fail")]
+    past = rejected[(n // FRESH_LOOK_EVERY) % len(rejected)] if rejected else None
+    fl = _fresh_look(role, n, salt=run_id, past=past)
     if fl:
         lines.append("")
         lines.append(fl)

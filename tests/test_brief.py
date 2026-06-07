@@ -106,3 +106,40 @@ def test_fresh_look_validator_every_fifth_iteration():
     off = build_validator_prompt(_cfg(), "+x = 1", {"s": 1}, 1.0, "keep", iteration=FRESH_LOOK_EVERY - 1)
     assert "FRESH-LOOK" in on and "OTHER SIDE" in on
     assert "FRESH-LOOK" not in off
+
+
+def test_fresh_look_rotates_lens_and_is_deterministic(tmp_path):
+    # The nudge must NOT repeat one fixed text: different checkpoints draw different semantic lenses,
+    # yet the choice is deterministic (reproducible brief) — seeded by checkpoint ordinal + run salt.
+    from tyani_tolkai.brief import _LENSES_EXECUTOR, FRESH_LOOK_EVERY
+    s1, r1 = _store_with_iters(tmp_path, FRESH_LOOK_EVERY - 1, "cp1")        # next iter 5  → checkpoint 1
+    s2, r2 = _store_with_iters(tmp_path, 2 * FRESH_LOOK_EVERY - 1, "cp2")    # next iter 10 → checkpoint 2
+    b1, b2 = build_brief(s1, r1, _cfg()), build_brief(s2, r2, _cfg())
+    assert _LENSES_EXECUTOR[(r1 + 1) % len(_LENSES_EXECUTOR)] in b1          # salt=run_id, cp=1
+    assert _LENSES_EXECUTOR[(r2 + 2) % len(_LENSES_EXECUTOR)] in b2          # salt=run_id, cp=2
+    assert b1 != b2                                                          # rotation actually varied it
+    assert build_brief(s1, r1, _cfg()) == b1                                 # same state in → same brief out
+
+
+def test_fresh_look_grounds_in_abandoned_attempt(tmp_path):
+    # When history holds a REJECTED attempt, the checkpoint re-opens that concrete abandoned direction.
+    from tyani_tolkai.brief import FRESH_LOOK_EVERY
+    s = StateStore(tmp_path / "grounded")
+    s.git_init()
+    rid = s.create_run("asymmetric")
+    for n in range(1, FRESH_LOOK_EVERY):                                     # iters 1..4; next is checkpoint 5
+        (s.artifact_dir / "code.py").write_text(f"x = {n}\n")
+        h = s.commit(f"iter {n}")
+        s.record_iteration(rid, n=n, git_hash=h, score=float(n),
+                           verdict=("discard" if n == 2 else "keep"), metrics=[])
+    b = build_brief(s, rid, _cfg())
+    assert "FRESH-LOOK" in b
+    assert "abandoned attempt #2" in b
+
+
+def test_direction_diversity():
+    from tyani_tolkai.brief import direction_diversity
+    assert direction_diversity([]) == 1.0
+    assert direction_diversity(["+a = 1"]) == 1.0
+    assert direction_diversity(["+a = 1", "+b = 2", "+c = 3"]) == 1.0       # all distinct line-sets
+    assert direction_diversity(["+a = 1", "+a = 1", "+a = 1"]) == 1 / 3     # same set repeated → low
