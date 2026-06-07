@@ -36,7 +36,7 @@ from . import bot_engine
 from .validation import (
     score_controls, beats_controls, check_determinism, hash_artifacts, insample_oos_gap,
     build_evidence_report, evidence_verdict, reverse_oos, anti_lookahead_probe,
-    synth_bars, check_adapter_orders,
+    synth_bars, check_adapter_orders, run_secondary_validation,
 )
 from .scaffold import scaffold_onboarding
 from .proposal_schema import MetricProposal
@@ -233,7 +233,6 @@ def cmd_validate(args) -> int:
 
     bars = load_bars_csv(data)
     bot_cmd = shlex.split(args.bot_cmd)
-    oos_start = seeded_oos_start(len(bars), seed=args.seed)
 
     # An UNTRUSTED bot MUST run in the Docker sandbox — the isolation IS the trust mechanism (ADR).
     # `--trusted` is an explicit operator override for a reference/own bot: process-separation only,
@@ -257,37 +256,19 @@ def cmd_validate(args) -> int:
         return 1
 
     try:
-        determinism_ok, runs = check_determinism(lambda: score_bars(bars), runs=2)
-        bot_metrics = runs[0]
-        # anti-look-ahead: re-score the SAME bot on a reversed-future timeline; a causal,
-        # leak-free OOS score must react (delta != 0).
-        bot_perturbed = score_bars(reverse_oos(bars, oos_start=oos_start))
+        result = run_secondary_validation(
+            bars=bars, score_bars=score_bars, isolation=isolation, seed=args.seed, params=params,
+            name=(args.name or bot_dir.name), data_path=data, engine_path=bot_engine.__file__)
     except (SandboxUnavailable, BotProtocolError) as exc:
         print(f"scoring failed: {exc}", file=sys.stderr)
         return 1
 
-    controls = score_controls(bars, oos_start=oos_start, params=params)
-    beats = beats_controls(bot_metrics, controls)
-    hashes = hash_artifacts(engine_path=bot_engine.__file__, data_path=data,
-                            config={"seed": args.seed, "params": params, "bot_cmd": bot_cmd,
-                                    "oos_start": oos_start})
-    gap = insample_oos_gap(bot_metrics)
-    probe = anti_lookahead_probe(lambda: bot_metrics, lambda: bot_perturbed)
-
-    report = build_evidence_report(
-        bot_name=(args.name or bot_dir.name),
-        bot_metrics=bot_metrics, control_metrics=controls, beats=beats,
-        determinism_ok=determinism_ok, hashes=hashes, gap=gap,
-        anti_lookahead=probe, isolation=isolation,
-    )
+    report = result["report"]
     if args.out:
         Path(args.out).write_text(report, encoding="utf-8")
         print(f"evidence report written to {args.out}", file=sys.stderr)
     print(report)
-
-    verdict, _ = evidence_verdict(beats=beats, determinism_ok=determinism_ok, gap=gap,
-                                  anti_lookahead=probe)
-    return 0 if verdict == "PASS" else 3
+    return 0 if result["verdict"] == "PASS" else 3
 
 
 def cmd_onboard(args) -> int:

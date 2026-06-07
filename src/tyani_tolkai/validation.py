@@ -233,3 +233,38 @@ def check_adapter_orders(run1, run2, n_bars: int) -> dict:
     ok = well_formed and deterministic and not degenerate
     return {"well_formed": well_formed, "deterministic": deterministic,
             "degenerate": degenerate, "ok": ok, "reasons": reasons}
+
+
+def run_secondary_validation(*, bars, score_bars, isolation: str, seed: str, params: dict,
+                             name: str, data_path, engine_path) -> dict:
+    """Run the full P4 secondary-validation battery and return it as data.
+
+    The SCORER is injected (``score_bars(bars) -> metrics``) so the Docker-vs-``--trusted`` decision
+    stays with each caller (the `validate` CLI and the /api/validate web endpoint); this function
+    owns only the battery: two-run determinism, the control spectrum + beats, provenance hashing, the
+    in-sample/OOS gap, the anti-look-ahead probe, the evidence report, and the PASS/FLAG verdict.
+    Lets SandboxUnavailable / BotProtocolError from ``score_bars`` propagate to the caller.
+    """
+    from .bot_protocol import seeded_oos_start
+
+    oos_start = seeded_oos_start(len(bars), seed=seed)
+    determinism_ok, runs = check_determinism(lambda: score_bars(bars), runs=2)
+    bot_metrics = runs[0]
+    # anti-look-ahead: re-score the SAME bot on a reversed-future timeline; a causal score must react.
+    bot_perturbed = score_bars(reverse_oos(bars, oos_start=oos_start))
+
+    controls = score_controls(bars, oos_start=oos_start, params=params)
+    beats = beats_controls(bot_metrics, controls)
+    hashes = hash_artifacts(engine_path=engine_path, data_path=data_path,
+                            config={"seed": seed, "params": params, "oos_start": oos_start})
+    gap = insample_oos_gap(bot_metrics)
+    probe = anti_lookahead_probe(lambda: bot_metrics, lambda: bot_perturbed)
+    report = build_evidence_report(bot_name=name, bot_metrics=bot_metrics, control_metrics=controls,
+                                   beats=beats, determinism_ok=determinism_ok, hashes=hashes, gap=gap,
+                                   anti_lookahead=probe, isolation=isolation)
+    verdict, reasons = evidence_verdict(beats=beats, determinism_ok=determinism_ok, gap=gap,
+                                        anti_lookahead=probe)
+    return {"report": report, "verdict": verdict, "reasons": reasons, "beats": beats,
+            "determinism_ok": determinism_ok, "gap": gap, "anti_lookahead": probe,
+            "isolation": isolation, "bot_metrics": bot_metrics, "control_metrics": controls,
+            "hashes": hashes}
