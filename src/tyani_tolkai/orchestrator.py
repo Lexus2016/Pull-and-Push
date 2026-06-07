@@ -548,9 +548,33 @@ class Orchestrator:
             return "periodic"
         return None
 
+    def _already_terminal(self) -> "LoopSummary | None":
+        """Has a RESUMED run already hit a terminal limit under its CURRENT config? Run resumes the
+        last run unconditionally (Run = continue, never lose iterations), so without this guard
+        pressing Run on a finished run would fire ONE wasted agent iteration — and overshoot
+        max_iterations by 1 — before the bottom-of-loop checks caught it. Returns a no-op summary
+        when nothing is left to do, or None when the user raised plateau_N / max_iterations /
+        target_score and real work remains. A fresh run (n=0, plateau_count=0, best=None) always
+        falls through to None."""
+        cfg = self.cfg
+        best = self.state.best_score(self.run_id)
+        if best is not None and best >= cfg.evaluation.target_score:
+            self.state.set_status(self.run_id, "finished")
+            return LoopSummary("target", best, self.n)
+        if self.plateau_count >= cfg.limits.plateau_N:
+            self.state.set_status(self.run_id, "finished")
+            return LoopSummary("plateau", best, self.n)
+        if self.n >= cfg.limits.max_iterations:
+            self.state.set_status(self.run_id, "finished")
+            return LoopSummary("max_iter", best, self.n)
+        return None
+
     def run_loop(self, on_iteration=None, should_stop=None, on_phase=None) -> LoopSummary:
         cfg = self.cfg
         self._rebaseline_if_metrics_changed(on_phase or (lambda *_: None))   # objective changed? rescore the bar
+        done = self._already_terminal()   # resumed run already at its limit → no-op, not a wasted iteration
+        if done is not None:
+            return done
         while True:
             if self.aborted or (should_stop and should_stop()):
                 best = self.state.best_score(self.run_id)

@@ -177,6 +177,51 @@ def test_cost_restored_on_resume(tmp_path):
     assert Orchestrator(cfg, s, run_id, MockAdapter([]), FakeMetric(), LocalBackend()).cost_total == persisted
 
 
+def test_resume_at_max_iter_is_noop_until_limit_raised(tmp_path):
+    # Run resumes the last run unconditionally (Run = continue, never lose iterations). A run that
+    # already finished at max_iterations must NOT fire a wasted agent iteration on resume: it no-ops
+    # until the user raises the limit, then continues from where it left off without losing history.
+    cfg = _cfg(target=1000, plateau_N=50, max_iterations=2)
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    Orchestrator(cfg, s, run_id, MockAdapter([_edit_val(70), _edit_val(80)]),
+                 FakeMetric(), LocalBackend()).run_loop()
+    assert s.get_run(run_id)["status"] == "finished"
+    assert [r.n for r in s.last_iterations(run_id, 999)] == [1, 2]
+
+    # press Run again WITHOUT raising the limit → no-op (the empty adapter would CRASH if the loop
+    # tried a wasted iteration), iteration count unchanged
+    summary = Orchestrator(cfg, s, run_id, MockAdapter([]),
+                           FakeMetric(), LocalBackend()).run_loop()
+    assert summary.reason == "max_iter"
+    assert [r.n for r in s.last_iterations(run_id, 999)] == [1, 2]   # nothing burned
+
+    # raise the limit and press Run → CONTINUES from iteration 3, prior iterations preserved
+    cfg2 = _cfg(target=1000, plateau_N=50, max_iterations=4)
+    Orchestrator(cfg2, s, run_id, MockAdapter([_edit_val(90), _edit_val(95)]),
+                 FakeMetric(), LocalBackend()).run_loop()
+    assert [r.n for r in s.last_iterations(run_id, 999)] == [1, 2, 3, 4]
+    assert s.best_score(run_id) == 95.0
+
+
+def test_resume_at_target_is_noop_no_wasted_iteration(tmp_path):
+    # Resuming a run that already WON (best >= target) must not fire an agent call before noticing
+    # it is done — the empty adapter would crash if it did.
+    cfg = _cfg(target=80, plateau_N=50, max_iterations=50)
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    first = Orchestrator(cfg, s, run_id, MockAdapter([_edit_val(70), _edit_val(80)]),
+                         FakeMetric(), LocalBackend()).run_loop()
+    assert first.reason == "target"
+    n_won = [r.n for r in s.last_iterations(run_id, 999)]
+    summary = Orchestrator(cfg, s, run_id, MockAdapter([]),
+                           FakeMetric(), LocalBackend()).run_loop()
+    assert summary.reason == "target"
+    assert [r.n for r in s.last_iterations(run_id, 999)] == n_won   # no extra iteration
+
+
 def test_improving_run_reaches_target(tmp_path):
     edits = [_edit_val(v) for v in (70, 80, 90, 100)]
     orch, s, run_id = _orch(tmp_path, edits, _cfg())
