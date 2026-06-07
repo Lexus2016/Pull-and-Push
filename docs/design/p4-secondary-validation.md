@@ -1,6 +1,6 @@
 # P4 — Secondary validation + evidence report (design + P4.1 plan)
 
-Status: **design**. Implements phase **P4** of [`onboarding-existing-bots.md`](./onboarding-existing-bots.md).
+Status: **built** (P4.1 + P4.2). Implements phase **P4** of [`onboarding-existing-bots.md`](./onboarding-existing-bots.md).
 These are the guardrails the ADR keeps as **SECONDARY** checks (NOT the trust mechanism — the
 vetted engine + sandbox are). They run before/around optimization and surface evidence for a
 human to approve.
@@ -74,7 +74,22 @@ Controls are OUR trusted code → they generate order sequences in-process and r
   "FLAG" and the reason surfaced.
 - Full suite green; no new failures vs the 48 pre-existing PyPy/sqlite.
 
-## Out of scope (P4.2 / later)
-`pull-and-push validate` CLI; real-bot sandboxed determinism (2 runs) + anti-look-ahead perturbation
-probe (Docker); immutable engine-version pinning enforcement; bounded-iteration budget (already in
-the orchestrator's `limits`).
+## P4.2 — built
+
+`pull-and-push validate` (`cmd_validate`): scores the bot in the Docker sandbox (REQUIRED for an
+untrusted bot — the isolation IS the trust mechanism; `--trusted` is an explicit operator override
+to a process-separation-only subprocess for a reference/own bot, usable where Docker is absent),
+then runs the full secondary battery — control spectrum + beats-flat/random, two-run determinism
+(`check_determinism` over the chosen scorer), provenance hashing, in-sample/OOS gap, and the
+anti-look-ahead probe — and renders the evidence report (stdout + `--out`). Exit `0`=PASS, `3`=FLAG,
+`1`=scoring error / Docker required, `2`=bad input.
+
+Anti-look-ahead perturbation: chose timeline **reversal** of the OOS tail (`reverse_oos`) over a
+shift — deterministic and decisive. The bot is re-scored on the reversed-future series; a causal,
+leak-free OOS score MUST react (`anti_lookahead_probe`). NECESSARY, not sufficient: not reacting is a
+hard red flag, reacting is supporting evidence. `evidence_verdict` is the single source of truth
+shared by the report text and the CLI exit code.
+
+## Out of scope (later)
+Immutable engine-version pinning *enforcement* (the hash is reported for human approval, not
+enforced); bounded-iteration budget (already in the orchestrator's `limits`).
