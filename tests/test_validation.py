@@ -219,3 +219,39 @@ def test_build_evidence_report_includes_anti_lookahead_and_isolation():
         anti_lookahead={"baseline": 9.0, "perturbed": 9.0, "delta": 0.0, "ok": False},
     )
     assert "FLAG" in md2 and "look-ahead" in md2.lower()
+
+
+# ----------------------------------------------------------------------------- P4.6 adapter gate
+from tyani_tolkai.validation import synth_bars, check_adapter_orders
+
+
+def test_synth_bars_deterministic_and_non_monotonic():
+    a = synth_bars(40)
+    b = synth_bars(40)
+    assert a == b                                       # deterministic (no RNG)
+    assert len(a) == 40 and all(len(bar) == 5 for bar in a)
+    closes = [bar[3] for bar in a]
+    assert any(y < x for x, y in zip(closes, closes[1:]))   # falls somewhere (not monotonic up)
+    assert any(y > x for x, y in zip(closes, closes[1:]))   # and rises somewhere
+
+
+def test_check_adapter_orders_pass():
+    orders = [0, 1, -1, 0, 1]
+    v = check_adapter_orders(orders, list(orders), n_bars=5)
+    assert v["ok"] is True and not v["reasons"]
+    assert v["well_formed"] and v["deterministic"] and not v["degenerate"]
+
+
+def test_check_adapter_orders_flags_nondeterministic():
+    v = check_adapter_orders([0, 1, 0], [0, 0, 0], n_bars=3)
+    assert v["ok"] is False and v["deterministic"] is False
+
+
+def test_check_adapter_orders_flags_degenerate_constant():
+    v = check_adapter_orders([0, 0, 0, 0], [0, 0, 0, 0], n_bars=4)
+    assert v["ok"] is False and v["degenerate"] is True   # constant output on a varied series
+
+
+def test_check_adapter_orders_flags_malformed():
+    assert check_adapter_orders([0, 1], [0, 1], n_bars=5)["well_formed"] is False   # wrong length
+    assert check_adapter_orders([0, 2, 1], [0, 2, 1], n_bars=3)["well_formed"] is False  # bad value

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import random
 from pathlib import Path
 
@@ -191,3 +192,44 @@ def build_evidence_report(*, bot_name: str, bot_metrics: dict, control_metrics: 
             out.append(f"- {r}")
     out.append("")
     return "\n".join(out)
+
+
+# --------------------------------------------------------------------------- P4.6 adapter gate
+def synth_bars(n: int = 40) -> list:
+    """Deterministic, non-monotonic OHLCV probe series for the adapter gate.
+
+    Rises and falls (no RNG → reproducible) so a direction-sensitive ``decide()`` actually varies
+    its orders; a constant-output adapter then stands out as degenerate.
+    """
+    bars = []
+    price = 100.0
+    for i in range(n):
+        price *= 1.0 + 0.02 * math.sin(i / 2.0)
+        c = price * (1.005 if i % 2 else 0.997)
+        bars.append((price, price * 1.01, price * 0.99, c, 10.0))
+    return bars
+
+
+def check_adapter_orders(run1, run2, n_bars: int) -> dict:
+    """Verdict on an adapter's order stream (protocol soundness, NOT semantic correctness).
+
+    ``run1`` / ``run2`` are the order lists from two `drive_bot` passes over the SAME synthetic bars.
+    Checks: well-formed (one order per bar, each in {-1,0,1}); deterministic (the two runs match);
+    non-degenerate (not the same order on every bar of a varied series — catches an unwired/constant
+    `decide()`). ``ok`` requires all three. Sign/scale/look-ahead defects are NOT caught here — they
+    are caught downstream by `validate` (control spectrum + anti-look-ahead) and the human.
+    """
+    reasons: list[str] = []
+    well_formed = (run1 is not None and len(run1) == n_bars
+                   and all(o in (-1, 0, 1) for o in run1))
+    if not well_formed:
+        reasons.append("not well-formed: expected one order in {-1,0,1} per bar")
+    deterministic = run1 is not None and run2 is not None and run1 == run2
+    if not deterministic:
+        reasons.append("non-deterministic: two runs over identical bars produced different orders")
+    degenerate = bool(run1) and len(set(run1)) <= 1
+    if degenerate:
+        reasons.append("degenerate: the same order on every bar — decide() may be unwired or constant")
+    ok = well_formed and deterministic and not degenerate
+    return {"well_formed": well_formed, "deterministic": deterministic,
+            "degenerate": degenerate, "ok": ok, "reasons": reasons}
