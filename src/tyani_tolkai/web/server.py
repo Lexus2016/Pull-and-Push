@@ -720,7 +720,7 @@ def create_app(token: str | None = None) -> FastAPI:
             result = run_secondary_validation(
                 bars=bars, score_bars=score_bars, isolation=isolation, seed=seed, params=params,
                 name=(payload.get("name") or bot_dir.name), data_path=data,
-                engine_path=bot_engine.__file__)
+                engine_path=bot_engine.__file__, config_extra={"bot_cmd": bot_cmd})
         except (SandboxUnavailable, BotProtocolError) as e:
             raise HTTPException(502, f"scoring failed: {e}")
         return {"report": result["report"], "verdict": result["verdict"], "reasons": result["reasons"],

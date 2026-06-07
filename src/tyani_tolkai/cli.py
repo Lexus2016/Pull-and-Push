@@ -258,7 +258,8 @@ def cmd_validate(args) -> int:
     try:
         result = run_secondary_validation(
             bars=bars, score_bars=score_bars, isolation=isolation, seed=args.seed, params=params,
-            name=(args.name or bot_dir.name), data_path=data, engine_path=bot_engine.__file__)
+            name=(args.name or bot_dir.name), data_path=data, engine_path=bot_engine.__file__,
+            config_extra={"bot_cmd": bot_cmd})
     except (SandboxUnavailable, BotProtocolError) as exc:
         print(f"scoring failed: {exc}", file=sys.stderr)
         return 1

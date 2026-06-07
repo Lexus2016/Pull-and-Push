@@ -236,7 +236,7 @@ def check_adapter_orders(run1, run2, n_bars: int) -> dict:
 
 
 def run_secondary_validation(*, bars, score_bars, isolation: str, seed: str, params: dict,
-                             name: str, data_path, engine_path) -> dict:
+                             name: str, data_path, engine_path, config_extra: dict | None = None) -> dict:
     """Run the full P4 secondary-validation battery and return it as data.
 
     The SCORER is injected (``score_bars(bars) -> metrics``) so the Docker-vs-``--trusted`` decision
@@ -256,7 +256,8 @@ def run_secondary_validation(*, bars, score_bars, isolation: str, seed: str, par
     controls = score_controls(bars, oos_start=oos_start, params=params)
     beats = beats_controls(bot_metrics, controls)
     hashes = hash_artifacts(engine_path=engine_path, data_path=data_path,
-                            config={"seed": seed, "params": params, "oos_start": oos_start})
+                            config={"seed": seed, "params": params, "oos_start": oos_start,
+                                    **(config_extra or {})})
     gap = insample_oos_gap(bot_metrics)
     probe = anti_lookahead_probe(lambda: bot_metrics, lambda: bot_perturbed)
     report = build_evidence_report(bot_name=name, bot_metrics=bot_metrics, control_metrics=controls,
