@@ -465,7 +465,7 @@
     </div>
 
     <div id="view-config">
-    <div class="card console" style="border-color:#1f5a45">
+    <div class="card console create-card" style="border-color:#1f5a45">
       <h3 data-i18n="tpl.title">🚀 Start from a template</h3>
       <p class="desc" data-i18n="tpl.desc">The fastest, safest path: a vetted scoring harness ships with the template, so the project runs immediately. Name it, describe the task — we build it ready to run.</p>
       <div class="grid">
@@ -482,7 +482,7 @@
       <div class="save-bar"><button class="btn" id="scaffoldBtn" data-i18n="tpl.btn" style="width:auto">🚀 Create runnable project</button>
         <span class="hint" data-i18n="tpl.btnHint">Creates the project with a committed harness and opens it — then press ▶ Run.</span></div>
     </div>
-    <div class="card console" style="border-color:#5a4a1f">
+    <div class="card console create-card" style="border-color:#5a4a1f">
       <h3 data-i18n="imp.title">🔧 Improve my existing bot</h3>
       <p class="desc" data-i18n="imp.desc">Already have a trading bot? Point at it and its data — we analyze it, propose how to score it, wrap it so it speaks our protocol, prove the wrapper, then create a project that optimizes YOUR bot on held-out data. Steps run in order; defaults are filled in.</p>
       <div class="grid">
@@ -514,7 +514,7 @@
       <div class="hint" style="margin-top:6px" data-i18n="imp.flowHint">Order: Analyze → Metrics → Adapter (then fill decide() in your editor) → Check → Create → optionally Validate (needs Docker), then ▶ Run.</div>
       <div id="imp_out" class="why" style="display:none;margin-top:10px;border:1px solid #5a4a1f;border-radius:6px;padding:10px;position:relative"></div>
     </div>
-    <div class="card console">
+    <div class="card console create-card">
       <h3 data-i18n="gen.title">🪄 Generate from a description</h3>
       <p class="desc" data-i18n="gen.desc">The simplest path: describe the task in words — the configurator agent drafts the project, then you refine it in the form below.</p>
       <div class="grid">
@@ -860,6 +860,9 @@ function metricRow(m={}){const d=document.createElement('div');d.className='mrow
 function getMetrics(){return[...$('metrics').children].map(r=>{const i=r.querySelectorAll('input'),s=r.querySelector('select');
   return{name:i[0].value.trim(),dir:s.value,weight:+i[1].value,target:+i[2].value};}).filter(m=>m.name);}
 
+function toggleCreateCards(){   // the 3 "new project" cards belong to NEW-project mode only (current===null)
+  document.querySelectorAll('#view-config .create-card').forEach(el=>el.classList.toggle('hidden',current!==null));
+}
 function blankForm(){current=null;$('cfgTitle').textContent=t('man.title');$('saveBtn').textContent=t('man.create');
   ['f_project','g_desc','f_ex_goal','f_ex_task','f_va_goal','f_command','f_harness','f_seedpath','f_budget','f_price'].forEach(x=>$(x).value='');
   $('f_va_engine').value='';$('f_target').value=100;$('f_maxiter').value=30;
@@ -867,6 +870,7 @@ function blankForm(){current=null;$('cfgTitle').textContent=t('man.title');$('sa
   $('metrics').innerHTML='';$('metrics').appendChild(metricRow({name:'score',dir:'higher',weight:1,target:100}));
   $('f_notify_enabled').checked=false;$('f_notify_url').value='';$('f_notify_method').value='POST';
   $('f_project').disabled=false;enableControls(false);lockProgressTab(true);vis();highlight();showView('config');
+  toggleCreateCards();   // new project → show the 3 creation cards
   try{$('manualForm').open=false;}catch(e){}}
 function setFields(cfg){
   const a=cfg.agents||{},r=cfg.roles||{},ev=cfg.evaluation||{},lim=cfg.limits||{},sd=cfg.seed||{},sb=cfg.sandbox||{};
@@ -889,6 +893,7 @@ function setFields(cfg){
   vis();}
 function fillForm(name,cfg){current=name;$('cfgTitle').textContent=t('title.projectPrefix')+name;$('saveBtn').textContent=t('btn.saveChanges');
   setFields({...cfg,project:name});$('f_project').disabled=true;enableControls(true);lockProgressTab(false);
+  toggleCreateCards();   // existing project → hide the creation cards, show only the editable config
   try{$('manualForm').open=true;}catch(e){}}
 function applyGenerated(cfg){blankForm();setFields(cfg);$('f_project').disabled=false;current=null;
   $('cfgTitle').textContent=t('cfg.generated');$('saveBtn').textContent=t('man.create');
