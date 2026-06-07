@@ -127,3 +127,95 @@ def test_build_evidence_report_pass_and_flag():
     )
     assert "FLAG" in md2
     assert "does not beat" in md2.lower() or "beats_flat" in md2.lower()   # reason surfaced
+
+
+# ----------------------------------------------------------------------------- P4.2
+from tyani_tolkai.validation import reverse_oos, anti_lookahead_probe, evidence_verdict
+
+
+def test_reverse_oos_perturbs_only_the_tail():
+    bars = _bars([1.0, 2.0, 3.0, 4.0, 5.0, 6.0])
+    out = reverse_oos(bars, oos_start=3)
+    assert out[:3] == bars[:3]                       # in-sample prefix untouched
+    assert [b[3] for b in out[3:]] == [6.0, 5.0, 4.0]   # OOS tail reversed (close col)
+    assert len(out) == len(bars)
+    assert out is not bars                            # returns a fresh list, no mutation
+
+
+def test_reverse_oos_no_tail_is_identity():
+    bars = _bars([1.0, 2.0, 3.0])
+    assert reverse_oos(bars, oos_start=3) == bars     # oos_start >= n → nothing to reverse
+    assert reverse_oos(bars, oos_start=99) == bars
+
+
+def test_anti_lookahead_probe_ok_when_score_reacts():
+    # causal scorer: reversing the future changes the OOS number
+    probe = anti_lookahead_probe(lambda: {"return_oos_pct": 12.0},
+                                 lambda: {"return_oos_pct": -4.0})
+    assert probe["ok"] is True and probe["reacted"] is True
+    assert probe["baseline"] == 12.0 and probe["perturbed"] == -4.0
+    assert probe["delta"] == 16.0
+
+
+def test_anti_lookahead_probe_flags_invariant_score():
+    # degenerate / leaky scorer: identical score on real and reversed timeline → red flag
+    probe = anti_lookahead_probe(lambda: {"return_oos_pct": 7.5},
+                                 lambda: {"return_oos_pct": 7.5})
+    assert probe["ok"] is False and probe["reacted"] is False
+
+
+def test_anti_lookahead_probe_accepts_scalars():
+    probe = anti_lookahead_probe(lambda: 10.0, lambda: 10.0)
+    assert probe["ok"] is False
+
+
+def test_evidence_verdict_pass_and_reasons():
+    ok_beats = {"beats_flat": True, "beats_random": True}
+    verdict, reasons = evidence_verdict(beats=ok_beats, determinism_ok=True, gap=2.0)
+    assert verdict == "PASS" and reasons == []
+
+    verdict2, reasons2 = evidence_verdict(
+        beats={"beats_flat": False, "beats_random": True}, determinism_ok=False, gap=99.0,
+    )
+    assert verdict2 == "FLAG"
+    assert len(reasons2) == 3                          # flat + determinism + gap (no probe passed)
+    blob = " ".join(reasons2).lower()
+    assert "flat" in blob and "deterministic" in blob and "overfit" in blob
+
+
+def test_evidence_verdict_flags_lookahead():
+    verdict, reasons = evidence_verdict(
+        beats={"beats_flat": True, "beats_random": True}, determinism_ok=True, gap=1.0,
+        anti_lookahead={"ok": False},
+    )
+    assert verdict == "FLAG"
+    assert any("look-ahead" in r.lower() or "perturbed timeline" in r.lower() for r in reasons)
+
+
+def test_build_evidence_report_includes_anti_lookahead_and_isolation():
+    from tyani_tolkai.validation import build_evidence_report
+    hashes = {"engine": "a" * 64, "data": "b" * 64, "config": "c" * 64}
+    controls = {"flat": {"return_oos_pct": 0.0}, "random": {"return_oos_pct": 3.0},
+                "buy_and_hold": {"return_oos_pct": 8.0}}
+    md = build_evidence_report(
+        bot_name="mybot",
+        bot_metrics={"return_oos_pct": 12.0, "in_sample_return_pct": 14.0},
+        control_metrics=controls,
+        beats={"beats_flat": True, "beats_random": True},
+        determinism_ok=True, hashes=hashes, gap=2.0,
+        anti_lookahead={"baseline": 12.0, "perturbed": -1.0, "delta": 13.0, "ok": True},
+        isolation="subprocess (reduced — Docker not available)",
+    )
+    assert "look-ahead" in md.lower()
+    assert "subprocess (reduced" in md                 # isolation surfaced in provenance
+    assert "PASS" in md                                # passing probe doesn't flag
+
+    md2 = build_evidence_report(
+        bot_name="leaky",
+        bot_metrics={"return_oos_pct": 12.0, "in_sample_return_pct": 14.0},
+        control_metrics=controls,
+        beats={"beats_flat": True, "beats_random": True},
+        determinism_ok=True, hashes=hashes, gap=2.0,
+        anti_lookahead={"baseline": 9.0, "perturbed": 9.0, "delta": 0.0, "ok": False},
+    )
+    assert "FLAG" in md2 and "look-ahead" in md2.lower()

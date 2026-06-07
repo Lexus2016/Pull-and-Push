@@ -80,15 +80,48 @@ def insample_oos_gap(metrics: dict) -> float:
 _OVERFIT_GAP_FLAG = 30.0
 
 
-def build_evidence_report(*, bot_name: str, bot_metrics: dict, control_metrics: dict,
-                          beats: dict, determinism_ok: bool, hashes: dict, gap: float) -> str:
-    """Render the secondary-validation evidence report (Markdown) for human approval.
+def reverse_oos(bars, *, oos_start: int) -> list:
+    """Return a copy of ``bars`` with the OOS tail (``bars[oos_start:]``) reversed.
 
-    Overall verdict is FLAG if the bot fails to beat a control, is non-deterministic, or shows a
-    large in-sample/OOS overfit gap; otherwise PASS. These are SECONDARY checks — a PASS is
-    supporting evidence, not a guarantee.
+    The anti-look-ahead perturbation: it destroys the temporal order of the future price path
+    while leaving the in-sample prefix intact. A leak-free, causal OOS score MUST change under
+    this; an invariant score means the score does not depend on the real future (degenerate or
+    look-ahead-leaking). Never mutates the input.
     """
-    reasons = []
+    bars = list(bars)
+    n = len(bars)
+    start = max(0, oos_start)
+    if start >= n:
+        return bars  # no OOS tail to perturb
+    return bars[:start] + list(reversed(bars[start:]))
+
+
+def _oos_value(x) -> float:
+    """Coerce a scorer result (metrics dict or scalar) to its OOS return number."""
+    return float(x["return_oos_pct"]) if isinstance(x, dict) else float(x)
+
+
+def anti_lookahead_probe(score_real, score_perturbed, *, epsilon: float = 1e-9) -> dict:
+    """Causality check: the OOS score must REACT to a reversed-future timeline.
+
+    ``score_real`` / ``score_perturbed`` are zero-arg callables returning a metrics dict (with
+    ``return_oos_pct``) or a scalar — typically the same scorer over ``bars`` vs ``reverse_oos(bars)``.
+    NECESSARY, not sufficient: reacting does not prove the absence of every leak, but NOT reacting
+    is a hard red flag (the score ignores the actual future path). ``ok`` is True iff it reacted.
+    """
+    baseline = _oos_value(score_real())
+    perturbed = _oos_value(score_perturbed())
+    delta = baseline - perturbed
+    reacted = abs(delta) > epsilon
+    return {"baseline": baseline, "perturbed": perturbed, "delta": delta,
+            "reacted": reacted, "ok": reacted}
+
+
+def evidence_verdict(*, beats: dict, determinism_ok: bool, gap: float,
+                     anti_lookahead: dict | None = None) -> tuple[str, list[str]]:
+    """Shared PASS/FLAG decision + human-readable reasons, used by both the report and the
+    ``validate`` CLI so the rendered evidence and the process exit code never disagree."""
+    reasons: list[str] = []
     if not beats.get("beats_flat", False):
         reasons.append("does not beat the flat (do-nothing) baseline")
     if not beats.get("beats_random", False):
@@ -97,7 +130,23 @@ def build_evidence_report(*, bot_name: str, bot_metrics: dict, control_metrics: 
         reasons.append("non-deterministic (same input produced different scores)")
     if gap > _OVERFIT_GAP_FLAG:
         reasons.append(f"large in-sample/OOS gap ({gap:.1f} pts) — possible overfitting")
-    verdict = "PASS" if not reasons else "FLAG"
+    if anti_lookahead is not None and not anti_lookahead.get("ok", True):
+        reasons.append("OOS score did not react to a perturbed timeline "
+                       "(possible look-ahead leak or degenerate scorer)")
+    return ("PASS" if not reasons else "FLAG"), reasons
+
+
+def build_evidence_report(*, bot_name: str, bot_metrics: dict, control_metrics: dict,
+                          beats: dict, determinism_ok: bool, hashes: dict, gap: float,
+                          anti_lookahead: dict | None = None, isolation: str | None = None) -> str:
+    """Render the secondary-validation evidence report (Markdown) for human approval.
+
+    Overall verdict is FLAG if the bot fails to beat a control, is non-deterministic, or shows a
+    large in-sample/OOS overfit gap; otherwise PASS. These are SECONDARY checks — a PASS is
+    supporting evidence, not a guarantee.
+    """
+    verdict, reasons = evidence_verdict(beats=beats, determinism_ok=determinism_ok, gap=gap,
+                                        anti_lookahead=anti_lookahead)
 
     out: list[str] = []
     out.append(f"# Evidence Report — {bot_name}\n")
@@ -107,7 +156,10 @@ def build_evidence_report(*, bot_name: str, bot_metrics: dict, control_metrics: 
     out.append("## Provenance (approve this exact frozen triple)")
     out.append(f"- engine: `{hashes.get('engine', '?')}`")
     out.append(f"- data:   `{hashes.get('data', '?')}`")
-    out.append(f"- config: `{hashes.get('config', '?')}`\n")
+    out.append(f"- config: `{hashes.get('config', '?')}`")
+    if isolation:
+        out.append(f"- isolation: {isolation}")
+    out.append("")
 
     out.append("## Control spectrum (scored by the same vetted engine)")
     out.append(f"- flat:         {control_metrics['flat']['return_oos_pct']}")
@@ -122,6 +174,16 @@ def build_evidence_report(*, bot_name: str, bot_metrics: dict, control_metrics: 
     out.append("## Overfit gap")
     out.append(f"- in-sample minus OOS return: {gap:.1f} pts"
                f"{' (FLAGGED)' if gap > _OVERFIT_GAP_FLAG else ''}\n")
+
+    if anti_lookahead is not None:
+        out.append("## Anti-look-ahead probe (reversed-future timeline)")
+        out.append(f"- real OOS: {anti_lookahead.get('baseline')}  |  "
+                   f"reversed-future OOS: {anti_lookahead.get('perturbed')}  |  "
+                   f"delta: {anti_lookahead.get('delta')}")
+        out.append("- " + ("OK — score reacted to the perturbed timeline"
+                           if anti_lookahead.get("ok")
+                           else "FLAGGED — score did not react (possible look-ahead / "
+                                "degenerate scorer)") + "\n")
 
     out.append(f"## Overall: {verdict}")
     if reasons:
