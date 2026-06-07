@@ -29,8 +29,14 @@ from .registry import build_adapter
 from .sandbox import get_backend
 from .state import StateStore
 from .bot_io import load_bars_csv
-from .bot_sandbox import score_bot_sandboxed as _score_bot_sandboxed, SandboxUnavailable
-from .bot_runner import BotProtocolError
+from .bot_sandbox import score_bot_sandboxed as _score_bot_sandboxed, SandboxUnavailable, docker_available
+from .bot_runner import BotProtocolError, score_bot
+from .bot_protocol import seeded_oos_start
+from . import bot_engine
+from .validation import (
+    score_controls, beats_controls, check_determinism, hash_artifacts, insample_oos_gap,
+    build_evidence_report, evidence_verdict, reverse_oos, anti_lookahead_probe,
+)
 
 
 def _print_iter(o):
@@ -195,6 +201,90 @@ def cmd_score_bot(args) -> int:
     return 0
 
 
+def cmd_validate(args) -> int:
+    """P4 secondary validation → human evidence report (PASS/FLAG).
+
+    Scores the bot in the Docker sandbox (required for an untrusted bot — the isolation IS the
+    trust mechanism; ``--trusted`` overrides to a process-separation-only subprocess), then runs
+    the secondary checks the ADR keeps as supporting evidence (NOT the trust mechanism): the
+    control spectrum + beats-flat/random, two-run determinism, provenance hashing, the
+    in-sample/OOS overfit gap, and an anti-look-ahead probe (re-score on a reversed-future
+    timeline; the OOS score must react). The report goes to stdout (and --out); exit 0 = PASS,
+    3 = FLAG, 1 = scoring error / Docker required, 2 = bad input.
+    """
+    data = Path(args.data)
+    if not data.exists():
+        print(f"data not found: {data}", file=sys.stderr)
+        return 2
+    bot_dir = Path(args.bot_dir)
+    if not bot_dir.exists():
+        print(f"bot-dir not found: {bot_dir}", file=sys.stderr)
+        return 2
+    try:
+        params = json.loads(args.params) if args.params else {}
+    except json.JSONDecodeError as exc:
+        print(f"invalid --params JSON: {exc}", file=sys.stderr)
+        return 2
+
+    bars = load_bars_csv(data)
+    bot_cmd = shlex.split(args.bot_cmd)
+    oos_start = seeded_oos_start(len(bars), seed=args.seed)
+
+    # An UNTRUSTED bot MUST run in the Docker sandbox — the isolation IS the trust mechanism (ADR).
+    # `--trusted` is an explicit operator override for a reference/own bot: process-separation only,
+    # no OS sandbox (matches score_bot's trusted-only contract), usable where Docker is absent.
+    if args.trusted:
+        isolation = "subprocess (process-separation only; --trusted asserted by operator)"
+        def score_bars(b):
+            return score_bot(bot_cmd, b, params=params, seed=args.seed,
+                             per_read_timeout=args.per_read_timeout, total_timeout=args.total_timeout)
+    elif docker_available():
+        isolation = "docker-sandbox"
+        def score_bars(b):
+            return _score_bot_sandboxed(bot_cmd, b, bot_dir=str(bot_dir), seed=args.seed,
+                                        params=params, per_read_timeout=args.per_read_timeout,
+                                        total_timeout=args.total_timeout)
+    else:
+        print("ERROR: validating an UNTRUSTED bot requires the Docker sandbox (the isolation is the "
+              "trust mechanism), but Docker is not available. Start Docker, or pass --trusted ONLY if "
+              "you fully trust this bot — it then runs with process separation but no OS sandbox.",
+              file=sys.stderr)
+        return 1
+
+    try:
+        determinism_ok, runs = check_determinism(lambda: score_bars(bars), runs=2)
+        bot_metrics = runs[0]
+        # anti-look-ahead: re-score the SAME bot on a reversed-future timeline; a causal,
+        # leak-free OOS score must react (delta != 0).
+        bot_perturbed = score_bars(reverse_oos(bars, oos_start=oos_start))
+    except (SandboxUnavailable, BotProtocolError) as exc:
+        print(f"scoring failed: {exc}", file=sys.stderr)
+        return 1
+
+    controls = score_controls(bars, oos_start=oos_start, params=params)
+    beats = beats_controls(bot_metrics, controls)
+    hashes = hash_artifacts(engine_path=bot_engine.__file__, data_path=data,
+                            config={"seed": args.seed, "params": params, "bot_cmd": bot_cmd,
+                                    "oos_start": oos_start})
+    gap = insample_oos_gap(bot_metrics)
+    probe = anti_lookahead_probe(lambda: bot_metrics, lambda: bot_perturbed)
+
+    report = build_evidence_report(
+        bot_name=(args.name or bot_dir.name),
+        bot_metrics=bot_metrics, control_metrics=controls, beats=beats,
+        determinism_ok=determinism_ok, hashes=hashes, gap=gap,
+        anti_lookahead=probe, isolation=isolation,
+    )
+    if args.out:
+        Path(args.out).write_text(report, encoding="utf-8")
+        print(f"evidence report written to {args.out}", file=sys.stderr)
+    print(report)
+
+    verdict, _ = evidence_verdict(beats=beats, determinism_ok=determinism_ok, gap=gap,
+                                  anti_lookahead=probe)
+    return 0 if verdict == "PASS" else 3
+
+
 def cmd_web(args) -> int:
     from .web.server import create_app
     import logging
@@ -261,6 +351,22 @@ def main(argv=None) -> int:
     ps.add_argument("--per-read-timeout", type=float, default=10.0)
     ps.add_argument("--total-timeout", type=float, default=120.0)
     ps.set_defaults(func=cmd_score_bot)
+
+    pv = sub.add_parser("validate",
+                        help="P4 secondary validation of a bot -> human evidence report (PASS/FLAG)")
+    pv.add_argument("--data", required=True, help="OHLCV CSV (time,open,high,low,close,volume)")
+    pv.add_argument("--bot-dir", required=True, help="dir mounted read-only into the sandbox")
+    pv.add_argument("--bot-cmd", required=True, help="command to run the bot (shlex-split)")
+    pv.add_argument("--seed", required=True, help="per-project seed for the hidden OOS split")
+    pv.add_argument("--params", default=None, help="JSON dict of tunable params")
+    pv.add_argument("--name", default=None, help="bot name for the report (default: bot-dir name)")
+    pv.add_argument("--out", default=None, help="also write the evidence report (Markdown) to this path")
+    pv.add_argument("--trusted", action="store_true",
+                    help="bot is trusted/your own — run via subprocess (process separation only, no "
+                         "OS sandbox) instead of requiring Docker. Use ONLY if you fully trust the bot.")
+    pv.add_argument("--per-read-timeout", type=float, default=10.0)
+    pv.add_argument("--total-timeout", type=float, default=120.0)
+    pv.set_defaults(func=cmd_validate)
 
     args = p.parse_args(argv)
     return args.func(args)
