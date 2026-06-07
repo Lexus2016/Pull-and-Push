@@ -37,6 +37,8 @@ from .validation import (
     score_controls, beats_controls, check_determinism, hash_artifacts, insample_oos_gap,
     build_evidence_report, evidence_verdict, reverse_oos, anti_lookahead_probe,
 )
+from .scaffold import scaffold_onboarding
+from .proposal_schema import MetricProposal
 
 
 def _print_iter(o):
@@ -285,6 +287,43 @@ def cmd_validate(args) -> int:
     return 0 if verdict == "PASS" else 3
 
 
+def cmd_onboard(args) -> int:
+    """Turn an existing bot + its data + a P2 proposal into a runnable optimization project.
+
+    Lays the bot into the artifact, the data into metrics/ (outside the artifact), and writes a
+    config that scores the bot via the vetted `score-bot` numeric adapter. Then `run` it.
+    """
+    bot_dir = Path(args.bot_dir)
+    if not bot_dir.is_dir():
+        print(f"bot-dir not found: {bot_dir}", file=sys.stderr)
+        return 2
+    data = Path(args.data)
+    if not data.is_file():
+        print(f"data not found: {data}", file=sys.stderr)
+        return 2
+    proposal_path = Path(args.proposal)
+    if not proposal_path.exists():
+        print(f"proposal not found: {proposal_path}", file=sys.stderr)
+        return 2
+    try:
+        proposal = MetricProposal.model_validate_json(proposal_path.read_text(encoding="utf-8"))
+    except ValidationError as exc:
+        print(f"invalid proposal.json: {exc}", file=sys.stderr)
+        return 2
+    try:
+        res = scaffold_onboarding(args.name, bot_dir=bot_dir, data_path=data, proposal=proposal,
+                                  bot_cmd=args.bot_cmd, seed_token=args.seed, goal=args.goal)
+    except (FileExistsError, FileNotFoundError, ValueError) as exc:
+        print(f"onboarding failed: {exc}", file=sys.stderr)
+        return 2
+    cfg_path = project_dir(args.name) / "config.yaml"
+    print(f"created project {res['created']!r} (bot → artifact, data → {res['metrics']}/data.csv)")
+    print(f"next: pull-and-push run {cfg_path}")
+    print("notes: a real run needs Docker (score-bot sandboxes the bot); and --bot-cmd must speak "
+          "the P3 bot protocol — wrap a raw bot with an adapter (see bot_adapter.py).")
+    return 0
+
+
 def cmd_web(args) -> int:
     from .web.server import create_app
     import logging
@@ -367,6 +406,17 @@ def main(argv=None) -> int:
     pv.add_argument("--per-read-timeout", type=float, default=10.0)
     pv.add_argument("--total-timeout", type=float, default=120.0)
     pv.set_defaults(func=cmd_validate)
+
+    po = sub.add_parser("onboard",
+                        help="turn an existing bot + data + a P2 proposal into a runnable optimization project")
+    po.add_argument("--bot-dir", required=True, help="the bot's source dir (copied into the artifact)")
+    po.add_argument("--data", required=True, help="OHLCV CSV (time,open,high,low,close,volume)")
+    po.add_argument("--proposal", required=True, help="path to a P2 proposal.json")
+    po.add_argument("--name", required=True, help="new project name")
+    po.add_argument("--bot-cmd", required=True, help="command to run the bot in the sandbox (shlex-split)")
+    po.add_argument("--seed", default=None, help="OOS-split seed token (default: the project name)")
+    po.add_argument("--goal", default=None, help="optimization goal (default: the proposal's goal)")
+    po.set_defaults(func=cmd_onboard)
 
     args = p.parse_args(argv)
     return args.func(args)
