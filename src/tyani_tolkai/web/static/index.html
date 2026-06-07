@@ -395,6 +395,13 @@
   body[data-run="error"] #aurora .blob{animation-play-state:running}
   body[data-run="paused"] #aurora{--a:var(--warm);--b:var(--warm-dim);opacity:.22;filter:blur(66px) saturate(90%)}
   @media (prefers-reduced-motion:reduce){#aurora .blob{animation:none!important}body[data-run="error"] #aurora{animation:none!important}}
+  /* one-shot full-screen flash on a transition into done/error */
+  #flash{position:fixed;inset:0;z-index:60;pointer-events:none;opacity:0}
+  #flash.show{animation:flashFade 1.1s ease-out}
+  #flash.done{background:radial-gradient(circle at 50% 38%,rgba(84,230,168,.32),transparent 72%)}
+  #flash.error{background:radial-gradient(circle at 50% 38%,rgba(255,123,123,.34),transparent 72%)}
+  @keyframes flashFade{0%{opacity:0}10%{opacity:1}100%{opacity:0}}
+  @media (prefers-reduced-motion:reduce){#flash.show{animation:none!important;opacity:0!important}}
   /* edge tab — visible only while the rail is closed */
   .feed-tab{position:fixed;top:50%;right:0;transform:translateY(-50%);z-index:54;
     writing-mode:vertical-rl;background:linear-gradient(180deg,var(--panel-2),var(--panel));color:var(--cold);
@@ -420,6 +427,7 @@
 </head>
 <body>
 <div id="aurora" aria-hidden="true"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
+<div id="flash" aria-hidden="true"></div>
 <header>
   <button class="iconbtn tipd" id="navBtn" data-i18n-title="nav.toggle" title="Toggle sidebar">☰</button>
   <div class="brand">
@@ -1063,11 +1071,29 @@ function iterFork(e,n){e.stopPropagation();e.preventDefault();if(!current)return
   fetch(api('/api/projects/'+current+'/fork?iter='+n+'&to='+encodeURIComponent(to)),{method:'POST'}).then(async r=>{
     if(!r.ok){const d=await r.json().catch(()=>({}));toast(t('toast.forkFail')+(d&&d.detail?': '+d.detail:''),'err');return;}
     toast(t('toast.forked',to),'ok');loadProjects();});}
+function flashState(kind){            // one-shot full-screen tint on a state CHANGE (kind: 'done'|'error')
+  const f=$('flash'); if(!f) return;
+  f.className=''; void f.offsetWidth;  // restart the fade animation if one is mid-flight
+  f.className='show '+kind;
+  setTimeout(()=>{f.className='';},1150);
+}
 function setRunVisual(s){
   // map a run status → an ambient page state; the CSS aurora reacts via body[data-run]
   const m={running:'running',error:'error',finished:'done',target:'done',
            awaiting_review:'paused',paused:'paused',stopped:'idle',idle:'idle'};
-  document.body.dataset.run=m[s]||'idle';
+  const next=m[s]||'idle', prev=document.body.dataset.run;
+  document.body.dataset.run=next;
+  // only on a real transition INTO done/error (not on initial load, not on every poll)
+  if(prev&&prev!==next&&(next==='done'||next==='error'))flashState(next);
+}
+function syncRunControls(s){
+  // coordinate the run-lifecycle buttons with the actual status:
+  // Run is off while a run is active; Stop / Force Stop only make sense while it runs.
+  if(!current)return;                       // no project → enableControls(false) already disabled them
+  const running=(s==='running');
+  $('runBtn').disabled=running;
+  $('stopBtn').disabled=!running;
+  $('forceStopBtn').disabled=!running;
 }
 function setStatus(s,score,sum,cost){const tg=$('tag');tg.className='tag '+(s||'idle');tg.textContent=s||'idle';
   $('score').textContent=score==null?'—':(+score).toFixed(1);
@@ -1081,7 +1107,7 @@ function setStatus(s,score,sum,cost){const tg=$('tag');tg.className='tag '+(s||'
   sm.textContent=txt+c; sm.classList.toggle('err-hint',warn);   // red ⚠ when the objective is mis-specified / errored
   const live=(s==='running');                            // pulse the feed status dot while running
   $('feedDot').classList.toggle('live',live);
-  setRunVisual(s);}
+  setRunVisual(s);syncRunControls(s);}
 async function loadState(name){CHART_VIEW=null;const d=await(await fetch(api('/api/projects/'+name))).json();
   BASELINE=d.baseline||{};
   const its=d.iterations||[];RUN_STATUS=d.status||'idle';_logSig='';setStatus(d.status||'idle',d.best_score,null,d.cost);plot(its);renderLog(its);renderCheckpoint(d);
