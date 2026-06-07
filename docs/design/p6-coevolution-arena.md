@@ -80,15 +80,21 @@ Wraps a referee + a frozen opponent pool, and presents the Phase-1 metric-adapte
 interface so the unchanged `Orchestrator` can drive a side's sub-loop.
 
 For the live side's current candidate it runs `referee.play(live, opponent, seed=...)`
-against **every** opponent in the frozen pool and aggregates the per-match scores into the
-metric value the scorer normalizes:
+against **every** opponent in the frozen pool and aggregates the per-match scores into a
+**single scored metric** `arena_fitness` (dir=higher, target=1.0) that the existing
+`scorer.score` + `decide` consume unchanged. The gate is computed **inside the adapter**, not
+by handing two raw metrics to the weighted scorer (which would produce a muddled blend —
+cross-AI review catch). `mean`, `min`, and the per-opponent breakdown are exposed as
+report-only fields in `MetricResult.data` for the UI and the match matrix (§4a).
 
-- **Default aggregate: `mean_gated` — `mean` (gradient) as the primary metric plus `min`
-  (worst case) as a secondary metric.** Pure `min` makes the gradient sparse — the side
-  only gets signal from the single hardest opponent and can stall. Pure `mean` lets a side
-  farm weak archived opponents and ignore the strong one. `mean_gated` keeps a usable
-  gradient from the mean while still pressuring "beat the worst case" via the min metric.
-  Aggregate is **configurable** (`mean | min | mean_gated`); default `mean_gated`.
+Aggregation into `arena_fitness`:
+
+- **Default `mean_gated`**, defined as an explicit rule: `arena_fitness = mean` when
+  `min >= min_floor`, else `mean - penalty * (min_floor - min)`. Pure `min` makes the
+  gradient sparse (signal only from the single hardest opponent → stalls); pure `mean` lets a
+  side farm weak archived opponents and ignore the strong one. `mean_gated` keeps a usable
+  gradient from the mean while penalizing a collapsing worst case. Modes:
+  `mean | min | mean_gated` (default `mean_gated`); `min_floor`, `penalty` configurable.
 - The opponent pool is **frozen** for the whole of a side's generation (stationary within
   the sub-loop) — that is what lets the Phase-1 loop treat it as a fixed objective.
 
@@ -98,38 +104,77 @@ Each side keeps a **hall-of-fame** of its best versions — reusing the per-cand
 commits that Phase 1 already produces. When a generation ends with a new best for a side,
 that commit is recorded as a champion: `champion(side, generation, git_hash, stable_score)`.
 
-The opponent pool an `ArenaMetricAdapter` is built with =
-`{latest champion} ∪ {k random past champions}` (k configurable, default 3). Scoring against
-a *pool of past bests* — not only the latest — is what prevents (a) rock-paper-scissors
-cycling and (b) catastrophic forgetting (re-losing to opponents already beaten).
+The opponent pool an `ArenaMetricAdapter` is built with depends on a **per-referee opponent
+strategy** (pluggable, declared by the referee):
+
+- **`sample`** (default, for behavioral-artifact domains like the real anti-detect↔detector):
+  `{latest champion} ∪ {k random past champions}` (k configurable, default 3). Scoring against
+  a *pool of past bests* — not only the latest — prevents (a) rock-paper-scissors cycling and
+  (b) catastrophic forgetting (re-losing to opponents already beaten).
+- **`accumulate`** (for data-counterexample domains like CEGIS, §7): the *growing union of all
+  unique opponent outputs ever produced* — a monotonically increasing set. This is what
+  guarantees CEGIS convergence; a k-sample would let the side memorize the sampled subset
+  instead of learning the underlying target. (Cross-AI review catch.)
+
+**Champion validation gate (cross-AI review catch).** A generation's best from the inner
+sub-loop is only optimized against the *frozen* pool it saw, so it can overfit to that pool
+and silently regress against archived champions it never faced. Before crowning it champion
+and adding it to the archive, the parent tests the candidate against the **whole** current
+opposing archive; if its win-rate regresses beyond `promote_regression_max` (default 0.1
+below the prior champion's archive-wide score), the champion is **not** updated this
+generation (the inner loop simply tries again next generation against a refreshed pool). This
+is the primary structural guard against cycling.
 
 ### 4. `SymmetricOrchestrator` — alternating self-play (A)
 
-Wraps the existing `Orchestrator.run_loop`; does **not** replace or fork it.
+Wraps the existing `Orchestrator.run_loop`; does **not** replace or fork it. **Principle
+(cross-AI review):** the inner Phase-1 loop is only a *local-best generator against a frozen
+pool* — the arena's real evaluation lives in the archive, the **match matrix (§4a)**, and the
+stable signals. The outer layer never trusts the inner `best_score` as global truth.
 
 ```
 for generation in range(max_generations):
-    # --- A's turn: freeze B's archive, optimize A against it ---
-    pool_b   = sample_opponents(side="B", k=k_past)            # latest + k past champions
-    adapter  = ArenaMetricAdapter(referee, pool_b, aggregate=cfg.arena.aggregate)
-    summary  = Orchestrator(cfg_A, state_A, run_A, executor_A, adapter, sandbox).run_loop(
-                   ... bounded by per_generation_iterations ...)
-    snapshot_champion(side="A", generation)
+    play_generation(side="A", generation)   # optimize A vs frozen B-pool, then gate+archive
+    play_generation(side="B", generation)   # optimize B vs frozen A-pool (incl. A's new champ)
+    update_match_matrix(generation)          # §4a — every A-champ vs every B-champ
+    update_stable_signals(generation)        # §5 — vs fixed validation panel
+    if stopping_rule(generation):            # §6 — computed from the matrix, not best_score
+        break
 
-    # --- B's turn: freeze A's archive (incl. the champion just made), optimize B ---
-    pool_a   = sample_opponents(side="A", k=k_past)
-    adapter  = ArenaMetricAdapter(referee, pool_a, aggregate=cfg.arena.aggregate)
-    summary  = Orchestrator(cfg_B, state_B, run_B, executor_B, adapter, sandbox).run_loop(...)
-    snapshot_champion(side="B", generation)
-
-    update_stable_signals(generation)                          # see §5
-    if stopping_rule(generation): break                        # see §6
+def play_generation(side, generation):
+    pool   = build_opponent_pool(opposing_side)      # §3 strategy: sample | accumulate
+    seed   = copy_previous_champion(side)            # carry ARTIFACT + lineage, not the score
+    run    = state.new_run(side, generation)         # fresh run_id → fresh objective
+    adapter = ArenaMetricAdapter(referee, pool, cfg.arena)   # emits single arena_fitness (§2)
+    orch   = Orchestrator(cfg[side], state[side], run, executor[side], adapter, sandbox)
+    # reset recipe: fresh baseline re-pins on the FIRST measurement of `seed` vs the NEW pool,
+    # so plateau/noise/best all reset automatically (Phase-1 already does this on a new run).
+    summary = orch.run_loop(... bounded by min(per_generation_iterations, budget_remaining) ...)
+    cand    = best_of(run)
+    if promotion_gate_ok(side, cand, pool_signature):   # §3 gate: no regression vs WHOLE archive
+        snapshot_champion(side, generation, cand, repro_meta)   # repro_meta: pool_hash,
+                                                                # referee_version, aggregate, seeds
 ```
 
 Each side's sub-loop is a normal, fully-featured Phase-1 run (its own brief, reviewer,
-plateau handling, resume, cost telemetry). The symmetric layer only: samples opponents,
-constructs the adapter, snapshots champions, computes the stable signal, and decides when
-to stop.
+plateau handling, resume, cost telemetry). The symmetric layer only: builds opponent pools,
+seeds from the prior champion, constructs the adapter, applies the promotion gate, maintains
+the match matrix, computes stable signals, and decides when to stop. **Budget** (`budget_usd`)
+is a parent-level cap; each sub-run is launched with the *remaining* budget so the inner loop
+cannot overspend (cross-AI review catch).
+
+### 4a. Match matrix — the arena's source of truth (B)
+
+The parent maintains a results matrix: for every (A-champion, B-champion) pair, the referee's
+`a_score`. Cheap to keep incrementally (only the new champion's row/column is filled each
+generation). **Everything that decides the run reads from the matrix, not the inner loop:**
+
+- **Dominance** (stop): a side's latest champion beats the *entire* opposing archive ≥
+  `dominance_tau` for `R` generations.
+- **Deliverables:** `best-A-vs-all-B` / `best-B-vs-all-A` = the champion with the best
+  worst-case row across the whole opposing archive (robustness, not a lucky single win).
+- **Cycle detection:** non-transitive loops in the matrix (A1<B1, B1<A2, A2<B2, …) +
+  `detect_oscillation` on the stable signal → flags rock-paper-scissors instead of progress.
 
 **Rival executors must be `claude` or `codex`** (they write to the subprocess cwd;
 `opencode`/`agy` do not — read-only roles only). Validated at config load (mirrors the
@@ -249,12 +294,25 @@ CREATE TABLE IF NOT EXISTS champion (
     generation INTEGER NOT NULL,
     git_hash TEXT NOT NULL,       -- champion commit in that side's artifact repo
     stable_score REAL,            -- §5 stable signal at snapshot time
+    repro_json TEXT,              -- pool_hash, referee_version, aggregate, seeds (reproducible scoring)
     ts TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS match (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,      -- the parent symmetric run
+    a_champion_id INTEGER NOT NULL,   -- champion.id, side='A'
+    b_champion_id INTEGER NOT NULL,   -- champion.id, side='B'
+    a_score REAL NOT NULL,        -- referee a_score for this exact pairing
+    seed INTEGER NOT NULL,
+    ts TEXT NOT NULL,
+    UNIQUE (a_champion_id, b_champion_id, seed)
 );
 ```
 
 `run.mode` already exists (`state.py:21`) and distinguishes symmetric runs. The two child
-tracks are stored as two `StateStore` directories under the symmetric project dir.
+tracks are stored as two `StateStore` directories under the symmetric project dir. The
+`match` table is the persisted §4a matrix; dominance / deliverables / cycle detection read
+from it.
 
 ### 10. Sandbox (A)
 
@@ -293,10 +351,12 @@ for the per-domain referee review, out of scope for the toy.
   toy domain + tests for determinism and symmetry (A-vs-B == mirror).
 - **P6.2** Config: `rival_a`/`rival_b` roles, drop `config.py:185` `NotImplementedError`,
   `arena` schema + writing-executor validation.
-- **P6.3** Champion archive (git snapshots + `champion` table) + opponent sampling
-  (latest + k past bests).
+- **P6.3** Champion archive (git snapshots + `champion` table) + per-referee opponent
+  strategies (`sample` / `accumulate`) + the `match` table and **promotion gate** (no
+  champion crowned that regresses against the whole opposing archive).
 - **P6.4** `SymmetricOrchestrator`: alternating generations over the Phase-1 `run_loop` +
-  two signals + stopping rule.
+  per-generation reset recipe (fresh run, seed=prev champion, repro metadata) + **match
+  matrix maintenance** + two signals + matrix-based stopping rule.
 - **P6.5** CLI/web: symmetric mode selection + visualize the two stable curves / the arms
   race.
 - **P6.6** Toy e2e proving convergence (A recognizes L, B starves, verified against the
@@ -307,7 +367,8 @@ for the per-domain referee review, out of scope for the toy.
 - `src/tyani_tolkai/arena/referee.py` — `Referee` protocol, `MatchOutcome`, referee registry.
 - `src/tyani_tolkai/arena/cegis.py` — the toy CEGIS recognizer referee + ground-truth L.
 - `src/tyani_tolkai/metrics/arena.py` — `ArenaMetricAdapter` (referee + frozen pool → metric).
-- `src/tyani_tolkai/symmetric.py` — `SymmetricOrchestrator`, opponent sampling, stopping rule.
+- `src/tyani_tolkai/symmetric.py` — `SymmetricOrchestrator`, opponent strategies, promotion
+  gate, match matrix, stopping rule.
 - `src/tyani_tolkai/config.py` — unlock symmetric, `arena` schema, rival roles/validation.
 - `src/tyani_tolkai/state.py` — `champion` table + paired-track helpers.
 - `src/tyani_tolkai/cli.py`, `src/tyani_tolkai/web/server.py` — mode selection + dual-curve UI.
@@ -316,7 +377,16 @@ for the per-domain referee review, out of scope for the toy.
 
 ## Status
 
-DESIGN — awaiting approval. No code written. Lessons carried from Phase 1: rival executors
-must be claude/codex (cwd); commit the candidate before running metrics (already how
-Phase 1 works); baseline re-validation guards a noise best; mix providers for uncorrelated
-blind spots; `detect_oscillation` already exists and is reused to flag cycling.
+DESIGN — approved, hardened by cross-AI review (codex + agy), ready for the implementation
+plan. The review confirmed the central lever (referee = parameterized metric adapter, inner
+loop unchanged) and added three structural guards now folded in: (1) the **match matrix** as
+the arena's source of truth — dominance/deliverables/cycle-detection read from it, never from
+the inner `best_score`; (2) the **promotion gate** + per-referee **`accumulate`** strategy for
+CEGIS (growing counterexample union) against pool-overfitting; (3) `arena_fitness` as a single
+adapter-computed gated metric (not two raw metrics to the scorer) + per-generation reset recipe
+(carry artifact+lineage, not the score) + remaining-budget propagation.
+
+Lessons carried from Phase 1: rival executors must be claude/codex (cwd); commit the candidate
+before running metrics (already how Phase 1 works); baseline re-validation guards a noise best;
+mix providers for uncorrelated blind spots; `detect_oscillation` already exists and is reused
+to flag cycling.
