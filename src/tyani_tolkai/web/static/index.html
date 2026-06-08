@@ -695,6 +695,7 @@
       <div class="chartbox" id="qualityChartBox"><canvas id="chart"></canvas></div>
 
       <div id="arenaPanel" class="hidden">
+        <p class="desc" data-i18n="arena.explain"><b>A</b> (teal) learns to recognize a hidden pattern; <b>B</b> (amber) tries to fool it. Watch A's line climb toward <b>1.0</b> as it wins every round — that's the arena converging. A deterministic referee (never an LLM) judges each match.</p>
         <div class="hint" id="arenaSummary" style="margin:4px 0 10px"></div>
         <div class="mcards" id="arenaCards"></div>
         <h3 style="margin-top:6px" data-i18n="arena.curve">Stable progress — A vs B (each vs a fixed validation set)</h3>
@@ -785,6 +786,7 @@ const I18N={en:{
  "arena.demoName":"Project name","arena.demoNameHint":"Letters/digits/._- — becomes a folder; rename later.",
  "arena.demoBtn":"🥊 Create & watch it converge","arena.demoBtnHint":"Builds a ready arena project and opens it — then press ▶ Run (no API key needed).",
  "arena.starting":"starting the co-evolution…",
+ "arena.explain":"<b>A</b> (teal) learns to recognize a hidden pattern; <b>B</b> (amber) tries to fool it. Watch A's line climb toward <b>1.0</b> as it wins every round — that's the arena converging. A deterministic referee (never an LLM) judges each match.",
  "nav.toggle":"Toggle sidebar","help.btn":"❔ How it works",
  "help.title":"What this is","help.p":"Two agents compete over one project: the <b>Executor</b> improves the artifact, and scoring (deterministic code + optional <b>Validator</b>) decides if it got better. The loop keeps only improvements.",
  "help.s1":"<b>＋ New project</b> → describe the task and 🪄 generate, or fill the form → <b>Create</b>.","help.s2":"<b>▶ Run</b> drives the real agents; the quality curve and log update live.","help.s3":"<b>Live command</b> steers the agent without stopping; <b>Stop</b> — at the iteration boundary.",
@@ -820,6 +822,7 @@ I18N.uk={
  "arena.demoName":"Назва проєкту","arena.demoNameHint":"Літери/цифри/._- — стає текою; перейменувати можна пізніше.",
  "arena.demoBtn":"🥊 Створити й дивитись збіжність","arena.demoBtnHint":"Будує готовий arena-проєкт і відкриває його — далі ▶ Run (ключ не потрібен).",
  "arena.starting":"запускаю co-evolution…",
+ "arena.explain":"<b>A</b> (бірюзова) вчиться впізнавати прихований патерн; <b>B</b> (бурштинова) намагається її обдурити. Дивись, як лінія A піднімається до <b>1.0</b>, виграючи кожен раунд — це арена збігається. Детермінований referee (ніколи не LLM) судить кожен матч.",
  "nav.toggle":"Сховати / показати ліву панель","help.btn":"❔ Як це працює",
  "help.title":"Що це","help.p":"Два агенти змагаються над одним проєктом: <b>Виконавець</b> покращує артефакт, а оцінка (детермінований код + опційний <b>Валідатор</b>) каже, чи стало краще. Цикл тримає лише покращення.",
  "help.s1":"<b>＋ Новий проєкт</b> → опиши завдання й 🪄 згенеруй, або заповни форму → <b>Створити</b>.","help.s2":"<b>▶ Run</b> запускає реальних агентів; крива якості й лог оновлюються наживо.","help.s3":"<b>Команда наживо</b> керує агентом без зупинки; <b>Stop</b> — на межі ітерації.",
@@ -855,6 +858,7 @@ I18N.ru={
  "arena.demoName":"Название проекта","arena.demoNameHint":"Буквы/цифры/._- — становится папкой; переименовать можно позже.",
  "arena.demoBtn":"🥊 Создать и смотреть сходимость","arena.demoBtnHint":"Строит готовый arena-проект и открывает его — далее ▶ Run (ключ не нужен).",
  "arena.starting":"запускаю co-evolution…",
+ "arena.explain":"<b>A</b> (бирюзовая) учится распознавать скрытый паттерн; <b>B</b> (янтарная) пытается её обмануть. Смотри, как линия A поднимается к <b>1.0</b>, выигрывая каждый раунд — это арена сходится. Детерминированный referee (никогда не LLM) судит каждый матч.",
  "nav.toggle":"Скрыть / показать левую панель","help.btn":"❔ Как это работает",
  "help.title":"Что это","help.p":"Два агента соревнуются над одним проектом: <b>Исполнитель</b> улучшает артефакт, а оценка (детерминированный код + опциональный <b>Валидатор</b>) решает, стало ли лучше. Цикл оставляет только улучшения.",
  "help.s1":"<b>＋ Новый проект</b> → опиши задачу и 🪄 сгенерируй, или заполни форму → <b>Создать</b>.","help.s2":"<b>▶ Run</b> запускает реальных агентов; кривая качества и лог обновляются вживую.","help.s3":"<b>Команда вживую</b> направляет агента без остановки; <b>Stop</b> — на границе итерации.",
@@ -1395,6 +1399,7 @@ $('arenaDemoBtn').onclick=async()=>{const name=($('ad_name').value.trim()||'aren
     const d=await r.json().catch(()=>({}));
     if(!r.ok){toast(t('err.prefix')+(d.detail||r.status),'err');return;}
     $('ad_name').value='';toast(t('toast.created'),'ok');await loadProjects();await selectProject(name);
+    try{$('runBtn').click();}catch(e){}    // it's offline + free → auto-start so it's truly one click
   }catch(e){toast(t('err.prefix')+e,'err');}finally{b.disabled=false;b.textContent=old;}};
 $('genBtn').onclick=async()=>{const desc=$('g_desc').value.trim();if(!desc){toast(t('toast.describeFirst'),'err');return;}
   const b=$('genBtn');b.disabled=true;b.textContent=t('gen.generating');
