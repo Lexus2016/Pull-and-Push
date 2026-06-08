@@ -126,3 +126,20 @@ def test_symmetric_resume_continues_unfinished(tmp_path):
     exec((_P(o2.champion_dir("A", r2.best_a_id)) / "recognizer.py").read_text(), ns)
     for s in ["ab", "aab", "b", "ba", "", "aba"]:
         assert ns["accepts"](s) == in_L(s)
+
+
+def test_symmetric_run_respects_external_stop(tmp_path):
+    o = SymmetricOrchestrator(cfg=_toy_cfg(generations=8), root=tmp_path, referee=CegisReferee(),
+                              executor_a=ScriptedRecognizerRival(),
+                              executor_b=ScriptedAdversaryRival(), sandbox=LocalBackend())
+    r = o.run(should_stop=lambda: True)            # UI Stop pressed immediately
+    assert r.stop_reason == "stopped"
+    m = _json.loads((tmp_path / "arena.json").read_text())
+    assert m["status"] == "stopped"
+    # a stopped run is resumable (not a finished no-op)
+    o2 = SymmetricOrchestrator(cfg=_toy_cfg(generations=8), root=tmp_path, referee=CegisReferee(),
+                               executor_a=ScriptedRecognizerRival(),
+                               executor_b=ScriptedAdversaryRival(), sandbox=LocalBackend())
+    assert o2._resuming is True
+    r2 = o2.run()                                  # resume → now runs to a real terminal
+    assert r2.stop_reason in ("dominance", "plateau", "max_generations")

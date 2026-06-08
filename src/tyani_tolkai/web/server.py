@@ -243,15 +243,18 @@ class RunManager:
             ex_a, ex_b = _symmetric_rivals(cfg)
             orch = SymmetricOrchestrator(cfg, base, referee, ex_a, ex_b,
                                          get_backend(cfg.sandbox.backend, cfg.sandbox))
-            result = orch.run()
             with self._lock:
-                self._runs[name]["status"] = "finished"
+                self._runs[name]["orch"] = orch          # so Stop / Force-Stop reach the live run
+            result = orch.run(should_stop=lambda: name in self._stop)   # UI Stop between generations
+            term = "stopped" if result.stop_reason == "stopped" else "finished"
+            with self._lock:
+                self._runs[name]["status"] = term
                 self._runs[name]["summary"] = {
                     "mode": "symmetric", "reason": result.stop_reason,
                     "generations": result.generations, "best_a_id": result.best_a_id,
                     "best_b_id": result.best_b_id, "stable_a": result.stable_a,
                     "stable_b": result.stable_b}
-            _fire_webhook(cfg, name, {"project": name, "status": "finished",
+            _fire_webhook(cfg, name, {"project": name, "status": term,
                                       "reason": result.stop_reason})
         except Exception as e:
             log.exception("symmetric run crashed: project=%s", name)

@@ -126,6 +126,8 @@ class SymmetricOrchestrator:
         self._dom_streak = 0
         self._best_stable_a = -1.0
         self._plateau = 0
+        self._extern_stop = None                         # UI Stop hook (set in run())
+        self._active_orch = None                         # current sub-loop (for Force-Stop)
         self._apply_resume()                             # restore curves/counters if resuming
 
     # ---- small helpers ----
@@ -300,8 +302,21 @@ class SymmetricOrchestrator:
         run_id = state.create_run("symmetric")
         orch = Orchestrator(self._side_cfg(side), state, run_id, self._executor(side),
                             adapter, self.sandbox)
-        orch.run_loop(should_stop=self._budget_exhausted)
+        self._active_orch = orch                         # so Force-Stop can reach the live agent
+        orch.run_loop(should_stop=self._should_stop)
         return state.head()
+
+    def _should_stop(self) -> bool:
+        """Inner sub-loop stop: external (UI Stop) or the global budget cap."""
+        return bool(self._extern_stop and self._extern_stop()) or self._budget_exhausted()
+
+    def force_kill(self) -> None:
+        """Kill the currently-running sub-loop's agent process group (UI Force-Stop)."""
+        if getattr(self, "_active_orch", None) is not None:
+            try:
+                self._active_orch.force_kill()
+            except Exception:
+                pass
 
     def _play_and_crown(self, side, generation):
         head = self._run_side(side, generation)
@@ -428,7 +443,8 @@ class SymmetricOrchestrator:
 
     # ---- public entry point ----
 
-    def run(self) -> ArenaResult:
+    def run(self, should_stop=None) -> ArenaResult:
+        self._extern_stop = should_stop                   # UI Stop wires here
         if self._finished:                                # finished run → idempotent no-op
             m = self._restore or {}
             return self._result(int(m.get("generation", self._completed_gen)),
@@ -440,6 +456,9 @@ class SymmetricOrchestrator:
         reason = "max_generations"
         last_gen = self._completed_gen
         for generation in range(self._completed_gen + 1, self.arena.generations + 1):
+            if self._extern_stop and self._extern_stop():     # UI Stop between generations
+                reason = "stopped"
+                break
             self._play_and_crown("A", generation)
             self._play_and_crown("B", generation)
             self._update_matrix(generation)
@@ -451,10 +470,14 @@ class SymmetricOrchestrator:
             if stop:
                 reason = stop
                 break
+            if self._extern_stop and self._extern_stop():
+                reason = "stopped"
+                break
             if self._budget_exhausted():
                 reason = "budget"
                 break
-        self.ledger.set_status(self.parent_run, "finished")
-        self._save_manifest(status="finished", stop_reason=reason)
+        status = "stopped" if reason == "stopped" else "finished"
+        self.ledger.set_status(self.parent_run, status)
+        self._save_manifest(status=status, stop_reason=reason)
         return self._result(last_gen, reason)
 
