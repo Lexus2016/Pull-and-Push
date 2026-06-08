@@ -1241,7 +1241,7 @@ function setStatus(s,score,sum,cost){const tg=$('tag');tg.className='tag '+(s||'
   $('feedDot').classList.toggle('live',live);
   setRunVisual(s);syncRunControls(s);}
 async function loadState(name){
-  if(IS_SYM){await refreshArena(name);return;}    // symmetric → arena view (self-polls if running)
+  if(IS_SYM){$('plateauBanner').classList.add('hidden');await refreshArena(name);return;}   // symmetric → arena view (clear any stale asymmetric banner first)
   CHART_VIEW=null;const d=await(await fetch(api('/api/projects/'+name))).json();
   BASELINE=d.baseline||{};
   const its=d.iterations||[];RUN_STATUS=d.status||'idle';_logSig='';setStatus(d.status||'idle',d.best_score,null,d.cost);plot(its);renderLog(its);renderCheckpoint(d);renderPlateauHint(d);
