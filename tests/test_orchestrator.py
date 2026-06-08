@@ -676,3 +676,34 @@ def test_rescore_rederives_autopinned_baseline_when_target_crosses_start(tmp_pat
     assert its[1] is not None and its[2] is not None          # NOT collapsed to None/0 by an inverted scale
     assert s.best_score(run_id) is not None and s.best_score(run_id) > 0
     s.close()
+
+
+def test_discard_message_explains_near_miss_under_min_delta(tmp_path):
+    # iter1 scores 60 → keep (best). iter2 scores 60.4 → BEATS 60 but by 0.4 < min_delta 0.5 →
+    # discarded. The log must say so honestly, not the misleading "did not beat best".
+    cfg = _cfg(min_delta=0.5, plateau_N=10, target=1000)
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    rid = s.create_run("asymmetric")
+    orch = Orchestrator(cfg, s, rid, MockAdapter([_edit_val(1, "a"), _edit_val(1, "b")]),
+                        _ScriptedMetric([60.0, 60.4]), LocalBackend())
+    o1 = orch.run_iteration()
+    o2 = orch.run_iteration()
+    assert o1.verdict == "keep"
+    assert o2.verdict == "discard"
+    assert "beat best" in o2.feedback and "min_delta" in o2.feedback
+    assert "did not beat" not in o2.feedback
+
+
+def test_discard_message_plain_when_genuinely_worse(tmp_path):
+    # iter2 genuinely lower than best → keep the plain "did not beat" wording
+    cfg = _cfg(min_delta=0.5, plateau_N=10, target=1000)
+    s = StateStore(tmp_path / "proj")
+    s.git_init()
+    rid = s.create_run("asymmetric")
+    orch = Orchestrator(cfg, s, rid, MockAdapter([_edit_val(1, "a"), _edit_val(1, "b")]),
+                        _ScriptedMetric([60.0, 40.0]), LocalBackend())
+    orch.run_iteration()
+    o2 = orch.run_iteration()
+    assert o2.verdict == "discard"
+    assert "did not beat" in o2.feedback

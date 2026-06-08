@@ -515,8 +515,18 @@ class Orchestrator:
             parts.append(review)
         elif verdict == "discard":           # discarded without a fresh review — log a compact line
             best_txt = f"{best:.2f}" if best is not None else "n/a"
-            parts.append(f"score {new_score:.2f} did not beat best {best_txt} — auto-discard, "
-                         f"no review (plateau {self.plateau_count + 1}/{cfg.limits.plateau_N})")
+            md = cfg.evaluation.min_delta
+            plateau_txt = f"plateau {self.plateau_count + 1}/{cfg.limits.plateau_N}"
+            if best is not None and new_score > best:
+                # it DID beat the best — just not past the noise band. Say so honestly (the old
+                # "did not beat" line was confusing: the score clearly went up).
+                parts.append(
+                    f"score {new_score:.2f} beat best {best_txt} by only {new_score - best:.2f} "
+                    f"< min_delta {md:g} (noise band) → NOT committed, auto-discard ({plateau_txt}). "
+                    f"Lower min_delta to keep genuine gains this small.")
+            else:
+                parts.append(f"score {new_score:.2f} did not beat best {best_txt} — auto-discard, "
+                             f"no review ({plateau_txt})")
         fb = "\n\n".join(parts)
         if verdict == "keep":
             state.record_iteration(self.run_id, n=n, git_hash=cand_hash, score=new_score,
