@@ -235,4 +235,13 @@ def build_brief(state: StateStore, run_id: int, cfg: Config,
     else:
         lines.append("- Your task: make ONE focused change to improve the weighted score. "
                      "Edit files in place.")
+    if cfg.mode == "symmetric":
+        lines.append("")
+        lines.append(
+            "- RIVAL MODE: you compete against an opponent judged by a deterministic referee. "
+            "Read-only opponent context is in `.arena/`: if you are the RECOGNIZER, the "
+            "accumulated oracle-labeled counterexamples are in `.arena/counterexamples.json` "
+            "(make your recognizer agree with ALL of them); if you are the ADVERSARY, the "
+            "opponent's frozen recognizer is in `.arena/opponent_recognizer.py` (produce inputs "
+            "it misclassifies). Edit ONLY your own artifact file; never edit `.arena/`.")
     return "\n".join(lines)

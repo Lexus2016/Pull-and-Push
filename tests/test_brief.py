@@ -143,3 +143,31 @@ def test_direction_diversity():
     assert direction_diversity(["+a = 1"]) == 1.0
     assert direction_diversity(["+a = 1", "+b = 2", "+c = 3"]) == 1.0       # all distinct line-sets
     assert direction_diversity(["+a = 1", "+a = 1", "+a = 1"]) == 1 / 3     # same set repeated → low
+
+
+def test_build_brief_symmetric_points_at_arena(tmp_path):
+    from tyani_tolkai.config import Config
+    s = StateStore(tmp_path / "sym")
+    s.git_init()
+    run_id = s.create_run("symmetric")
+    cfg = Config(
+        project="toy", mode="symmetric",
+        agents={"rival_a": {"engine": "mock"}, "rival_b": {"engine": "mock"},
+                "executor": {"engine": "mock"}},               # alias the orchestrator adds
+        roles={"rival_a": {"goal": "recognize"}, "rival_b": {"goal": "fool"},
+               "executor": {"goal": "recognize"}},
+        evaluation={"adapter": "numeric", "command": "x",
+                    "metrics": [{"name": "arena_fitness", "dir": "higher",
+                                 "target": 1.0, "worst": 0.0}]},
+        arena={"referee": "cegis-recognizer"},
+    )
+    brief = build_brief(s, run_id, cfg)
+    assert ".arena/" in brief
+    assert "RIVAL MODE" in brief
+
+
+def test_build_brief_asymmetric_has_no_arena_block(tmp_path):
+    s = StateStore(tmp_path / "asym")
+    s.git_init()
+    run_id = s.create_run("asymmetric")
+    assert ".arena/" not in build_brief(s, run_id, _cfg())

@@ -51,6 +51,18 @@ class CegisReferee:
     version = "1"
     opponent_strategy = "accumulate"     # A scored vs the GROWING union of B's probes (design §3)
 
+    def label(self, strings) -> list[dict]:
+        """Oracle/teacher channel: label each string by the ground-truth L. Used by the
+        SymmetricOrchestrator to build side A's accumulated counterexample context (design §7).
+        Returns ``[{"s": str, "label": bool}, ...]`` deduped, in first-seen order."""
+        seen: set[str] = set()
+        out: list[dict] = []
+        for s in strings:
+            if s not in seen:
+                seen.add(s)
+                out.append({"s": s, "label": in_L(s)})
+        return out
+
     def _probe_strings(self, b_dir: Path) -> list[str]:
         path = b_dir / "strings.txt"
         raw = path.read_text(encoding="utf-8") if path.exists() else ""
