@@ -325,10 +325,33 @@ def _persisted_state(name: str) -> dict:
                 baseline = {}
         cost = run["cost_total"] if "cost_total" in run.keys() else 0.0
         cp = state.open_checkpoint(run["id"])
+        # NEAR-MISS PLATEAU diagnosis: a finished run stuck at plateau (not target / max_iter / error)
+        # where a candidate actually beat the best but by < min_delta, so it was discarded as noise.
+        # Surfaced so the UI can explain it and offer to lower min_delta instead of leaving the user
+        # staring at an instant "finished plateau".
+        plateau_hint = None
+        try:
+            cfg = load_config(base / "config.yaml")
+            bn = run["best_score"]
+            stuck = (run["status"] in ("finished", "plateau") and bn is not None
+                     and bn < cfg.evaluation.target_score
+                     and (run["iter_count"] or 0) < cfg.limits.max_iterations
+                     and (run["plateau_count"] or 0) >= cfg.limits.plateau_N)
+            if stuck:
+                gain = state.max_gain_over_best(run["id"], bn)
+                md = cfg.evaluation.min_delta
+                if 0 < gain <= md + 1e-9:
+                    plateau_hint = {"gain": round(gain, 4), "min_delta": md,
+                                    "suggest_min_delta": max(0.01, round(min(md / 5, gain / 2), 4)),
+                                    "plateau_n": cfg.limits.plateau_N,
+                                    "plateau_count": run["plateau_count"] or 0}
+        except Exception:
+            plateau_hint = None
         return {
             "status": run["status"], "best_score": run["best_score"], "baseline": baseline,
             "cost": cost or 0.0,
             "checkpoint": ({"reason": cp["reason"], "iter": cp["iter"]} if cp else None),
+            "plateau_hint": plateau_hint,
             "iterations": [{"n": it.n, "score": it.score, "verdict": it.verdict,
                             "change": it.change_summary, "feedback": it.feedback, "ts": it.ts,
                             "metrics": [{"name": m["name"], "value": m["value"]} for m in it.metrics]}

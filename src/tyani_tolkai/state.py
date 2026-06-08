@@ -413,6 +413,17 @@ class StateStore:
         row = self.conn.execute("SELECT best_score FROM run WHERE id = ?", (run_id,)).fetchone()
         return None if row is None else row["best_score"]
 
+    def max_gain_over_best(self, run_id: int, best_score: float | None) -> float:
+        """Largest amount by which a DISCARDED iteration's score exceeded the run's best — i.e. a
+        candidate that actually improved but was rejected as noise (below min_delta). 0 if none.
+        Lets the UI explain a 'near-miss' plateau and suggest lowering min_delta."""
+        if best_score is None:
+            return 0.0
+        row = self.conn.execute(
+            "SELECT MAX(score) AS m FROM iteration WHERE run_id=? AND verdict='discard' AND score > ?",
+            (run_id, best_score)).fetchone()
+        return (row["m"] - best_score) if row and row["m"] is not None else 0.0
+
     def last_iterations(self, run_id: int, k: int) -> list[IterationRow]:
         """Return the newest ``k`` iterations (oldest-first), each with its metrics."""
         rows = self.conn.execute(

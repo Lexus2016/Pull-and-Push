@@ -690,6 +690,7 @@
           <button class="btn danger" id="forceStopBtn" disabled data-i18n="prog.forceStop" data-i18n-title="prog.forceStopTitle" title="Kill the agent processes now — without waiting for the iteration">⛔ Force Stop</button>
         </div>
       </div>
+      <div id="plateauBanner" class="hidden" style="margin:6px 0 4px;padding:11px 13px;border:1px solid #5a4a1f;background:rgba(255,193,77,.08);border-radius:10px;font-size:13.5px;line-height:1.5"></div>
       <div class="mcards" id="metricCards"></div>
       <h3 style="margin-top:6px" id="chartTitle" data-i18n="prog.curve">Quality curve</h3>
       <div class="chartbox" id="qualityChartBox"><canvas id="chart"></canvas></div>
@@ -787,6 +788,8 @@ const I18N={en:{
  "arena.demoBtn":"🥊 Create & watch it converge","arena.demoBtnHint":"Builds a ready arena project and opens it — then press ▶ Run (no API key needed).",
  "arena.starting":"starting the co-evolution…",
  "arena.explain":"<b>A</b> (teal) learns to recognize a hidden pattern; <b>B</b> (amber) tries to fool it. Watch A's line climb toward <b>1.0</b> as it wins every round — that's the arena converging. A deterministic referee (never an LLM) judges each match.",
+ "plat.body":"⚠ <b>Plateaued, but not really stuck</b> — a candidate scored <b>+%s</b> over the best, yet it was discarded as <i>noise</i> because the gain is under <b>min_delta=%s</b>. Lower min_delta to keep small genuine improvements, and continue.",
+ "plat.btn":"↓ Lower min_delta to %s & continue","plat.applied":"min_delta lowered — continuing…",
  "nav.toggle":"Toggle sidebar","help.btn":"❔ How it works",
  "help.title":"What this is","help.p":"Two agents compete over one project: the <b>Executor</b> improves the artifact, and scoring (deterministic code + optional <b>Validator</b>) decides if it got better. The loop keeps only improvements.",
  "help.s1":"<b>＋ New project</b> → describe the task and 🪄 generate, or fill the form → <b>Create</b>.","help.s2":"<b>▶ Run</b> drives the real agents; the quality curve and log update live.","help.s3":"<b>Live command</b> steers the agent without stopping; <b>Stop</b> — at the iteration boundary.",
@@ -823,6 +826,8 @@ I18N.uk={
  "arena.demoBtn":"🥊 Створити й дивитись збіжність","arena.demoBtnHint":"Будує готовий arena-проєкт і відкриває його — далі ▶ Run (ключ не потрібен).",
  "arena.starting":"запускаю co-evolution…",
  "arena.explain":"<b>A</b> (бірюзова) вчиться впізнавати прихований патерн; <b>B</b> (бурштинова) намагається її обдурити. Дивись, як лінія A піднімається до <b>1.0</b>, виграючи кожен раунд — це арена збігається. Детермінований referee (ніколи не LLM) судить кожен матч.",
+ "plat.body":"⚠ <b>Плато, але насправді не застрягло</b> — кандидат набрав <b>+%s</b> над рекордом, проте його відкинуто як <i>шум</i>, бо приріст менший за <b>min_delta=%s</b>. Знизь min_delta, щоб зберігати дрібні справжні покращення, і продовжуй.",
+ "plat.btn":"↓ Знизити min_delta до %s і продовжити","plat.applied":"min_delta знижено — продовжую…",
  "nav.toggle":"Сховати / показати ліву панель","help.btn":"❔ Як це працює",
  "help.title":"Що це","help.p":"Два агенти змагаються над одним проєктом: <b>Виконавець</b> покращує артефакт, а оцінка (детермінований код + опційний <b>Валідатор</b>) каже, чи стало краще. Цикл тримає лише покращення.",
  "help.s1":"<b>＋ Новий проєкт</b> → опиши завдання й 🪄 згенеруй, або заповни форму → <b>Створити</b>.","help.s2":"<b>▶ Run</b> запускає реальних агентів; крива якості й лог оновлюються наживо.","help.s3":"<b>Команда наживо</b> керує агентом без зупинки; <b>Stop</b> — на межі ітерації.",
@@ -859,6 +864,8 @@ I18N.ru={
  "arena.demoBtn":"🥊 Создать и смотреть сходимость","arena.demoBtnHint":"Строит готовый arena-проект и открывает его — далее ▶ Run (ключ не нужен).",
  "arena.starting":"запускаю co-evolution…",
  "arena.explain":"<b>A</b> (бирюзовая) учится распознавать скрытый паттерн; <b>B</b> (янтарная) пытается её обмануть. Смотри, как линия A поднимается к <b>1.0</b>, выигрывая каждый раунд — это арена сходится. Детерминированный referee (никогда не LLM) судит каждый матч.",
+ "plat.body":"⚠ <b>Плато, но на самом деле не застряло</b> — кандидат набрал <b>+%s</b> над рекордом, однако отброшен как <i>шум</i>, потому что прирост меньше <b>min_delta=%s</b>. Снизь min_delta, чтобы сохранять мелкие настоящие улучшения, и продолжай.",
+ "plat.btn":"↓ Снизить min_delta до %s и продолжить","plat.applied":"min_delta снижен — продолжаю…",
  "nav.toggle":"Скрыть / показать левую панель","help.btn":"❔ Как это работает",
  "help.title":"Что это","help.p":"Два агента соревнуются над одним проектом: <b>Исполнитель</b> улучшает артефакт, а оценка (детерминированный код + опциональный <b>Валидатор</b>) решает, стало ли лучше. Цикл оставляет только улучшения.",
  "help.s1":"<b>＋ Новый проект</b> → опиши задачу и 🪄 сгенерируй, или заполни форму → <b>Создать</b>.","help.s2":"<b>▶ Run</b> запускает реальных агентов; кривая качества и лог обновляются вживую.","help.s3":"<b>Команда вживую</b> направляет агента без остановки; <b>Stop</b> — на границе итерации.",
@@ -1235,9 +1242,31 @@ async function loadState(name){
   if(IS_SYM){await refreshArena(name);return;}    // symmetric → arena view (self-polls if running)
   CHART_VIEW=null;const d=await(await fetch(api('/api/projects/'+name))).json();
   BASELINE=d.baseline||{};
-  const its=d.iterations||[];RUN_STATUS=d.status||'idle';_logSig='';setStatus(d.status||'idle',d.best_score,null,d.cost);plot(its);renderLog(its);renderCheckpoint(d);
+  const its=d.iterations||[];RUN_STATUS=d.status||'idle';_logSig='';setStatus(d.status||'idle',d.best_score,null,d.cost);plot(its);renderLog(its);renderCheckpoint(d);renderPlateauHint(d);
   renderMetricCards(lastMetricsOf(its));loadAgentLog();
   $('runGoal').textContent=(CFG&&CFG.roles&&CFG.roles.executor&&CFG.roles.executor.goal)?(t('goal.prefix')+CFG.roles.executor.goal):'';}
+function renderPlateauHint(d){
+  const el=$('plateauBanner');if(!el)return;
+  const h=d&&d.plateau_hint;
+  if(!h){el.classList.add('hidden');el.innerHTML='';return;}
+  el.classList.remove('hidden');
+  el.innerHTML=t('plat.body',h.gain,h.min_delta)+
+    ` <button class="btn" id="lowerMdBtn" style="width:auto;margin-top:9px;padding:7px 12px">${t('plat.btn',h.suggest_min_delta)}</button>`;
+  $('lowerMdBtn').onclick=async()=>{
+    if(!CFG)return;
+    const cfg=JSON.parse(JSON.stringify(CFG));
+    cfg.evaluation=cfg.evaluation||{};cfg.limits=cfg.limits||{};
+    cfg.evaluation.min_delta=h.suggest_min_delta;
+    cfg.limits.plateau_N=(h.plateau_count||0)+(h.plateau_n||20);   // give a fresh plateau budget so it can continue
+    const b=$('lowerMdBtn');b.disabled=true;
+    try{
+      const r=await fetch(api('/api/projects/'+current+'/config'),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+      if(!r.ok){const e=await r.json().catch(()=>({}));toast(t('err.prefix')+(e.detail||r.status),'err');b.disabled=false;return;}
+      CFG=cfg;el.classList.add('hidden');toast(t('plat.applied'),'ok');
+      setTimeout(()=>$('runBtn').click(),150);   // continue now with the lower threshold + headroom
+    }catch(e){toast(t('err.prefix')+e,'err');b.disabled=false;}
+  };
+}
 // ---- symmetric (Co-Evolution Arena) view ----
 let arenaChart=null,IS_SYM=false;
 function showArenaMode(on){IS_SYM=on;

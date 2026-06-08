@@ -121,3 +121,15 @@ def test_export_tree_materializes_commit(tmp_path):
     dest = tmp_path / "out"
     st.export_tree(h, dest)
     assert (dest / "recognizer.py").read_text() == "def accepts(s):\n    return 'ab' in s\n"
+
+
+def test_max_gain_over_best(tmp_path):
+    st = StateStore(tmp_path / "p")
+    st.git_init()
+    rid = st.create_run("asymmetric")
+    st.record_iteration(rid, n=1, git_hash="a", score=63.18, verdict="keep", metrics=[])
+    st.record_iteration(rid, n=2, git_hash=None, score=63.59, verdict="discard", metrics=[])  # near-miss
+    st.record_iteration(rid, n=3, git_hash=None, score=40.0, verdict="discard", metrics=[])
+    assert abs(st.max_gain_over_best(rid, 63.18) - 0.41) < 1e-6
+    assert st.max_gain_over_best(rid, 99.0) == 0.0      # nothing beats 99
+    assert st.max_gain_over_best(rid, None) == 0.0
