@@ -83,16 +83,22 @@ class CegisReferee:
             # no probes ⇒ B exerts no pressure; A trivially "wins" the empty match
             return MatchOutcome.zero_sum(1.0, {"counterexamples": [], "n": 0})
 
-        # INTEGRITY: feed the probes via STDIN and consume them BEFORE importing the recognizer,
-        # so side A's (untrusted) code can never read the opponent's test set — nothing is written
-        # into A's artifact dir, and the runner drains stdin before A's module-level code runs.
-        # A's `accepts` only ever sees one string at a time. (Referee = the trust anchor.)
+        # INTEGRITY: keep the opponent's probe set away from side A's (untrusted) code. The probes
+        # are fed via STDIN and drained BEFORE `import recognizer`, and held in a FUNCTION LOCAL
+        # (not a __main__ global) — so the obvious leaks are closed: nothing is written into A's
+        # artifact dir, A can't read stdin at import (already drained), and `sys.modules['__main__']
+        # .probes` does not exist. A's `accepts` only ever sees one string at a time.
+        # RESIDUAL (documented): in-process grading cannot fully hide the set from a code-writer that
+        # does stack-frame introspection. A production real-domain referee against a truly adversarial
+        # rival should isolate per-string (a fresh process per `accepts` call). The toy is honest-grade.
         runner = (
             "import json, sys\n"
-            "probes = json.load(sys.stdin)\n"          # drain stdin first — A can't grab it later
-            "sys.path.insert(0, '.')\n"
-            "import recognizer\n"
-            "print(json.dumps([bool(recognizer.accepts(s)) for s in probes]))\n"
+            "def _grade():\n"
+            "    probes = json.load(sys.stdin)\n"       # local, not a __main__ attribute
+            "    sys.path.insert(0, '.')\n"
+            "    import recognizer\n"
+            "    return [bool(recognizer.accepts(s)) for s in probes]\n"
+            "print(json.dumps(_grade()))\n"
         )
         (a_dir / "_arena_runner.py").write_text(runner, encoding="utf-8")
         py = str(getattr(sandbox, "python", sys.executable)).replace("\\", "/")

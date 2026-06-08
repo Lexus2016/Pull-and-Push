@@ -100,3 +100,20 @@ def test_cegis_referee_does_not_leak_probes_into_artifact_dir(tmp_path):
     # and no probe file was ever written into A's artifact dir
     assert not (a / "_arena_probes.json").exists()
     assert not (a / "_arena_runner.py").exists()   # runner cleaned up too
+
+
+def test_cegis_referee_no_leak_via_main_module_global(tmp_path):
+    """The probe set must not be reachable as a __main__ global either (it is a function local)."""
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    _write(a, "recognizer.py",
+           "import sys\n"
+           "def accepts(s):\n"
+           "    try:\n"
+           "        probes = sys.modules['__main__'].probes   # try to steal the opponent's set\n"
+           "        return True                                # would game the match if reachable\n"
+           "    except Exception:\n"
+           "        return 'zzz' in s                          # honest (wrong-for-L) fallback\n")
+    _write(b, "strings.txt", "ab\nba\naab\nb\n")
+    out = CegisReferee().play(a, b, LocalBackend(), seed=0)
+    assert out.a_score == pytest.approx(2 / 4)   # could NOT steal → wrong fallback
