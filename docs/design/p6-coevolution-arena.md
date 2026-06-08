@@ -399,9 +399,17 @@ for the per-domain referee review, out of scope for the toy.
 
 ## Status
 
-DESIGN — approved, hardened by cross-AI review (codex + agy), ready for the implementation
-plan. The review confirmed the central lever (referee = parameterized metric adapter, inner
-loop unchanged) and added three structural guards now folded in: (1) the **match matrix** as
+**SHIPPED + productionized (P6 + P7).** The mode is implemented, tested (convergence proven on
+the CEGIS toy, full suite green), and brought to parity with asymmetric: project-level ledger +
+`arena.json` manifest, **resume** (crash-safe, idempotent finished no-op), **UI Stop/Force-Stop**,
+**budget cap**, and a full **WebUI** (create-form mode toggle + live dual stable-curve dashboard +
+deliverables), browser-verified. Security model in `SECURITY.md` (referee runs untrusted code →
+isolate via `sandbox.backend: docker`). Remaining (ops/next-domain, not core): a real-domain
+referee + a real-LLM end-to-end run (needs API budget), and live Docker-run validation (needs a
+daemon). The original design below is unchanged.
+
+The cross-AI review (codex + agy) confirmed the central lever (referee = parameterized metric
+adapter, inner loop unchanged) and added three structural guards folded in: (1) the **match matrix** as
 the arena's source of truth — dominance/deliverables/cycle-detection read from it, never from
 the inner `best_score`; (2) the **promotion gate** + per-referee **`accumulate`** strategy for
 CEGIS (growing counterexample union) against pool-overfitting; (3) `arena_fitness` as a single

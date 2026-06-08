@@ -306,6 +306,52 @@ notify: { enabled: false, url: null, method: POST }   # completion webhook (opti
 .venv/bin/pull-and-push run config.yaml --resume # continue after a stop / limit
 ```
 
+## Co-Evolution Arena (symmetric — Rival ↔ Rival)
+
+The second mode co-evolves **two** artifacts, A and B, that compete against each other (a
+red-team ↔ blue-team arms race — e.g. an anti-detect browser vs a bot-detector). Each side is
+judged not by an objective number but by **how it performs against the other**, decided by a
+deterministic, vetted **referee** — the trust anchor (never an LLM; neither side scores itself).
+A thin orchestrator alternates generations, keeps a champion archive, tracks a match matrix, and
+stops on dominance / equilibrium / budget. Design + convergence proof:
+[`docs/design/p6-coevolution-arena.md`](docs/design/p6-coevolution-arena.md).
+
+```yaml
+project: arena-task
+mode: symmetric
+agents:
+  rival_a: { engine: claude, timeout: 600 }     # writes artifact A (must write to cwd)
+  rival_b: { engine: codex,  timeout: 600 }     # writes artifact B (mix providers)
+roles:
+  rival_a: { goal: "recognize the hidden target" }
+  rival_b: { goal: "produce inputs A misclassifies" }
+evaluation:                                       # for symmetric the metric is fixed:
+  adapter: numeric
+  command: x
+  metrics: [ { name: arena_fitness, dir: higher, target: 1.0, worst: 0.0 } ]
+arena:
+  referee: cegis-recognizer                       # name from the vetted referee registry
+  generations: 20
+  per_generation_iterations: 8
+  dominance_tau: 0.95
+sandbox: { backend: docker }                       # referee runs untrusted code — isolate it
+limits: { budget_usd: 5.0, usd_per_mtok: 3.0 }     # symmetric DOUBLES cost — cap it
+```
+
+```bash
+.venv/bin/pull-and-push run arena.yaml            # alternating co-evolution; re-run = resume / no-op
+```
+
+In the **WebUI** pick *Mode → symmetric* in the manual form (rival engines + referee +
+generations), then watch the live **dual stable-curve** (A vs B), the champion counts, and the
+deliverables (best-A-vs-all-B / best-B-vs-all-A). Stop halts it between generations; it resumes.
+
+The shipped referee (`cegis-recognizer`) is a **toy with a checkable fixpoint** that *proves the
+co-evolution machinery converges* (it does not merely cycle) before any real domain. To take it
+to a real domain, implement the `Referee` protocol (`src/tyani_tolkai/arena/referee.py`) and
+register it — the arena machinery is domain-agnostic. See [`SECURITY.md`](SECURITY.md): the
+referee executes one side's untrusted code, so isolate it (`sandbox.backend: docker`).
+
 ## Projects
 
 ```bash
@@ -329,7 +375,10 @@ pull-and-push projects delete renamed
   **`agy` is not recommended**: headless `agy -p` either blocks on an interactive permission prompt
   or, with auto-approve, answers conversationally instead of reliably editing files. Use
   `claude` / `codex` / `opencode`.
-- **Symmetric mode** (Rival↔Rival + arena) — designed, not yet built.
+- **Symmetric mode** (Rival↔Rival + arena) — **shipped** (CLI + WebUI dual-curve, persist/resume,
+  Stop, budget cap). Proven to converge on a toy referee with a checkable fixpoint; a real-domain
+  referee + a real-LLM end-to-end run are the next step (the machinery is domain-agnostic). The
+  Docker sandbox for the referee is implemented but its live run is not yet CI-validated.
 - **Docker backend** is implemented; the `local` backend is fully tested. Keep metric
   commands simple (avoid shell pipes) for cross-backend parity.
 - **WebUI auth** is a token in a URL query param — fine for localhost single-user; front it
