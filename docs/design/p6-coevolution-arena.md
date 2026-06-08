@@ -173,8 +173,13 @@ generation). **Everything that decides the run reads from the matrix, not the in
   `dominance_tau` for `R` generations.
 - **Deliverables:** `best-A-vs-all-B` / `best-B-vs-all-A` = the champion with the best
   worst-case row across the whole opposing archive (robustness, not a lucky single win).
-- **Cycle detection:** non-transitive loops in the matrix (A1<B1, B1<A2, A2<B2, …) +
-  `detect_oscillation` on the stable signal → flags rock-paper-scissors instead of progress.
+- **Cycle prevention (primary, structural):** the champion archive + `accumulate` opponent
+  set + the promotion gate make rock-paper-scissors cycling structurally hard — a side can only
+  be crowned if it does not regress against the *whole* opposing archive, so it cannot win by
+  forgetting an old opponent. A `plateau_generations` counter on the stable signal stops a
+  stalled/seesawing run. (Note: the Phase-1 `detect_oscillation` is *diff-based* and is
+  deliberately **not** reused here — monotone champion refinement, e.g. `'aa'`→`'ab'`, removes a
+  line a prior champion added and would false-positive as a seesaw.)
 
 **Rival executors must be `claude` or `codex`** (they write to the subprocess cwd;
 `opencode`/`agy` do not — read-only roles only). Validated at config load (mirrors the
@@ -200,9 +205,10 @@ the value is robust artifacts. Stop when **any** of:
 
 - **Dominance:** one side beats the opponent's *entire* archive with win-rate ≥ `dominance_τ`
   for `R` consecutive generations.
-- **Equilibrium / stalemate:** neither side's *stable* signal improves for `N` generations.
-  Reuse the existing `detect_oscillation` to additionally flag cycling (a side's stable
-  signal oscillating rather than rising) and stop on that too.
+- **Equilibrium / stalemate:** neither side's *stable* signal improves for `N`
+  (`plateau_generations`) generations. (The structural cycling guard is the archive +
+  `accumulate` + promotion gate, §4a — not the diff-based `detect_oscillation`, which would
+  false-positive on monotone champion refinement.)
 - **Budget:** `max_generations`, or the existing `budget_usd` cost cap (summed across both
   sides' sub-loops).
 
@@ -343,8 +349,9 @@ for the per-domain referee review, out of scope for the toy.
   Bounded by `per_generation_iterations` and the existing `budget_usd` cap summed across
   both sides.
 - **Co-evolution instability** (cycling, mode collapse, co-drift) — mitigated by the
-  champion archive (score vs a pool of past bests), the `mean_gated` aggregate, and
-  `detect_oscillation` on the stable signal.
+  champion archive + `accumulate` opponent set + the promotion gate (a champion can't be
+  crowned if it regresses against the whole opposing archive), the `mean_gated` aggregate, and
+  a `plateau_generations` stall counter on the stable signal.
 - **Non-stationary score** — mitigated by the live/stable split; only the stable signal is
   ever shown as progress.
 - **The referee is the integrity boundary** — deterministic + vetted + symmetry/determinism
@@ -402,5 +409,6 @@ adapter-computed gated metric (not two raw metrics to the scorer) + per-generati
 
 Lessons carried from Phase 1: rival executors must be claude/codex (cwd); commit the candidate
 before running metrics (already how Phase 1 works); baseline re-validation guards a noise best;
-mix providers for uncorrelated blind spots; `detect_oscillation` already exists and is reused
-to flag cycling.
+mix providers for uncorrelated blind spots. (Cycling is handled structurally by the archive +
+`accumulate` + promotion gate, not by Phase-1's diff-based `detect_oscillation` — which would
+false-positive on monotone champion refinement.)
