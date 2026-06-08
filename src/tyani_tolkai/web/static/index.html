@@ -542,7 +542,22 @@
         </div>
       </fieldset>
 
-      <fieldset><legend data-i18n="man.agents">Agents <small data-i18n="man.agentsSub">off-the-shelf CLIs — nothing to write</small></legend>
+      <fieldset id="sym_fields" class="hidden"><legend>Co-Evolution Arena <small>symmetric — Rival ↔ Rival</small></legend>
+        <div class="grid">
+          <div class="field"><label>Rival A — engine</label><select id="f_ra_engine"></select>
+            <div class="hint">Writes artifact A. claude/codex (must write to cwd).</div></div>
+          <div class="field"><label>Rival B — engine</label><select id="f_rb_engine"></select>
+            <div class="hint">Writes artifact B. Mix providers for uncorrelated blind spots.</div></div>
+          <div class="field full"><label>Rival A — goal</label><textarea id="f_ra_goal" placeholder="e.g. recognize the hidden language"></textarea></div>
+          <div class="field full"><label>Rival B — goal</label><textarea id="f_rb_goal" placeholder="e.g. produce inputs that A misclassifies"></textarea></div>
+          <div class="field"><label>Referee</label><select id="f_referee"></select>
+            <div class="hint">Deterministic vetted match engine — the trust anchor (never an LLM).</div></div>
+          <div class="field"><label>Generations</label><input id="f_generations" type="number" value="20">
+            <div class="hint">Max alternating A↔B generations.</div></div>
+        </div>
+      </fieldset>
+
+      <fieldset class="asym-only"><legend data-i18n="man.agents">Agents <small data-i18n="man.agentsSub">off-the-shelf CLIs — nothing to write</small></legend>
         <div class="grid">
           <div class="field"><label data-i18n="man.exEngine">Executor — engine</label><select id="f_ex_engine"></select>
             <div class="hint" data-i18n="man.exEngineHint">Which CLI edits the artifact (installed and logged in).</div></div>
@@ -551,7 +566,7 @@
         </div>
       </fieldset>
 
-      <fieldset><legend data-i18n="man.roles">Roles <small data-i18n="man.rolesSub">what to pursue</small></legend>
+      <fieldset class="asym-only"><legend data-i18n="man.roles">Roles <small data-i18n="man.rolesSub">what to pursue</small></legend>
         <div class="grid">
           <div class="field full"><label data-i18n="man.exGoal">Executor — goal</label><textarea id="f_ex_goal" data-i18n-ph="man.exGoalPh" placeholder="e.g. Maximize the return of strategy.py"></textarea>
             <div class="hint" data-i18n="man.exGoalHint">The main objective of every iteration.</div></div>
@@ -561,7 +576,7 @@
         </div>
       </fieldset>
 
-      <fieldset><legend data-i18n="man.eval">Evaluation <small data-i18n="man.evalSub">code scores it, not the LLM</small></legend>
+      <fieldset class="asym-only"><legend data-i18n="man.eval">Evaluation <small data-i18n="man.evalSub">code scores it, not the LLM</small></legend>
         <select id="f_adapter" hidden></select>
         <div class="grid">
           <div class="field" id="command_wrap"><label data-i18n="man.command">Evaluation command</label><input id="f_command" placeholder="python metrics/backtest.py">
@@ -578,7 +593,7 @@
         <div id="metricsErr" class="hint err-hint" style="display:none;margin-top:8px"></div>
       </fieldset>
 
-      <fieldset><legend data-i18n="man.seed">Starting code <small data-i18n="man.seedSub">where the executor begins</small></legend>
+      <fieldset class="asym-only"><legend data-i18n="man.seed">Starting code <small data-i18n="man.seedSub">where the executor begins</small></legend>
         <div class="grid">
           <div class="field"><label data-i18n="man.seedLabel">Starting code</label>
             <select id="f_seed">
@@ -666,7 +681,14 @@
       </div>
       <div class="mcards" id="metricCards"></div>
       <h3 style="margin-top:6px" id="chartTitle" data-i18n="prog.curve">Quality curve</h3>
-      <div class="chartbox"><canvas id="chart"></canvas></div>
+      <div class="chartbox" id="qualityChartBox"><canvas id="chart"></canvas></div>
+
+      <div id="arenaPanel" class="hidden">
+        <div class="hint" id="arenaSummary" style="margin:4px 0 10px"></div>
+        <div class="mcards" id="arenaCards"></div>
+        <h3 style="margin-top:6px">Stable progress — A vs B (each vs a fixed validation set)</h3>
+        <div class="chartbox"><canvas id="arenaChart"></canvas></div>
+      </div>
       <div class="steer" id="steerBox">
         <div class="steer-h"><span class="steer-ic">&gt;_</span>
           <span data-i18n="prog.steer">Live agent command</span>
@@ -840,9 +862,15 @@ function opts(s,a,blank){s.innerHTML=(blank?`<option value="">${t('opt.none')}</
 async function loadMeta(){META=await(await fetch(api('/api/meta'))).json();
   opts($('f_mode'),META.modes);opts($('f_ex_engine'),META.engines);
   opts($('f_va_engine'),META.engines,true);opts($('f_adapter'),META.adapters);
-  opts($('g_engine'),META.engines);opts($('imp_engine'),META.engines);}
+  opts($('g_engine'),META.engines);opts($('imp_engine'),META.engines);
+  opts($('f_ra_engine'),META.engines);opts($('f_rb_engine'),META.engines);
+  opts($('f_referee'),META.referees||['cegis-recognizer']);
+  $('f_mode').onchange=vis;}                 // mode toggle swaps asymmetric ↔ arena fields
 
 function vis(){const ad=$('f_adapter').value;   // adapter is auto/hidden; still drives which inputs matter
+  const sym=$('f_mode').value==='symmetric';     // arena (Rival↔Rival) vs asymmetric (Executor↔Validator)
+  $('sym_fields').classList.toggle('hidden',!sym);
+  document.querySelectorAll('#view-config fieldset.asym-only').forEach(f=>f.classList.toggle('hidden',sym));
   $('command_wrap').classList.toggle('hidden',!(ad==='numeric'||ad==='command-exit'));
   $('harness_wrap').classList.toggle('hidden',ad!=='pytest-pass');
   $('seedpath_wrap').classList.toggle('hidden',$('f_seed').value!=='copy');
@@ -877,6 +905,13 @@ function setFields(cfg){
   if(cfg.project!==undefined)$('f_project').value=cfg.project||'';
   $('g_desc').value=cfg.description||'';   // original task description, if saved
   $('f_mode').value=cfg.mode||'asymmetric';
+  if(cfg.mode==='symmetric'){              // populate the arena fields from a symmetric config
+    const ar=cfg.arena||{};
+    $('f_ra_engine').value=(a.rival_a||{}).engine||'claude';
+    $('f_rb_engine').value=(a.rival_b||{}).engine||'codex';
+    $('f_ra_goal').value=(r.rival_a||{}).goal||'';$('f_rb_goal').value=(r.rival_b||{}).goal||'';
+    $('f_referee').value=ar.referee||'';$('f_generations').value=ar.generations??20;
+  }
   $('f_ex_engine').value=(a.executor||{}).engine||'claude';
   $('f_va_engine').value=(a.validator||{}).engine||'';
   $('f_ex_goal').value=(r.executor||{}).goal||'';$('f_ex_task').value=(r.executor||{}).task||'';$('f_va_goal').value=(r.validator||{}).goal||'';
@@ -898,7 +933,25 @@ function fillForm(name,cfg){current=name;$('cfgTitle').textContent=t('title.proj
 function applyGenerated(cfg){blankForm();setFields(cfg);$('f_project').disabled=false;current=null;
   $('cfgTitle').textContent=t('cfg.generated');$('saveBtn').textContent=t('man.create');
   try{$('manualForm').open=true;}catch(e){}}
-function buildConfig(){const c={project:$('f_project').value.trim(),mode:$('f_mode').value,
+function buildConfig(){
+  if($('f_mode').value==='symmetric'){            // Co-Evolution Arena (Rival↔Rival)
+    const c={project:$('f_project').value.trim(),mode:'symmetric',
+      agents:{rival_a:{engine:$('f_ra_engine').value,timeout:600},
+              rival_b:{engine:$('f_rb_engine').value,timeout:600}},
+      roles:{rival_a:{goal:$('f_ra_goal').value||'recognize the hidden target'},
+             rival_b:{goal:$('f_rb_goal').value||'produce inputs the opponent misclassifies'}},
+      evaluation:{adapter:'numeric',command:'x',
+                  metrics:[{name:'arena_fitness',dir:'higher',target:1.0,worst:0.0}]},
+      arena:{referee:$('f_referee').value,generations:+$('f_generations').value||20},
+      sandbox:{backend:$('f_sandbox').value}};
+    const lim={};
+    if($('f_budget').value!=='')lim.budget_usd=+$('f_budget').value;
+    if($('f_price').value!=='')lim.usd_per_mtok=+$('f_price').value;
+    if(Object.keys(lim).length)c.limits=lim;
+    if($('g_desc').value.trim())c.description=$('g_desc').value.trim();
+    return c;
+  }
+  const c={project:$('f_project').value.trim(),mode:$('f_mode').value,
   agents:{executor:{engine:$('f_ex_engine').value,timeout:600}},
   roles:{executor:{goal:$('f_ex_goal').value||'Improve the artifact.'}},
   evaluation:{adapter:$('f_adapter').value,metrics:getMetrics(),target_score:+$('f_target').value},
@@ -954,8 +1007,9 @@ async function selectProject(name){
   if(!cfg||!cfg.evaluation){                        // deleted between list & click, or broken config
     try{localStorage.removeItem('tt_current');}catch(e){}
     toast(t('toast.unavailable'),'err');blankForm();await loadProjects();return;}
-  CFG=cfg;fillForm(name,cfg);highlight();loadState(name);showView('progress');
+  CFG=cfg;fillForm(name,cfg);showArenaMode(cfg.mode==='symmetric');highlight();loadState(name);showView('progress');
   try{localStorage.setItem('tt_current',name);}catch(e){}
+  if(IS_SYM)return;                                // arena view self-polls via refreshArena
   // if this project is mid-run, resume LIVE updates (don't show a frozen snapshot)
   try{const live=await(await fetch(api('/api/projects/'+name+'/live'))).json();
       if(live.status==='running')startPolling(name);}catch(e){}}
@@ -1117,11 +1171,41 @@ function setStatus(s,score,sum,cost){const tg=$('tag');tg.className='tag '+(s||'
   const live=(s==='running');                            // pulse the feed status dot while running
   $('feedDot').classList.toggle('live',live);
   setRunVisual(s);syncRunControls(s);}
-async function loadState(name){CHART_VIEW=null;const d=await(await fetch(api('/api/projects/'+name))).json();
+async function loadState(name){
+  if(IS_SYM){await refreshArena(name);return;}    // symmetric → arena view (self-polls if running)
+  CHART_VIEW=null;const d=await(await fetch(api('/api/projects/'+name))).json();
   BASELINE=d.baseline||{};
   const its=d.iterations||[];RUN_STATUS=d.status||'idle';_logSig='';setStatus(d.status||'idle',d.best_score,null,d.cost);plot(its);renderLog(its);renderCheckpoint(d);
   renderMetricCards(lastMetricsOf(its));loadAgentLog();
   $('runGoal').textContent=(CFG&&CFG.roles&&CFG.roles.executor&&CFG.roles.executor.goal)?(t('goal.prefix')+CFG.roles.executor.goal):'';}
+// ---- symmetric (Co-Evolution Arena) view ----
+let arenaChart=null,IS_SYM=false;
+function showArenaMode(on){IS_SYM=on;
+  $('arenaPanel').classList.toggle('hidden',!on);
+  ['qualityChartBox','chartTitle','metricCards','steerBox','kpiScore'].forEach(id=>{const e=$(id);if(e)e.classList.toggle('hidden',on);});}
+function _acard(v,l){return `<div style="flex:1;min-width:96px;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:10px 12px"><div style="font-size:22px;font-weight:700;color:var(--cold)">${v}</div><div class="kpi-lbl">${l}</div></div>`;}
+function _afmt(x){return (x==null)?'—':(+x).toFixed(2);}
+function renderArena(m){const tg=$('tag');
+  if(!m){tg.className='tag idle';tg.textContent='idle';$('arenaSummary').textContent='Not run yet — press ▶ Run to start the co-evolution.';$('arenaCards').innerHTML='';return;}
+  const fin=m.status==='finished';tg.className='tag '+(fin?'finished':'running');tg.textContent=fin?'finished':'running';
+  $('arenaSummary').innerHTML=`generation <b>${m.generation}</b>/${m.generations} · stop: <b>${m.stop_reason||'—'}</b> · deliverables: best-A <b>#${m.best_a_id??'—'}</b>, best-B <b>#${m.best_b_id??'—'}</b> · referee: <b>${m.referee}</b>`;
+  const A=(m.champions&&m.champions.A)||[],B=(m.champions&&m.champions.B)||[];
+  $('arenaCards').innerHTML=_acard(A.length,'A champions')+_acard(B.length,'B champions')+_acard(_afmt((m.stable_a||[]).slice(-1)[0]),'A stable')+_acard(_afmt((m.stable_b||[]).slice(-1)[0]),'B stable');
+  drawArenaChart(m.stable_a||[],m.stable_b||[]);}
+function drawArenaChart(a,b){if(!window.Chart)return;
+  const labels=a.map((_,i)=>i);
+  const data={labels,datasets:[
+    {label:'A (recognizer)',data:a,borderColor:'#46e0d0',backgroundColor:'rgba(70,224,208,.12)',tension:.25,fill:false,pointRadius:3,pointBackgroundColor:'#46e0d0'},
+    {label:'B (adversary)',data:b,borderColor:'#ffc14d',backgroundColor:'rgba(255,193,77,.12)',tension:.25,fill:false,pointRadius:3,pointBackgroundColor:'#ffc14d'}]};
+  if(arenaChart){arenaChart.data=data;arenaChart.update();return;}
+  arenaChart=new Chart($('arenaChart'),{type:'line',data,options:{responsive:true,maintainAspectRatio:false,
+    scales:{y:{min:0,max:1,grid:{color:'rgba(124,166,206,.12)'},ticks:{color:'#75899e'}},x:{grid:{color:'rgba(124,166,206,.06)'},ticks:{color:'#75899e'}}},
+    plugins:{legend:{display:true,labels:{color:'#9fb3c8'}}}}});}
+async function refreshArena(name){
+  let d=null;try{d=await(await fetch(api('/api/projects/'+name+'/arena'))).json();}catch(e){return;}
+  const m=d&&d.manifest;renderArena(m);
+  if(m&&m.status!=='finished'&&current===name)setTimeout(()=>{if(current===name)refreshArena(name);},1500);}
+
 function stopPolling(){if(poll){clearInterval(poll);poll=null;}}
 function startPolling(name){if(poll)clearInterval(poll);
   poll=setInterval(async()=>{const d=await(await fetch(api('/api/projects/'+name+'/live'))).json();
@@ -1338,7 +1422,7 @@ $('runBtn').onclick=async()=>{if(!current)return;
   }
   const r=await fetch(api('/api/projects/'+current+'/run'),{method:'POST'});
   if(!r.ok){const e=await r.json().catch(()=>({}));toast('Run: '+(e.detail||r.status),'err');return;}
-  setStatus('running',null,null);startPolling(current);toast(t('toast.started'),'ok');};
+  setStatus('running',null,null);if(IS_SYM)refreshArena(current);else startPolling(current);toast(t('toast.started'),'ok');};
 $('stopBtn').onclick=async()=>{if(current){await fetch(api('/api/projects/'+current+'/stop'),{method:'POST'});toast(t('toast.stopping'),'ok');}};
 $('forceStopBtn').onclick=async()=>{if(!current)return;
   if(!confirm(t('confirm.forceStop')))return;

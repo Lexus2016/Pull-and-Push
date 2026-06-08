@@ -45,3 +45,8 @@ def get_referee(name: str) -> Referee:
     if name not in _REGISTRY:
         raise KeyError(f"unknown referee: {name!r}")
     return _REGISTRY[name]()
+
+
+def list_referees() -> list[str]:
+    """Names of all vetted referees currently registered (importing a referee module registers it)."""
+    return sorted(_REGISTRY)

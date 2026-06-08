@@ -389,6 +389,30 @@ def create_app(token: str | None = None) -> FastAPI:
         auth(token)
         return _persisted_state(name)
 
+    @app.get("/api/projects/{name}/arena")
+    def api_arena(name: str, token: str | None = Query(None)):
+        """Symmetric (Co-Evolution Arena) state from the arena.json manifest: status, the two
+        stable curves, champions, deliverables, stop reason. The orchestrator rewrites it after
+        every generation, so polling this gives live generation progress + the final result.
+        Returns {mode, manifest}; manifest is null for an asymmetric or not-yet-run project."""
+        auth(token)
+        base = project_dir(name)
+        mpath = base / "arena.json"
+        if mpath.exists():
+            try:
+                return {"mode": "symmetric", "manifest": json.loads(mpath.read_text(encoding="utf-8"))}
+            except ValueError:
+                return {"mode": "symmetric", "manifest": None}
+        mode = None
+        cfgp = base / "config.yaml"
+        if cfgp.exists():
+            try:
+                import yaml
+                mode = (yaml.safe_load(cfgp.read_text(encoding="utf-8")) or {}).get("mode")
+            except Exception:
+                mode = None
+        return {"mode": mode, "manifest": None}
+
     @app.get("/api/projects/{name}/files")
     def api_files(name: str, token: str | None = Query(None)):
         auth(token)
@@ -516,11 +540,14 @@ def create_app(token: str | None = None) -> FastAPI:
     @app.get("/api/meta")
     def api_meta(token: str | None = Query(None)):
         auth(token)
+        import tyani_tolkai.arena.cegis  # noqa: F401  (registers the cegis referee)
+        from ..arena.referee import list_referees
         return {
             "engines": ["claude", "codex", "opencode", "agy"],
             "adapters": ["numeric", "command-exit", "pytest-pass"],
             "seeds": ["empty", "copy"],
-            "modes": ["asymmetric"],
+            "modes": ["asymmetric", "symmetric"],
+            "referees": list_referees(),
             "dirs": ["higher", "lower"],
         }
 
