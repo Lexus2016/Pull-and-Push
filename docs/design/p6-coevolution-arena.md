@@ -226,6 +226,20 @@ has a checkable fixpoint.
   A classifies correctly per ground truth; `b_score` = misclassification rate B induced.
   Zero-sum: `a_score + b_score == 1`.
 
+**Information flow (who provides labels).** In CEGIS the teacher is an oracle, and here the
+**referee is that oracle** (it alone knows L). After a match the referee returns to A, via its
+brief, the **labeled** counterexamples it just found (string + correct label) — that is the
+legitimate teacher channel. **B never sees L or the labels:** B is an un-oracled adversary that
+*probes* A's frozen recognizer for disagreements (boundary mutations, enumeration). The referee
+grades B's probes against L. So A learns from the oracle's labels on B's probes; B explores
+where A is weak. This still converges (B keeps surfacing A's current errors; A keeps fixing
+them; for finite L the error set empties → B starves) and genuinely exercises forgetting/cycling
+— which the archive + `accumulate` + match matrix defend against. Opponent context (A's frozen
+recognizer for B; the accumulated labeled counterexamples for A) is materialized by the
+orchestrator into a reserved `.arena/` dir in the rival's workdir (excluded from the scored
+artifact) and referenced in the brief prose, so a scripted test rival and a real LLM rival read
+the same facts.
+
 **Why this is the right toy (the convergence proof):** the arms race converges when A
 recognizes L correctly — at which point B can no longer find a counterexample within bounds
 (B "starves"). Because *we* (the experimenters) know L, we can **verify** "A converged to L"
