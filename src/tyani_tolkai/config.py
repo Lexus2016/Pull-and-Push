@@ -131,6 +131,27 @@ class NotifyCfg(BaseModel):
         return self
 
 
+class OpponentPoolCfg(BaseModel):
+    """How the live side's opponent pool is built each generation (design §3)."""
+    latest: bool = True              # always include the opponent's latest champion
+    k_past: int = 3                  # plus this many sampled past champions ('sample' strategy)
+
+
+class ArenaCfg(BaseModel):
+    """Symmetric-mode arena/referee settings (design §2-§6)."""
+    referee: str                     # name from the vetted referee registry
+    aggregate: Literal["mean", "min", "mean_gated"] = "mean_gated"
+    min_floor: float = 0.5           # mean_gated: worst-case floor below which mean is penalized
+    penalty: float = 1.0
+    opponent_pool: OpponentPoolCfg = OpponentPoolCfg()
+    generations: int = 20
+    per_generation_iterations: int = 8   # bound on each side's Phase-1 sub-loop per generation
+    dominance_tau: float = 0.95
+    dominance_rounds: int = 2        # R consecutive generations of dominance → stop
+    plateau_generations: int = 4     # N generations with no stable improvement → stop
+    promote_regression_max: float = 0.1  # max archive-wide regression allowed to crown a champion
+
+
 class Config(BaseModel):
     project: str
     description: str | None = None        # original plain-language task (from the generator)
@@ -144,6 +165,7 @@ class Config(BaseModel):
     checkpoints: CheckpointsCfg = CheckpointsCfg()
     sandbox: SandboxCfg = SandboxCfg()
     notify: NotifyCfg = NotifyCfg()
+    arena: ArenaCfg | None = None         # required in symmetric mode (validated below)
 
     @model_validator(mode="before")
     @classmethod
@@ -160,9 +182,24 @@ class Config(BaseModel):
 
     @model_validator(mode="after")
     def _check_roles_and_engines(self) -> "Config":
+        if self.mode == "symmetric":
+            for r in ("rival_a", "rival_b"):
+                if r not in self.agents:
+                    raise ValueError(f"symmetric mode requires agents.{r}")
+            if self.arena is None:
+                raise ValueError("symmetric mode requires an 'arena' block")
+            for r in ("rival_a", "rival_b"):
+                eng = self.agents[r].engine
+                # opencode/agy do NOT write to the subprocess cwd → cannot be rival EXECUTORS
+                if eng in ("opencode", "agy"):
+                    raise ValueError(
+                        f"rival {r} engine {eng!r} does not write to the subprocess cwd; "
+                        "rival executors must be claude, codex, or mock (tests)")
+            return self
+        # asymmetric (unchanged Phase-1 logic)
         if "executor" not in self.agents:
             raise ValueError("agents.executor is required")
-        if self.mode == "asymmetric" and "validator" in self.agents:
+        if "validator" in self.agents:
             ex = self.agents["executor"].engine
             va = self.agents["validator"].engine
             if ex == va:
@@ -176,12 +213,6 @@ class Config(BaseModel):
 
 
 def load_config(path: str | Path) -> Config:
-    """Load and validate a run config from a YAML file.
-
-    Phase 1 supports asymmetric mode only; symmetric raises NotImplementedError.
-    """
+    """Load and validate a run config from a YAML file (asymmetric or symmetric)."""
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
-    cfg = Config(**data)
-    if cfg.mode != "asymmetric":
-        raise NotImplementedError("symmetric mode arrives in Phase 2")
-    return cfg
+    return Config(**data)

@@ -135,3 +135,52 @@ def test_budget_without_price_warns():
                                          "worst": 0, "target": 100}]})
     with pytest.warns(UserWarning, match="usd_per_mtok"):
         Config(**base, limits={"budget_usd": 5.0})
+
+
+def _base_symmetric(**over):
+    d = {
+        "project": "p", "mode": "symmetric",
+        "agents": {"rival_a": {"engine": "mock"}, "rival_b": {"engine": "mock"}},
+        "roles": {"rival_a": {"goal": "recognize"}, "rival_b": {"goal": "fool"}},
+        "evaluation": {"adapter": "numeric", "command": "x",
+                       "metrics": [{"name": "arena_fitness", "dir": "higher",
+                                    "target": 1.0, "worst": 0.0}]},
+        "arena": {"referee": "cegis-recognizer"},
+    }
+    d.update(over)
+    return d
+
+
+def test_symmetric_config_parses_arena_defaults():
+    cfg = Config(**_base_symmetric())
+    assert cfg.mode == "symmetric"
+    assert cfg.arena.referee == "cegis-recognizer"
+    assert cfg.arena.aggregate == "mean_gated"
+    assert cfg.arena.generations == 20
+    assert cfg.arena.opponent_pool.k_past == 3
+
+
+def test_symmetric_requires_both_rivals():
+    with pytest.raises(ValidationError):
+        Config(**_base_symmetric(agents={"rival_a": {"engine": "mock"}}))
+
+
+def test_symmetric_requires_arena_block():
+    bad = _base_symmetric()
+    bad.pop("arena")
+    with pytest.raises(ValidationError):
+        Config(**bad)
+
+
+def test_symmetric_rejects_non_writing_rival_engine():
+    with pytest.raises(ValidationError):
+        Config(**_base_symmetric(agents={"rival_a": {"engine": "opencode"},
+                                          "rival_b": {"engine": "mock"}}))
+
+
+def test_load_config_symmetric_no_longer_raises(tmp_path):
+    import yaml
+    p = tmp_path / "config.yaml"
+    p.write_text(yaml.safe_dump(_base_symmetric()), encoding="utf-8")
+    cfg = load_config(p)
+    assert cfg.mode == "symmetric"
