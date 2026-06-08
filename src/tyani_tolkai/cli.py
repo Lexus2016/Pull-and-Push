@@ -60,8 +60,42 @@ def _seed_artifact(state: StateStore, cfg: Config) -> None:
     # 'empty' starts with no artifact — the first iteration creates the initial code.
 
 
+def _build_rivals(cfg):
+    """Construct the two rival executor adapters (claude/codex in prod). Module-level seam so
+    tests can monkeypatch in deterministic scripted rivals."""
+    a = cfg.agents["rival_a"]
+    b = cfg.agents["rival_b"]
+    return (build_adapter(a.engine, a.model, "writeable"),
+            build_adapter(b.engine, b.model, "writeable"))
+
+
+def _run_symmetric(cfg, args) -> int:
+    import tyani_tolkai.arena.cegis  # noqa: F401  (registers the cegis-recognizer referee)
+    from .arena.referee import get_referee
+    from .symmetric import SymmetricOrchestrator
+
+    base = project_dir(cfg.project)
+    base.mkdir(parents=True, exist_ok=True)
+    referee = get_referee(cfg.arena.referee)
+    ex_a, ex_b = _build_rivals(cfg)
+    sandbox = get_backend(cfg.sandbox.backend, cfg.sandbox)
+    print(f"▶ symmetric run: project={cfg.project!r}  referee={cfg.arena.referee}  "
+          f"rivals={cfg.agents['rival_a'].engine}/{cfg.agents['rival_b'].engine}  "
+          f"generations={cfg.arena.generations}")
+    orch = SymmetricOrchestrator(cfg, base, referee, ex_a, ex_b, sandbox)
+    result = orch.run()
+    print(f"✔ finished: reason={result.stop_reason}  generations={result.generations}")
+    print(f"  best-A-vs-all-B = champion #{result.best_a_id}")
+    print(f"  best-B-vs-all-A = champion #{result.best_b_id}")
+    curve = ["%.2f" % s for s in result.stable_a if s is not None]
+    print(f"  stable-A curve  = {curve}")
+    return 0
+
+
 def cmd_run(args) -> int:
     cfg = load_config(args.config)
+    if cfg.mode == "symmetric":
+        return _run_symmetric(cfg, args)
     base = project_dir(cfg.project)
     state = StateStore(base)
     fresh = not (state.artifact_dir / ".git").exists()

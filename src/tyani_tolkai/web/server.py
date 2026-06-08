@@ -141,6 +141,9 @@ class RunManager:
         try:
             base = project_dir(name)
             cfg = load_config(base / "config.yaml")
+            if cfg.mode == "symmetric":
+                self._run_symmetric(name, cfg, base)
+                return
             state = StateStore(base)
             # Run = CONTINUE: resume the latest run that has history (any finish reason), so previous
             # iterations are never lost and the iteration count carries on. A fresh start is a
@@ -227,6 +230,44 @@ class RunManager:
         finally:
             if state is not None:
                 state.close()                            # never leak the connection
+
+    def _run_symmetric(self, name: str, cfg, base) -> None:
+        """Symmetric (Rival↔Rival) runs use the SymmetricOrchestrator instead of the asymmetric
+        iteration loop. The arena result (stop reason, deliverable champions, the two stable
+        curves) is stored on the in-memory run so the status endpoint surfaces it."""
+        try:
+            import tyani_tolkai.arena.cegis  # noqa: F401  (registers cegis-recognizer)
+            from ..arena.referee import get_referee
+            from ..symmetric import SymmetricOrchestrator
+            referee = get_referee(cfg.arena.referee)
+            ex_a, ex_b = _symmetric_rivals(cfg)
+            orch = SymmetricOrchestrator(cfg, base, referee, ex_a, ex_b,
+                                         get_backend(cfg.sandbox.backend, cfg.sandbox))
+            result = orch.run()
+            with self._lock:
+                self._runs[name]["status"] = "finished"
+                self._runs[name]["summary"] = {
+                    "mode": "symmetric", "reason": result.stop_reason,
+                    "generations": result.generations, "best_a_id": result.best_a_id,
+                    "best_b_id": result.best_b_id, "stable_a": result.stable_a,
+                    "stable_b": result.stable_b}
+            _fire_webhook(cfg, name, {"project": name, "status": "finished",
+                                      "reason": result.stop_reason})
+        except Exception as e:
+            log.exception("symmetric run crashed: project=%s", name)
+            with self._lock:
+                self._runs[name]["status"] = "error"
+                self._runs[name]["summary"] = {"error": str(e)}
+            _fire_webhook(cfg, name, {"project": name, "status": "error", "error": str(e)})
+
+
+def _symmetric_rivals(cfg):
+    """Build the two rival executor adapters (claude/codex in prod). Module-level seam so tests
+    inject deterministic scripted rivals."""
+    a = cfg.agents["rival_a"]
+    b = cfg.agents["rival_b"]
+    return (build_adapter(a.engine, a.model, "writeable"),
+            build_adapter(b.engine, b.model, "writeable"))
 
 
 def _assert_scorer_exists(base: Path, cfg) -> None:
