@@ -160,8 +160,9 @@ Each side's sub-loop is a normal, fully-featured Phase-1 run (its own brief, rev
 plateau handling, resume, cost telemetry). The symmetric layer only: builds opponent pools,
 seeds from the prior champion, constructs the adapter, applies the promotion gate, maintains
 the match matrix, computes stable signals, and decides when to stop. **Budget** (`budget_usd`)
-is a parent-level cap; each sub-run is launched with the *remaining* budget so the inner loop
-cannot overspend (cross-AI review catch).
+is a parent-level cap; each sub-run's `run_loop` is given a `should_stop` that checks the
+*global* spend (summed across both sides' runs) every iteration, so the inner loop halts the
+moment the cap is reached and cannot overspend (cross-AI review catch).
 
 ### 4a. Match matrix — the arena's source of truth (B)
 
