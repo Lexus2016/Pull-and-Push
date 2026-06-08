@@ -542,18 +542,18 @@
         </div>
       </fieldset>
 
-      <fieldset id="sym_fields" class="hidden"><legend>Co-Evolution Arena <small>symmetric — Rival ↔ Rival</small></legend>
+      <fieldset id="sym_fields" class="hidden"><legend><span data-i18n="sym.legend">Co-Evolution Arena</span> <small data-i18n="sym.legendSub">symmetric — Rival ↔ Rival</small></legend>
         <div class="grid">
-          <div class="field"><label>Rival A — engine</label><select id="f_ra_engine"></select>
-            <div class="hint">Writes artifact A. claude/codex (must write to cwd).</div></div>
-          <div class="field"><label>Rival B — engine</label><select id="f_rb_engine"></select>
-            <div class="hint">Writes artifact B. Mix providers for uncorrelated blind spots.</div></div>
-          <div class="field full"><label>Rival A — goal</label><textarea id="f_ra_goal" placeholder="e.g. recognize the hidden language"></textarea></div>
-          <div class="field full"><label>Rival B — goal</label><textarea id="f_rb_goal" placeholder="e.g. produce inputs that A misclassifies"></textarea></div>
-          <div class="field"><label>Referee</label><select id="f_referee"></select>
-            <div class="hint">Deterministic vetted match engine — the trust anchor (never an LLM).</div></div>
-          <div class="field"><label>Generations</label><input id="f_generations" type="number" value="20">
-            <div class="hint">Max alternating A↔B generations.</div></div>
+          <div class="field"><label data-i18n="sym.raEngine">Rival A — engine</label><select id="f_ra_engine"></select>
+            <div class="hint" data-i18n="sym.raEngineHint">Writes artifact A. claude/codex (must write to cwd).</div></div>
+          <div class="field"><label data-i18n="sym.rbEngine">Rival B — engine</label><select id="f_rb_engine"></select>
+            <div class="hint" data-i18n="sym.rbEngineHint">Writes artifact B. Mix providers for uncorrelated blind spots.</div></div>
+          <div class="field full"><label data-i18n="sym.raGoal">Rival A — goal</label><textarea id="f_ra_goal" placeholder="e.g. recognize the hidden language"></textarea></div>
+          <div class="field full"><label data-i18n="sym.rbGoal">Rival B — goal</label><textarea id="f_rb_goal" placeholder="e.g. produce inputs that A misclassifies"></textarea></div>
+          <div class="field"><label data-i18n="sym.referee">Referee</label><select id="f_referee"></select>
+            <div class="hint" data-i18n="sym.refereeHint">Deterministic vetted match engine — the trust anchor (never an LLM).</div></div>
+          <div class="field"><label data-i18n="sym.generations">Generations</label><input id="f_generations" type="number" value="20">
+            <div class="hint" data-i18n="sym.generationsHint">Max alternating A↔B generations.</div></div>
         </div>
       </fieldset>
 
@@ -686,7 +686,7 @@
       <div id="arenaPanel" class="hidden">
         <div class="hint" id="arenaSummary" style="margin:4px 0 10px"></div>
         <div class="mcards" id="arenaCards"></div>
-        <h3 style="margin-top:6px">Stable progress — A vs B (each vs a fixed validation set)</h3>
+        <h3 style="margin-top:6px" data-i18n="arena.curve">Stable progress — A vs B (each vs a fixed validation set)</h3>
         <div class="chartbox"><canvas id="arenaChart"></canvas></div>
       </div>
       <div class="steer" id="steerBox">
@@ -759,6 +759,16 @@ let BASELINE={};   // system-resolved metric zero-points (from the run baseline)
 
 // ---------- i18n (EN default · UK · RU) ----------
 const I18N={en:{
+ "sym.legend":"Co-Evolution Arena","sym.legendSub":"symmetric — Rival ↔ Rival",
+ "sym.raEngine":"Rival A — engine","sym.raEngineHint":"Writes artifact A. claude/codex (must write to cwd).",
+ "sym.rbEngine":"Rival B — engine","sym.rbEngineHint":"Writes artifact B. Mix providers for uncorrelated blind spots.",
+ "sym.raGoal":"Rival A — goal","sym.rbGoal":"Rival B — goal",
+ "sym.referee":"Referee","sym.refereeHint":"Deterministic vetted match engine — the trust anchor (never an LLM).",
+ "sym.generations":"Generations","sym.generationsHint":"Max alternating A↔B generations.",
+ "arena.curve":"Stable progress — A vs B (each vs a fixed validation set)",
+ "arena.notRun":"Not run yet — press ▶ Run to start the co-evolution.",
+ "arena.aChamps":"A champions","arena.bChamps":"B champions","arena.aStable":"A stable","arena.bStable":"B stable",
+ "arena.gen":"generation","arena.stop":"stop","arena.deliv":"deliverables","arena.ref":"referee",
  "nav.toggle":"Toggle sidebar","help.btn":"❔ How it works",
  "help.title":"What this is","help.p":"Two agents compete over one project: the <b>Executor</b> improves the artifact, and scoring (deterministic code + optional <b>Validator</b>) decides if it got better. The loop keeps only improvements.",
  "help.s1":"<b>＋ New project</b> → describe the task and 🪄 generate, or fill the form → <b>Create</b>.","help.s2":"<b>▶ Run</b> drives the real agents; the quality curve and log update live.","help.s3":"<b>Live command</b> steers the agent without stopping; <b>Stop</b> — at the iteration boundary.",
@@ -779,6 +789,16 @@ const I18N={en:{
  "side.statusPrefix":"status: ","mc.max":"▲ max","mc.min":"▼ min","mc.target":"target","mc.weight":"weight","mc.reached":"✓ reached","mc.plotTip":"Click to chart this metric over the run","prog.curveHint":"Click the score or a metric to switch what the chart shows","sum.error":"error: ","sum.result":"result: ","sum.iters":" · iterations: ","sum.baselineMeetsTarget":"⚠ objective mis-specified — the start already meets the target; nothing to optimize. Check the target/metrics (and that the eval scores your code).","tab.lockHint":"Pick or create a project first","pk.empty":"empty or no access"
 }};
 I18N.uk={
+ "sym.legend":"Co-Evolution Arena","sym.legendSub":"симетричний — Суперник ↔ Суперник",
+ "sym.raEngine":"Суперник A — рушій","sym.raEngineHint":"Пише артефакт A. claude/codex (мусить писати в cwd).",
+ "sym.rbEngine":"Суперник B — рушій","sym.rbEngineHint":"Пише артефакт B. Мішай провайдерів — некорельовані сліпі зони.",
+ "sym.raGoal":"Суперник A — мета","sym.rbGoal":"Суперник B — мета",
+ "sym.referee":"Суддя (referee)","sym.refereeHint":"Детермінований перевірений рушій матчу — якір довіри (ніколи не LLM).",
+ "sym.generations":"Поколінь","sym.generationsHint":"Макс. чергувань поколінь A↔B.",
+ "arena.curve":"Стабільний прогрес — A проти B (кожен проти фіксованого набору)",
+ "arena.notRun":"Ще не запускали — натисни ▶ Run, щоб почати co-evolution.",
+ "arena.aChamps":"Чемпіони A","arena.bChamps":"Чемпіони B","arena.aStable":"A стабільний","arena.bStable":"B стабільний",
+ "arena.gen":"покоління","arena.stop":"стоп","arena.deliv":"результат","arena.ref":"суддя",
  "nav.toggle":"Сховати / показати ліву панель","help.btn":"❔ Як це працює",
  "help.title":"Що це","help.p":"Два агенти змагаються над одним проєктом: <b>Виконавець</b> покращує артефакт, а оцінка (детермінований код + опційний <b>Валідатор</b>) каже, чи стало краще. Цикл тримає лише покращення.",
  "help.s1":"<b>＋ Новий проєкт</b> → опиши завдання й 🪄 згенеруй, або заповни форму → <b>Створити</b>.","help.s2":"<b>▶ Run</b> запускає реальних агентів; крива якості й лог оновлюються наживо.","help.s3":"<b>Команда наживо</b> керує агентом без зупинки; <b>Stop</b> — на межі ітерації.",
@@ -799,6 +819,16 @@ I18N.uk={
  "side.statusPrefix":"статус: ","mc.max":"▲ макс","mc.min":"▼ мін","mc.target":"ціль","mc.weight":"вага","mc.reached":"✓ досягнуто","mc.plotTip":"Клікни, щоб побудувати графік цієї метрики за прогін","prog.curveHint":"Клікни на балі або на метриці, щоб змінити, що показує графік","sum.error":"помилка: ","sum.result":"результат: ","sum.iters":" · ітерацій: ","sum.baselineMeetsTarget":"⚠ ціль задано хибно — старт уже досягає цілі; нічого оптимізувати. Перевір ціль/метрики (і що оцінка рахує саме твій код).","tab.lockHint":"Спершу обери або створи проєкт","pk.empty":"порожньо або немає доступу"
 };
 I18N.ru={
+ "sym.legend":"Co-Evolution Arena","sym.legendSub":"симметричный — Соперник ↔ Соперник",
+ "sym.raEngine":"Соперник A — движок","sym.raEngineHint":"Пишет артефакт A. claude/codex (должен писать в cwd).",
+ "sym.rbEngine":"Соперник B — движок","sym.rbEngineHint":"Пишет артефакт B. Мешай провайдеров — некоррелированные слепые зоны.",
+ "sym.raGoal":"Соперник A — цель","sym.rbGoal":"Соперник B — цель",
+ "sym.referee":"Судья (referee)","sym.refereeHint":"Детерминированный проверенный движок матча — якорь доверия (никогда не LLM).",
+ "sym.generations":"Поколений","sym.generationsHint":"Макс. чередований поколений A↔B.",
+ "arena.curve":"Стабильный прогресс — A против B (каждый против фиксированного набора)",
+ "arena.notRun":"Ещё не запускали — нажми ▶ Run, чтобы начать co-evolution.",
+ "arena.aChamps":"Чемпионы A","arena.bChamps":"Чемпионы B","arena.aStable":"A стабильный","arena.bStable":"B стабильный",
+ "arena.gen":"поколение","arena.stop":"стоп","arena.deliv":"результат","arena.ref":"судья",
  "nav.toggle":"Скрыть / показать левую панель","help.btn":"❔ Как это работает",
  "help.title":"Что это","help.p":"Два агента соревнуются над одним проектом: <b>Исполнитель</b> улучшает артефакт, а оценка (детерминированный код + опциональный <b>Валидатор</b>) решает, стало ли лучше. Цикл оставляет только улучшения.",
  "help.s1":"<b>＋ Новый проект</b> → опиши задачу и 🪄 сгенерируй, или заполни форму → <b>Создать</b>.","help.s2":"<b>▶ Run</b> запускает реальных агентов; кривая качества и лог обновляются вживую.","help.s3":"<b>Команда вживую</b> направляет агента без остановки; <b>Stop</b> — на границе итерации.",
@@ -1186,11 +1216,11 @@ function showArenaMode(on){IS_SYM=on;
 function _acard(v,l){return `<div style="flex:1;min-width:96px;background:var(--field);border:1px solid var(--line);border-radius:10px;padding:10px 12px"><div style="font-size:22px;font-weight:700;color:var(--cold)">${v}</div><div class="kpi-lbl">${l}</div></div>`;}
 function _afmt(x){return (x==null)?'—':(+x).toFixed(2);}
 function renderArena(m){const tg=$('tag');
-  if(!m){tg.className='tag idle';tg.textContent='idle';$('arenaSummary').textContent='Not run yet — press ▶ Run to start the co-evolution.';$('arenaCards').innerHTML='';return;}
+  if(!m){tg.className='tag idle';tg.textContent='idle';$('arenaSummary').textContent=t('arena.notRun');$('arenaCards').innerHTML='';return;}
   const fin=m.status==='finished';tg.className='tag '+(fin?'finished':'running');tg.textContent=fin?'finished':'running';
-  $('arenaSummary').innerHTML=`generation <b>${m.generation}</b>/${m.generations} · stop: <b>${m.stop_reason||'—'}</b> · deliverables: best-A <b>#${m.best_a_id??'—'}</b>, best-B <b>#${m.best_b_id??'—'}</b> · referee: <b>${m.referee}</b>`;
+  $('arenaSummary').innerHTML=`${t('arena.gen')} <b>${m.generation}</b>/${m.generations} · ${t('arena.stop')}: <b>${m.stop_reason||'—'}</b> · ${t('arena.deliv')}: best-A <b>#${m.best_a_id??'—'}</b>, best-B <b>#${m.best_b_id??'—'}</b> · ${t('arena.ref')}: <b>${m.referee}</b>`;
   const A=(m.champions&&m.champions.A)||[],B=(m.champions&&m.champions.B)||[];
-  $('arenaCards').innerHTML=_acard(A.length,'A champions')+_acard(B.length,'B champions')+_acard(_afmt((m.stable_a||[]).slice(-1)[0]),'A stable')+_acard(_afmt((m.stable_b||[]).slice(-1)[0]),'B stable');
+  $('arenaCards').innerHTML=_acard(A.length,t('arena.aChamps'))+_acard(B.length,t('arena.bChamps'))+_acard(_afmt((m.stable_a||[]).slice(-1)[0]),t('arena.aStable'))+_acard(_afmt((m.stable_b||[]).slice(-1)[0]),t('arena.bStable'));
   drawArenaChart(m.stable_a||[],m.stable_b||[]);}
 function drawArenaChart(a,b){if(!window.Chart)return;
   const labels=a.map((_,i)=>i);
