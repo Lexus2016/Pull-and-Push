@@ -482,6 +482,17 @@
       <div class="save-bar"><button class="btn" id="scaffoldBtn" data-i18n="tpl.btn" style="width:auto">🚀 Create runnable project</button>
         <span class="hint" data-i18n="tpl.btnHint">Creates the project with a committed harness and opens it — then press ▶ Run.</span></div>
     </div>
+
+    <div class="card console create-card" style="border-color:#2a4a6a">
+      <h3 data-i18n="arena.demoTitle">🥊 Co-Evolution Arena — try it (offline)</h3>
+      <p class="desc" data-i18n="arena.demoDesc">The <b>symmetric</b> mode: two AIs co-evolve and compete — one learns to recognize a hidden pattern, the other hunts for inputs that fool it, judged by a deterministic referee (never an LLM). This demo runs fully <b>offline</b> (no API key) on a toy whose answer is known, so you can watch the arena converge live on the dual curve. Just name it and press the button.</p>
+      <div class="grid">
+        <div class="field"><label data-i18n="arena.demoName">Project name</label><input id="ad_name" placeholder="arena-demo">
+          <div class="hint" data-i18n="arena.demoNameHint">Letters/digits/._- — becomes a folder; rename later.</div></div>
+      </div>
+      <div class="save-bar"><button class="btn" id="arenaDemoBtn" data-i18n="arena.demoBtn" style="width:auto">🥊 Create &amp; watch it converge</button>
+        <span class="hint" data-i18n="arena.demoBtnHint">Builds a ready arena project and opens it — then press ▶ Run (no API key needed).</span></div>
+    </div>
     <div class="card console create-card" style="border-color:#5a4a1f">
       <h3 data-i18n="imp.title">🔧 Improve my existing bot</h3>
       <p class="desc" data-i18n="imp.desc">Already have a trading bot? Point at it and its data — we analyze it, propose how to score it, wrap it so it speaks our protocol, prove the wrapper, then create a project that optimizes YOUR bot on held-out data. Steps run in order; defaults are filled in.</p>
@@ -769,6 +780,11 @@ const I18N={en:{
  "arena.notRun":"Not run yet — press ▶ Run to start the co-evolution.",
  "arena.aChamps":"A champions","arena.bChamps":"B champions","arena.aStable":"A stable","arena.bStable":"B stable",
  "arena.gen":"generation","arena.stop":"stop","arena.deliv":"deliverables","arena.ref":"referee",
+ "arena.demoTitle":"🥊 Co-Evolution Arena — try it (offline)",
+ "arena.demoDesc":"The <b>symmetric</b> mode: two AIs co-evolve and compete — one learns to recognize a hidden pattern, the other hunts for inputs that fool it, judged by a deterministic referee (never an LLM). This demo runs fully <b>offline</b> (no API key) on a toy whose answer is known, so you can watch the arena converge live on the dual curve. Just name it and press the button.",
+ "arena.demoName":"Project name","arena.demoNameHint":"Letters/digits/._- — becomes a folder; rename later.",
+ "arena.demoBtn":"🥊 Create & watch it converge","arena.demoBtnHint":"Builds a ready arena project and opens it — then press ▶ Run (no API key needed).",
+ "arena.starting":"starting the co-evolution…",
  "nav.toggle":"Toggle sidebar","help.btn":"❔ How it works",
  "help.title":"What this is","help.p":"Two agents compete over one project: the <b>Executor</b> improves the artifact, and scoring (deterministic code + optional <b>Validator</b>) decides if it got better. The loop keeps only improvements.",
  "help.s1":"<b>＋ New project</b> → describe the task and 🪄 generate, or fill the form → <b>Create</b>.","help.s2":"<b>▶ Run</b> drives the real agents; the quality curve and log update live.","help.s3":"<b>Live command</b> steers the agent without stopping; <b>Stop</b> — at the iteration boundary.",
@@ -799,6 +815,11 @@ I18N.uk={
  "arena.notRun":"Ще не запускали — натисни ▶ Run, щоб почати co-evolution.",
  "arena.aChamps":"Чемпіони A","arena.bChamps":"Чемпіони B","arena.aStable":"A стабільний","arena.bStable":"B стабільний",
  "arena.gen":"покоління","arena.stop":"стоп","arena.deliv":"результат","arena.ref":"суддя",
+ "arena.demoTitle":"🥊 Co-Evolution Arena — спробуй (офлайн)",
+ "arena.demoDesc":"<b>Симетричний</b> режим: два ШІ co-evolve і змагаються — один вчиться впізнавати прихований патерн, інший шукає входи, що його дурять; судить детермінований referee (ніколи не LLM). Це демо працює повністю <b>офлайн</b> (без API-ключа) на іграшці з відомою відповіддю, тож можна наживо побачити, як арена збігається на парній кривій. Просто назви й натисни кнопку.",
+ "arena.demoName":"Назва проєкту","arena.demoNameHint":"Літери/цифри/._- — стає текою; перейменувати можна пізніше.",
+ "arena.demoBtn":"🥊 Створити й дивитись збіжність","arena.demoBtnHint":"Будує готовий arena-проєкт і відкриває його — далі ▶ Run (ключ не потрібен).",
+ "arena.starting":"запускаю co-evolution…",
  "nav.toggle":"Сховати / показати ліву панель","help.btn":"❔ Як це працює",
  "help.title":"Що це","help.p":"Два агенти змагаються над одним проєктом: <b>Виконавець</b> покращує артефакт, а оцінка (детермінований код + опційний <b>Валідатор</b>) каже, чи стало краще. Цикл тримає лише покращення.",
  "help.s1":"<b>＋ Новий проєкт</b> → опиши завдання й 🪄 згенеруй, або заповни форму → <b>Створити</b>.","help.s2":"<b>▶ Run</b> запускає реальних агентів; крива якості й лог оновлюються наживо.","help.s3":"<b>Команда наживо</b> керує агентом без зупинки; <b>Stop</b> — на межі ітерації.",
@@ -829,6 +850,11 @@ I18N.ru={
  "arena.notRun":"Ещё не запускали — нажми ▶ Run, чтобы начать co-evolution.",
  "arena.aChamps":"Чемпионы A","arena.bChamps":"Чемпионы B","arena.aStable":"A стабильный","arena.bStable":"B стабильный",
  "arena.gen":"поколение","arena.stop":"стоп","arena.deliv":"результат","arena.ref":"судья",
+ "arena.demoTitle":"🥊 Co-Evolution Arena — попробуй (офлайн)",
+ "arena.demoDesc":"<b>Симметричный</b> режим: два ИИ co-evolve и соревнуются — один учится распознавать скрытый паттерн, другой ищет входы, которые его обманывают; судит детерминированный referee (никогда не LLM). Это демо работает полностью <b>офлайн</b> (без API-ключа) на игрушке с известным ответом, так что можно вживую увидеть, как арена сходится на парной кривой. Просто назови и нажми кнопку.",
+ "arena.demoName":"Название проекта","arena.demoNameHint":"Буквы/цифры/._- — становится папкой; переименовать можно позже.",
+ "arena.demoBtn":"🥊 Создать и смотреть сходимость","arena.demoBtnHint":"Строит готовый arena-проект и открывает его — далее ▶ Run (ключ не нужен).",
+ "arena.starting":"запускаю co-evolution…",
  "nav.toggle":"Скрыть / показать левую панель","help.btn":"❔ Как это работает",
  "help.title":"Что это","help.p":"Два агента соревнуются над одним проектом: <b>Исполнитель</b> улучшает артефакт, а оценка (детерминированный код + опциональный <b>Валидатор</b>) решает, стало ли лучше. Цикл оставляет только улучшения.",
  "help.s1":"<b>＋ Новый проект</b> → опиши задачу и 🪄 сгенерируй, или заполни форму → <b>Создать</b>.","help.s2":"<b>▶ Run</b> запускает реальных агентов; кривая качества и лог обновляются вживую.","help.s3":"<b>Команда вживую</b> направляет агента без остановки; <b>Stop</b> — на границе итерации.",
@@ -1231,10 +1257,21 @@ function drawArenaChart(a,b){if(!window.Chart)return;
   arenaChart=new Chart($('arenaChart'),{type:'line',data,options:{responsive:true,maintainAspectRatio:false,
     scales:{y:{min:0,max:1,grid:{color:'rgba(124,166,206,.12)'},ticks:{color:'#75899e'}},x:{grid:{color:'rgba(124,166,206,.06)'},ticks:{color:'#75899e'}}},
     plugins:{legend:{display:true,labels:{color:'#9fb3c8'}}}}});}
-async function refreshArena(name){
+async function refreshArena(name,started){
   let d=null;try{d=await(await fetch(api('/api/projects/'+name+'/arena'))).json();}catch(e){return;}
-  const m=d&&d.manifest;renderArena(m);
-  if(m&&m.status!=='finished'&&current===name)setTimeout(()=>{if(current===name)refreshArena(name);},1500);}
+  const m=d&&d.manifest;
+  if(m){renderArena(m);}
+  else{
+    // no manifest yet — the run thread may be starting (it writes arena.json after bootstrap)
+    let live={};try{live=await(await fetch(api('/api/projects/'+name+'/live'))).json();}catch(e){}
+    if(live.status==='error'){const tg=$('tag');tg.className='tag error';tg.textContent='error';
+      $('arenaSummary').textContent=(live.summary&&live.summary.error)||'run failed';return;}
+    if(!started&&live.status!=='running'){renderArena(null);return;}   // genuinely not run yet
+    const tg=$('tag');tg.className='tag running';tg.textContent='running';
+    $('arenaSummary').textContent=t('arena.starting');
+  }
+  const terminal=m&&(m.status==='finished'||m.status==='stopped');
+  if(!terminal&&current===name)setTimeout(()=>{if(current===name)refreshArena(name,true);},1200);}
 
 function stopPolling(){if(poll){clearInterval(poll);poll=null;}}
 function startPolling(name){if(poll)clearInterval(poll);
@@ -1345,6 +1382,20 @@ $('scaffoldBtn').onclick=async()=>{const name=$('s_name').value.trim(),desc=$('s
     const note=(!tid&&d.template==='custom')?t('toast.scaffoldCustom'):t('toast.scaffolded');
     toast(note,'ok');await loadProjects();await selectProject(name);
   }catch(e){toast(t('err.prefix')+e,'err');}finally{b.disabled=false;b.textContent=old;}};
+$('arenaDemoBtn').onclick=async()=>{const name=($('ad_name').value.trim()||'arena-demo');
+  const b=$('arenaDemoBtn');b.disabled=true;const old=b.textContent;b.textContent=t('tpl.creating');
+  // a ready, OFFLINE Co-Evolution Arena (deterministic scripted rivals — no API key needed)
+  const cfg={project:name,mode:'symmetric',
+    agents:{rival_a:{engine:'scripted'},rival_b:{engine:'scripted'}},
+    roles:{rival_a:{goal:'recognize the hidden language'},rival_b:{goal:'find inputs the recognizer misclassifies'}},
+    evaluation:{adapter:'numeric',command:'x',metrics:[{name:'arena_fitness',dir:'higher',target:1.0,worst:0.0}]},
+    arena:{referee:'cegis-recognizer',generations:12,per_generation_iterations:2,dominance_tau:0.99,dominance_rounds:1},
+    sandbox:{backend:'local'}};
+  try{const r=await fetch(api('/api/projects/create'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)});
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){toast(t('err.prefix')+(d.detail||r.status),'err');return;}
+    $('ad_name').value='';toast(t('toast.created'),'ok');await loadProjects();await selectProject(name);
+  }catch(e){toast(t('err.prefix')+e,'err');}finally{b.disabled=false;b.textContent=old;}};
 $('genBtn').onclick=async()=>{const desc=$('g_desc').value.trim();if(!desc){toast(t('toast.describeFirst'),'err');return;}
   const b=$('genBtn');b.disabled=true;b.textContent=t('gen.generating');
   try{const r=await fetch(api('/api/configure'),{method:'POST',headers:{'Content-Type':'application/json'},
@@ -1445,14 +1496,16 @@ $('cpAcceptBtn').onclick=async()=>{if(!current)return;
 $('runBtn').onclick=async()=>{if(!current)return;
   if(RUN_STATUS==='awaiting_review')return $('cpContinueBtn').onclick();   // at a checkpoint, Run = Continue
   if(RUN_STATUS==='finished'&&!confirm(t('confirm.runFinished')))return;   // finished run → Run CONTINUES it (history kept); inform, never restart
-  if(!localStorage.getItem('tt_run_ack')){
+  // the offline arena demo (scripted rivals) costs nothing → skip the "real agents cost tokens" confirm
+  const offline=IS_SYM&&CFG&&CFG.agents&&((CFG.agents.rival_a||{}).engine==='scripted');
+  if(!offline&&!localStorage.getItem('tt_run_ack')){
     const eng=(CFG&&CFG.agents&&CFG.agents.executor&&CFG.agents.executor.engine)||$('f_ex_engine').value||'CLI';
     if(!confirm(t('confirm.run',eng)))return;
     try{localStorage.setItem('tt_run_ack','1');}catch(e){}
   }
   const r=await fetch(api('/api/projects/'+current+'/run'),{method:'POST'});
   if(!r.ok){const e=await r.json().catch(()=>({}));toast('Run: '+(e.detail||r.status),'err');return;}
-  setStatus('running',null,null);if(IS_SYM)refreshArena(current);else startPolling(current);toast(t('toast.started'),'ok');};
+  setStatus('running',null,null);if(IS_SYM)refreshArena(current,true);else startPolling(current);toast(t('toast.started'),'ok');};
 $('stopBtn').onclick=async()=>{if(current){await fetch(api('/api/projects/'+current+'/stop'),{method:'POST'});toast(t('toast.stopping'),'ok');}};
 $('forceStopBtn').onclick=async()=>{if(!current)return;
   if(!confirm(t('confirm.forceStop')))return;

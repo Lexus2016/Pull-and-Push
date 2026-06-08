@@ -62,9 +62,13 @@ def _seed_artifact(state: StateStore, cfg: Config) -> None:
 
 def _build_rivals(cfg):
     """Construct the two rival executor adapters (claude/codex in prod). Module-level seam so
-    tests can monkeypatch in deterministic scripted rivals."""
+    tests can monkeypatch in deterministic scripted rivals. The ``scripted`` engine selects the
+    offline CEGIS rivals (the zero-config Co-Evolution Arena demo)."""
     a = cfg.agents["rival_a"]
     b = cfg.agents["rival_b"]
+    if "scripted" in (a.engine, b.engine):
+        from .agents.scripted_rival import ScriptedAdversaryRival, ScriptedRecognizerRival
+        return (ScriptedRecognizerRival(), ScriptedAdversaryRival())
     return (build_adapter(a.engine, a.model, "writeable"),
             build_adapter(b.engine, b.model, "writeable"))
 
