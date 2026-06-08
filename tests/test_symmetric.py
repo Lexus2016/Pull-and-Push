@@ -143,3 +143,21 @@ def test_symmetric_run_respects_external_stop(tmp_path):
     assert o2._resuming is True
     r2 = o2.run()                                  # resume → now runs to a real terminal
     assert r2.stop_reason in ("dominance", "plateau", "max_generations")
+
+
+def test_symmetric_budget_cap_stops_run(tmp_path):
+    cfg = Config(project="toy", mode="symmetric",
+                 agents={"rival_a": {"engine": "mock"}, "rival_b": {"engine": "mock"}},
+                 roles={"rival_a": {"goal": "r"}, "rival_b": {"goal": "f"}},
+                 evaluation={"adapter": "numeric", "command": "x",
+                             "metrics": [{"name": "arena_fitness", "dir": "higher",
+                                          "target": 1.0, "worst": 0.0}]},
+                 # dominance impossible (>1.0) and plateau far off → the BUDGET must be what stops it
+                 arena={"referee": "cegis-recognizer", "generations": 20, "dominance_tau": 1.01,
+                        "plateau_generations": 50, "per_generation_iterations": 3},
+                 limits={"budget_usd": 1e-9, "usd_per_mtok": 1e9})
+    o = SymmetricOrchestrator(cfg=cfg, root=tmp_path, referee=CegisReferee(),
+                              executor_a=ScriptedRecognizerRival(),
+                              executor_b=ScriptedAdversaryRival(), sandbox=LocalBackend())
+    r = o.run()
+    assert r.stop_reason == "budget"
