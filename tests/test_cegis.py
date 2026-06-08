@@ -76,3 +76,27 @@ def test_cegis_play_broken_recognizer_loses_but_teaches(tmp_path):
     assert out.a_score == 0.0
     labels = {c["s"]: c["label"] for c in out.detail["counterexamples"]}
     assert labels == {"ab": True, "ba": False}
+
+
+def test_cegis_referee_does_not_leak_probes_into_artifact_dir(tmp_path):
+    """INTEGRITY: side A's untrusted code must NOT be able to read the opponent's probe set.
+    A 'cheating' recognizer that returns the oracle answer IF it can read the probes from disk
+    must fail (the probes are fed via stdin and consumed before A is imported)."""
+    a = tmp_path / "a"
+    b = tmp_path / "b"
+    _write(a, "recognizer.py",
+           "import os, json\n"
+           "def accepts(s):\n"
+           "    # try to cheat: read the opponent's probe file / answer key from the cwd\n"
+           "    for name in os.listdir('.'):\n"
+           "        if 'probe' in name.lower():\n"
+           "            return True   # would game the match if the answer key were on disk\n"
+           "    return 'zzz' in s     # honest (wrong-for-L) fallback when it can't cheat\n")
+    _write(b, "strings.txt", "ab\nba\naab\nb\n")
+    out = CegisReferee().play(a, b, LocalBackend(), seed=0)
+    # the cheater could NOT read the probes → it used the wrong fallback ('zzz'), scoring 0
+    # (everything classified False; only ∉L strings 'ba','b' are correct → 2/4)
+    assert out.a_score == pytest.approx(2 / 4)
+    # and no probe file was ever written into A's artifact dir
+    assert not (a / "_arena_probes.json").exists()
+    assert not (a / "_arena_runner.py").exists()   # runner cleaned up too

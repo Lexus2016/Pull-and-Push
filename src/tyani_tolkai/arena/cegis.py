@@ -83,26 +83,28 @@ class CegisReferee:
             # no probes ⇒ B exerts no pressure; A trivially "wins" the empty match
             return MatchOutcome.zero_sum(1.0, {"counterexamples": [], "n": 0})
 
+        # INTEGRITY: feed the probes via STDIN and consume them BEFORE importing the recognizer,
+        # so side A's (untrusted) code can never read the opponent's test set — nothing is written
+        # into A's artifact dir, and the runner drains stdin before A's module-level code runs.
+        # A's `accepts` only ever sees one string at a time. (Referee = the trust anchor.)
         runner = (
             "import json, sys\n"
+            "probes = json.load(sys.stdin)\n"          # drain stdin first — A can't grab it later
             "sys.path.insert(0, '.')\n"
             "import recognizer\n"
-            "with open('_arena_probes.json', encoding='utf-8') as f:\n"
-            "    probes = json.load(f)\n"
             "print(json.dumps([bool(recognizer.accepts(s)) for s in probes]))\n"
         )
         (a_dir / "_arena_runner.py").write_text(runner, encoding="utf-8")
-        (a_dir / "_arena_probes.json").write_text(json.dumps(probes), encoding="utf-8")
         py = str(getattr(sandbox, "python", sys.executable)).replace("\\", "/")
         res = None
         try:
-            res = sandbox.run(f"{py} _arena_runner.py", cwd=a_dir, timeout=60)
+            res = sandbox.run(f"{py} _arena_runner.py", cwd=a_dir, timeout=60,
+                              input=json.dumps(probes))
             verdicts = json.loads(res.stdout) if res.exit_code == 0 else None
         except (json.JSONDecodeError, TypeError, ValueError):
             verdicts = None
         finally:
             (a_dir / "_arena_runner.py").unlink(missing_ok=True)
-            (a_dir / "_arena_probes.json").unlink(missing_ok=True)
 
         if verdicts is None or len(verdicts) != len(probes):
             # A's recognizer crashed / produced garbage → B wins this match, but still hand A the

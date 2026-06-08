@@ -25,7 +25,7 @@ class ExecResult:
 
 class SandboxBackend(Protocol):
     def run(self, cmd: str, cwd: str | Path, timeout: int,
-            env: dict | None = None) -> ExecResult: ...
+            env: dict | None = None, input: str | None = None) -> ExecResult: ...
 
 
 class LocalBackend:
@@ -37,7 +37,7 @@ class LocalBackend:
     python = sys.executable.replace("\\", "/")
 
     def run(self, cmd: str, cwd: str | Path, timeout: int,
-            env: dict | None = None) -> ExecResult:
+            env: dict | None = None, input: str | None = None) -> ExecResult:
         import os
         # never write .pyc — stale bytecode in the reused artifact dir would make
         # the metric read an old version of the code (silent, nasty bug)
@@ -52,6 +52,7 @@ class LocalBackend:
                 capture_output=True,
                 text=True,
                 env=full_env,
+                input=input,          # stdin (e.g. the referee feeds probes here, off-disk)
             )
             return ExecResult(proc.returncode, proc.stdout, proc.stderr)
         except subprocess.TimeoutExpired as e:
@@ -78,12 +79,14 @@ class DockerBackend:
         self.cpus = cpus
 
     def run(self, cmd: str, cwd: str | Path, timeout: int,
-            env: dict | None = None) -> ExecResult:
+            env: dict | None = None, input: str | None = None) -> ExecResult:
         cwd = Path(cwd).resolve()
         project = cwd.parent  # artifact's parent (project dir) holds metrics/ harness too
         argv = ["docker", "run", "--rm", "--network", self.network,
                 "-v", f"{project}:{project}:ro", "-w", str(cwd),
                 "-e", "PYTHONDONTWRITEBYTECODE=1"]
+        if input is not None:
+            argv.append("-i")            # keep stdin open so the container can read it
         for k, v in (env or {}).items():
             argv += ["-e", f"{k}={v}"]
         if self.memory:
@@ -92,7 +95,7 @@ class DockerBackend:
             argv += ["--cpus", str(self.cpus)]
         argv += [self.image, "sh", "-c", cmd]
         try:
-            proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+            proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, input=input)
             return ExecResult(proc.returncode, proc.stdout, proc.stderr)
         except subprocess.TimeoutExpired as e:
             return ExecResult(124, e.stdout or "", (e.stderr or "") + "\n[timeout]", timed_out=True)

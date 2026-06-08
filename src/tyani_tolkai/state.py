@@ -258,6 +258,25 @@ class StateStore:
             (run_id,)).fetchall()
         return {(r["a_champion_id"], r["b_champion_id"]): r["a_score"] for r in rows}
 
+    def drop_generations_after(self, run_id: int, generation: int) -> int:
+        """Delete champions (and their matches) with generation > N. Used on RESUME to discard a
+        partially-played generation (e.g. crash after A was crowned but before B) so re-running it
+        cannot create duplicate champions for the same generation. Returns how many were removed."""
+        cur = self.conn.cursor()
+        try:
+            ids = [r["id"] for r in cur.execute(
+                "SELECT id FROM champion WHERE run_id=? AND generation>?", (run_id, generation)).fetchall()]
+            if ids:
+                qs = ",".join("?" * len(ids))
+                cur.execute(
+                    f"DELETE FROM match WHERE run_id=? AND (a_champion_id IN ({qs}) OR b_champion_id IN ({qs}))",
+                    (run_id, *ids, *ids))
+                cur.execute("DELETE FROM champion WHERE run_id=? AND generation>?", (run_id, generation))
+            self.conn.commit()
+            return len(ids)
+        finally:
+            cur.close()
+
     def export_tree(self, git_hash: str, dest_dir: str | Path) -> Path:
         """Materialize a champion commit's file tree into ``dest_dir`` (created if missing).
 

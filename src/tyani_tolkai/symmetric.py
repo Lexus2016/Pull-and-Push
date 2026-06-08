@@ -128,6 +128,7 @@ class SymmetricOrchestrator:
         self._plateau = 0
         self._extern_stop = None                         # UI Stop hook (set in run())
         self._active_orch = None                         # current sub-loop (for Force-Stop)
+        self._spent = 0.0                                # cost of THIS run's completed sub-loops
         self._apply_resume()                             # restore curves/counters if resuming
 
     # ---- small helpers ----
@@ -296,6 +297,12 @@ class SymmetricOrchestrator:
         pool = self._opponent_pool_dirs(side)
         if not pool:
             return None
+        latest = self._latest_champ(side)
+        if latest:
+            # seed from the OFFICIAL champion, not whatever HEAD the last sub-loop left (which may be
+            # a candidate the promotion gate rejected) — else a gated-out artifact compounds across
+            # generations (cross-AI review proposal).
+            state.reset_hard(latest["git_hash"])
         self._materialize_context(side, state.artifact_dir, pool)
         adapter = ArenaMetricAdapter(self.referee, side, pool, aggregate=self.arena.aggregate,
                                      min_floor=self.arena.min_floor, penalty=self.arena.penalty, seed=0)
@@ -304,6 +311,9 @@ class SymmetricOrchestrator:
                             adapter, self.sandbox)
         self._active_orch = orch                         # so Force-Stop can reach the live agent
         orch.run_loop(should_stop=self._should_stop)
+        self._spent += float(getattr(orch, "cost_total", 0.0) or 0.0)   # scoped budget (this run only)
+        self.ledger.update_run(self.parent_run, cost_total=self._spent)
+        self._active_orch = None
         return state.head()
 
     def _should_stop(self) -> bool:
@@ -337,14 +347,14 @@ class SymmetricOrchestrator:
             self._crown(side, generation, head)
 
     def _budget_exhausted(self):
+        """Budget scoped to THIS run only (cross-AI review catch): cumulative cost of completed
+        sub-loops + the live cost of the currently-running one — NOT a SUM over the whole DB
+        history (which leaked prior runs' cost and stopped a fresh run prematurely)."""
         cap = self.cfg.limits.budget_usd
         if not cap:
             return False
-        total = 0.0
-        for st in (self.state_a, self.state_b):
-            rows = st.conn.execute("SELECT COALESCE(SUM(cost_total),0) AS c FROM run").fetchone()
-            total += rows["c"] or 0.0
-        return total >= cap
+        live = float(getattr(self._active_orch, "cost_total", 0.0) or 0.0) if self._active_orch else 0.0
+        return (self._spent + live) >= cap
 
     def _stop(self, generation):
         a = self.ledger.champions(self.parent_run, side="A")
@@ -406,6 +416,8 @@ class SymmetricOrchestrator:
         self._dom_streak = int(m.get("dom_streak", 0))
         self._best_stable_a = float(m.get("best_stable_a", -1.0))
         self._plateau = int(m.get("plateau", 0))
+        row = self.ledger.get_run(self.parent_run)       # restore cumulative spend (scoped to this run)
+        self._spent = float((row["cost_total"] if row is not None else 0.0) or 0.0)
 
     def _save_manifest(self, status: str, stop_reason=None) -> None:
         a = self.ledger.champions(self.parent_run, side="A")
@@ -453,6 +465,11 @@ class SymmetricOrchestrator:
             self._bootstrap()
             self._completed_gen = 0
             self._save_manifest(status="running")
+        else:
+            # discard champions/matches from a generation that was only PARTIALLY played before the
+            # crash (e.g. A crowned, B not), so re-running it cannot create duplicate champions for
+            # the same generation (cross-AI review catch).
+            self.ledger.drop_generations_after(self.parent_run, self._completed_gen)
         reason = "max_generations"
         last_gen = self._completed_gen
         for generation in range(self._completed_gen + 1, self.arena.generations + 1):

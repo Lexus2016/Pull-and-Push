@@ -161,3 +161,48 @@ def test_symmetric_budget_cap_stops_run(tmp_path):
                               executor_b=ScriptedAdversaryRival(), sandbox=LocalBackend())
     r = o.run()
     assert r.stop_reason == "budget"
+
+
+def test_resume_drops_partial_generation_no_duplicate_champions(tmp_path):
+    o1 = SymmetricOrchestrator(cfg=_toy_cfg(generations=4), root=tmp_path, referee=CegisReferee(),
+                               executor_a=ScriptedRecognizerRival(),
+                               executor_b=ScriptedAdversaryRival(), sandbox=LocalBackend())
+    o1.run()
+    champs_before = o1.ledger.champions(o1.parent_run, side="A")
+    last_gen = max(c["generation"] for c in champs_before)
+
+    # simulate a crash that left a PARTIAL extra champion at the last generation + an unfinished
+    # manifest pointing one generation back (so resume re-plays the partial generation)
+    o1.ledger.add_champion(o1.parent_run, "A", last_gen, "deadbeef", stable_score=0.0)
+    man = tmp_path / "arena.json"
+    m = _json.loads(man.read_text())
+    m["status"] = "running"
+    m["generation"] = last_gen - 1
+    man.write_text(_json.dumps(m))
+
+    o2 = SymmetricOrchestrator(cfg=_toy_cfg(generations=4), root=tmp_path, referee=CegisReferee(),
+                               executor_a=ScriptedRecognizerRival(),
+                               executor_b=ScriptedAdversaryRival(), sandbox=LocalBackend())
+    assert o2._resuming is True
+    o2.run()
+
+    # after resume: at most ONE champion per (side, generation) — the partial dup was dropped
+    for side in ("A", "B"):
+        seen = [c["generation"] for c in o2.ledger.champions(o2.parent_run, side=side)]
+        assert len(seen) == len(set(seen)), f"duplicate champion generation on side {side}: {seen}"
+
+
+def test_budget_is_scoped_to_this_run_not_whole_db(tmp_path):
+    # prior unrelated cost sitting in the side DB must NOT count against this run's budget
+    o = SymmetricOrchestrator(cfg=_toy_cfg(generations=4), root=tmp_path, referee=CegisReferee(),
+                              executor_a=ScriptedRecognizerRival(),
+                              executor_b=ScriptedAdversaryRival(), sandbox=LocalBackend())
+    # inject a big "previous run" cost into a side DB (the old global SUM would trip on this)
+    o.state_a.conn.execute(
+        "INSERT INTO run (status, mode, cost_total, created_ts) VALUES ('finished','symmetric',999.0,'t')")
+    o.state_a.conn.commit()
+    # give it a budget that the injected 999 would blow, but this run's real cost (mock=0) won't
+    o.cfg.limits.budget_usd = 10.0
+    r = o.run()
+    assert r.stop_reason != "budget"            # scoped budget ignores the unrelated 999
+    assert r.stop_reason in ("dominance", "plateau", "max_generations")
