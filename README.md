@@ -43,6 +43,11 @@ lives *outside* it, so the AI can't peek at the answer key or mark its own homew
 loop is plain: **edit → grade → keep if better → get feedback → repeat**, until the score
 hits your target or stops improving. The best version is what you take away.
 
+That is the default **asymmetric** mode (one artifact, a fixed objective). There is also a
+**symmetric** mode — the **Co-Evolution Arena** — where *two* AIs co-evolve *two* competing
+artifacts and a deterministic referee decides who wins each round. See
+[Co-Evolution Arena](#co-evolution-arena-symmetric--rival--rival) below.
+
 ## Screenshots
 
 | Live control & progress | Activity feed (newest-first) |
@@ -79,6 +84,10 @@ Karpathy's `autoresearch`, and the `consilium` adapter pattern.
 - **Walk-forward scoring (no overfitting).** Where it matters — like the trading template —
   the grader measures on data the AI never tuned on, and shows the in-sample↔out-of-sample
   gap. That's the line between a result that holds up and one that only looked good on paper.
+- **Two modes.** *Asymmetric* (above): one artifact vs a fixed objective. *Symmetric* — the
+  [Co-Evolution Arena](#co-evolution-arena-symmetric--rival--rival): two artifacts co-evolve,
+  judged by a deterministic referee, with a champion archive + match matrix. Same deterministic-
+  judge principle; the referee is the trust anchor.
 
 - **Design spec:** `docs/superpowers/specs/2026-06-03-tyani-tolkai-design.md`
 - **Plan:** `docs/superpowers/plans/2026-06-03-tyani-tolkai-core-mvp.md`
@@ -316,6 +325,43 @@ A thin orchestrator alternates generations, keeps a champion archive, tracks a m
 stops on dominance / equilibrium / budget. Design + convergence proof:
 [`docs/design/p6-coevolution-arena.md`](docs/design/p6-coevolution-arena.md).
 
+```mermaid
+flowchart LR
+    subgraph gen["one generation (repeats)"]
+        FB["❄ freeze B<br/>(+ champion archive)"] --> OA["🛠 optimize A<br/>vs frozen B"]
+        OA --> R1["⚖ referee<br/>(deterministic)"]
+        R1 --> CA["🏆 crown A champion<br/>(if no archive regression)"]
+        CA --> FA["❄ freeze A"] --> OB["🛠 optimize B<br/>vs frozen A"]
+        OB --> R2["⚖ referee"] --> CB["🏆 crown B champion"]
+    end
+    CB --> M["📊 match matrix<br/>every A-champ × B-champ"]
+    M --> ST{"dominance /<br/>equilibrium /<br/>budget?"}
+    ST -- no --> FB
+    ST -- yes --> D["📦 deliver<br/>best-A-vs-all-B<br/>best-B-vs-all-A"]
+```
+
+How it differs from the asymmetric loop, in plain terms:
+
+- **The judge is a referee, not a fixed scorer.** It runs A's artifact against B's (in the
+  sandbox) and emits an objective outcome. It is the **trust anchor** — deterministic, vetted,
+  never an LLM, and neither side grades itself.
+- **Inner loop reused, unchanged.** "Optimize A against a frozen B" is just the asymmetric loop
+  with the referee wrapped as its metric — so all the Phase-1 machinery (git keep-if-better, the
+  brief, resume) carries over. Symmetric mode is a thin layer on top.
+- **Champion archive + match matrix.** Each side keeps a hall-of-fame; a new champion is crowned
+  only if it doesn't regress against the *whole* opposing archive (the guard against
+  rock-paper-scissors cycling). The arena's *true* standings come from the match matrix, not the
+  inner score.
+- **Two signals.** The curve you watch is the **stable** signal (each side vs a fixed validation
+  set) — honest progress. The internal "beat the current opponent" signal is non-stationary and
+  never plotted.
+- **Winning is a stop rule, not the product.** The deliverables are the most *robust* champions:
+  best-A-vs-all-B and best-B-vs-all-A.
+
+The shipped referee (`cegis-recognizer`) is a **toy with a checkable fixpoint** that *proves the
+machinery converges* (it does not merely cycle) before any real domain — that proof runs in CI on
+deterministic stand-in rivals, no API needed.
+
 ```yaml
 project: arena-task
 mode: symmetric
@@ -346,11 +392,10 @@ In the **WebUI** pick *Mode → symmetric* in the manual form (rival engines + r
 generations), then watch the live **dual stable-curve** (A vs B), the champion counts, and the
 deliverables (best-A-vs-all-B / best-B-vs-all-A). Stop halts it between generations; it resumes.
 
-The shipped referee (`cegis-recognizer`) is a **toy with a checkable fixpoint** that *proves the
-co-evolution machinery converges* (it does not merely cycle) before any real domain. To take it
-to a real domain, implement the `Referee` protocol (`src/tyani_tolkai/arena/referee.py`) and
-register it — the arena machinery is domain-agnostic. See [`SECURITY.md`](SECURITY.md): the
-referee executes one side's untrusted code, so isolate it (`sandbox.backend: docker`).
+To take it to a **real domain**, implement the `Referee` protocol
+(`src/tyani_tolkai/arena/referee.py`) and register it — the arena machinery is domain-agnostic.
+See [`SECURITY.md`](SECURITY.md): the referee executes one side's untrusted code, so isolate it
+(`sandbox.backend: docker`).
 
 ## Projects
 
