@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import os
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
@@ -108,8 +109,11 @@ class SymmetricOrchestrator:
         self.state_b.git_init()
         self._ignore_arena(self.state_a)
         self._ignore_arena(self.state_b)
-        # the champion + match ledger lives in side_A's DB under one parent run id
-        self.parent_run = self.state_a.create_run("symmetric")
+        # the champion + match ledger + parent run live in the PROJECT-level DB (base/state.db),
+        # so the CLI/web can read a symmetric run's status + result WITHOUT re-running it, and a
+        # resumed run reuses the same parent_run (see _resume_or_create).
+        self.ledger = StateStore(self.root)
+        self.parent_run = self._resume_or_create()
 
         self.stable_a: list = []
         self.stable_b: list = []
@@ -122,6 +126,7 @@ class SymmetricOrchestrator:
         self._dom_streak = 0
         self._best_stable_a = -1.0
         self._plateau = 0
+        self._apply_resume()                             # restore curves/counters if resuming
 
     # ---- small helpers ----
 
@@ -156,7 +161,7 @@ class SymmetricOrchestrator:
         })
 
     def _latest_champ(self, side):
-        champs = self._state(side).champions(self.parent_run, side=side)
+        champs = self.ledger.champions(self.parent_run, side=side)
         return champs[-1] if champs else None
 
     def _materialize_champion(self, side, champ_row):
@@ -166,7 +171,7 @@ class SymmetricOrchestrator:
         return dest
 
     def champion_dir(self, side, champion_id):
-        ch = self._state(side).champion(champion_id)
+        ch = self.ledger.champion(champion_id)
         return self._materialize_champion(side, ch)
 
     # ---- opponent context + pools ----
@@ -174,7 +179,7 @@ class SymmetricOrchestrator:
     def _all_b_probes(self):
         """Union of every B champion's probe strings (the 'accumulate' growing set, design §3)."""
         probes: list[str] = []
-        for ch in self.state_b.champions(self.parent_run, side="B"):
+        for ch in self.ledger.champions(self.parent_run, side="B"):
             sp = self._materialize_champion("B", ch) / "strings.txt"
             if sp.exists():
                 probes += [ln for ln in sp.read_text(encoding="utf-8").splitlines()]
@@ -201,7 +206,7 @@ class SymmetricOrchestrator:
 
     def _opponent_pool_dirs(self, side):
         opp = "B" if side == "A" else "A"
-        opp_champs = self._state(opp).champions(self.parent_run, side=opp)
+        opp_champs = self.ledger.champions(self.parent_run, side=opp)
         if not opp_champs:
             return []
         if self.referee.opponent_strategy == "accumulate" and side == "A":
@@ -224,7 +229,7 @@ class SymmetricOrchestrator:
     def _archive_min(self, side, art_dir):
         """Worst-case live score of ``art_dir`` against the WHOLE opposing archive (gate input)."""
         opp = "B" if side == "A" else "A"
-        champs = self._state(opp).champions(self.parent_run, side=opp)
+        champs = self.ledger.champions(self.parent_run, side=opp)
         scores = [self._live_score(side, art_dir, self._materialize_champion(opp, ch)) for ch in champs]
         return min(scores) if scores else None
 
@@ -246,14 +251,14 @@ class SymmetricOrchestrator:
         stable = self._stable_signal(side, art)
         repro = {"referee_version": getattr(self.referee, "version", "?"),
                  "aggregate": self.arena.aggregate, "pool_strategy": self.referee.opponent_strategy}
-        cid = self._state(side).add_champion(self.parent_run, side, generation, git_hash,
-                                             stable_score=stable, repro=repro)
+        cid = self.ledger.add_champion(self.parent_run, side, generation, git_hash,
+                                       stable_score=stable, repro=repro)
         return cid
 
     def _update_matrix(self, generation):
-        a_champs = self.state_a.champions(self.parent_run, side="A")
-        b_champs = self.state_b.champions(self.parent_run, side="B")
-        existing = self.state_a.match_matrix(self.parent_run)
+        a_champs = self.ledger.champions(self.parent_run, side="A")
+        b_champs = self.ledger.champions(self.parent_run, side="B")
+        existing = self.ledger.match_matrix(self.parent_run)
         for ac in a_champs:
             ad = self._materialize_champion("A", ac)
             for bc in b_champs:
@@ -261,11 +266,11 @@ class SymmetricOrchestrator:
                     continue
                 bd = self._materialize_champion("B", bc)
                 out = self.referee.play(ad, bd, self.sandbox, seed=0)
-                self.state_a.record_match(self.parent_run, ac["id"], bc["id"], out.a_score, 0)
+                self.ledger.record_match(self.parent_run, ac["id"], bc["id"], out.a_score, 0)
 
     def _record_stable_curves(self):
-        a = self.state_a.champions(self.parent_run, side="A")
-        b = self.state_b.champions(self.parent_run, side="B")
+        a = self.ledger.champions(self.parent_run, side="A")
+        b = self.ledger.champions(self.parent_run, side="B")
         self.stable_a.append(a[-1]["stable_score"] if a else None)
         self.stable_b.append(b[-1]["stable_score"] if b else None)
 
@@ -327,9 +332,9 @@ class SymmetricOrchestrator:
         return total >= cap
 
     def _stop(self, generation):
-        a = self.state_a.champions(self.parent_run, side="A")
-        b = self.state_b.champions(self.parent_run, side="B")
-        matrix = self.state_a.match_matrix(self.parent_run)
+        a = self.ledger.champions(self.parent_run, side="A")
+        b = self.ledger.champions(self.parent_run, side="B")
+        matrix = self.ledger.match_matrix(self.parent_run)
         a_ids = [c["id"] for c in a]
         b_ids = [c["id"] for c in b]
         dom = (dominance_reached(matrix, a_ids, b_ids, self.arena.dominance_tau, "A")
@@ -350,29 +355,106 @@ class SymmetricOrchestrator:
                 return "plateau"
         return None
 
+    # ---- resume + manifest (project-level persistence) ----
+
+    def _resume_or_create(self) -> int:
+        """Reuse the parent run if a manifest exists (resume an unfinished run, or no-op a
+        finished one); otherwise start a fresh parent run. Sets _resuming / _finished /
+        _completed_gen / _restore so __init__ and run() can act on them."""
+        self._resuming = False
+        self._finished = False
+        self._completed_gen = -1
+        self._restore = None
+        mpath = self.root / "arena.json"
+        if mpath.exists():
+            try:
+                m = json.loads(mpath.read_text(encoding="utf-8"))
+            except ValueError:
+                m = None
+            if m and m.get("parent_run") is not None:
+                self._restore = m
+                self._completed_gen = int(m.get("generation", -1))
+                if m.get("status") == "finished":
+                    self._finished = True
+                else:
+                    self._resuming = True
+                return int(m["parent_run"])
+        return self.ledger.create_run("symmetric")
+
+    def _apply_resume(self) -> None:
+        """Restore in-memory progress (curves, stop counters) from the manifest on resume."""
+        if not self._restore:
+            return
+        m = self._restore
+        self.stable_a = list(m.get("stable_a") or [])
+        self.stable_b = list(m.get("stable_b") or [])
+        self._dom_streak = int(m.get("dom_streak", 0))
+        self._best_stable_a = float(m.get("best_stable_a", -1.0))
+        self._plateau = int(m.get("plateau", 0))
+
+    def _save_manifest(self, status: str, stop_reason=None) -> None:
+        a = self.ledger.champions(self.parent_run, side="A")
+        b = self.ledger.champions(self.parent_run, side="B")
+        matrix = self.ledger.match_matrix(self.parent_run)
+        a_ids = [c["id"] for c in a]
+        b_ids = [c["id"] for c in b]
+        payload = {
+            "parent_run": self.parent_run, "status": status, "generation": self._completed_gen,
+            "generations": self.arena.generations, "stop_reason": stop_reason,
+            "referee": self.arena.referee, "stable_a": self.stable_a, "stable_b": self.stable_b,
+            "dom_streak": self._dom_streak, "best_stable_a": self._best_stable_a,
+            "plateau": self._plateau,
+            "best_a_id": best_vs_all(matrix, a_ids, b_ids, "A") if a_ids and b_ids else None,
+            "best_b_id": best_vs_all(matrix, a_ids, b_ids, "B") if a_ids and b_ids else None,
+            "champions": {
+                "A": [{"id": c["id"], "generation": c["generation"], "git_hash": c["git_hash"],
+                       "stable_score": c["stable_score"]} for c in a],
+                "B": [{"id": c["id"], "generation": c["generation"], "git_hash": c["git_hash"],
+                       "stable_score": c["stable_score"]} for c in b],
+            },
+        }
+        tmp = self.root / "arena.json.tmp"
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(tmp, self.root / "arena.json")        # atomic
+
+    def _result(self, generation: int, reason: str) -> ArenaResult:
+        a_ids = [c["id"] for c in self.ledger.champions(self.parent_run, side="A")]
+        b_ids = [c["id"] for c in self.ledger.champions(self.parent_run, side="B")]
+        matrix = self.ledger.match_matrix(self.parent_run)
+        return ArenaResult(generations=generation, stop_reason=reason,
+                           best_a_id=best_vs_all(matrix, a_ids, b_ids, "A"),
+                           best_b_id=best_vs_all(matrix, a_ids, b_ids, "B"),
+                           stable_a=self.stable_a, stable_b=self.stable_b)
+
     # ---- public entry point ----
 
     def run(self) -> ArenaResult:
-        self._bootstrap()
+        if self._finished:                                # finished run → idempotent no-op
+            m = self._restore or {}
+            return self._result(int(m.get("generation", self._completed_gen)),
+                                 m.get("stop_reason") or "max_generations")
+        if not self._resuming:
+            self._bootstrap()
+            self._completed_gen = 0
+            self._save_manifest(status="running")
         reason = "max_generations"
-        generation = 0
-        for generation in range(1, self.arena.generations + 1):
+        last_gen = self._completed_gen
+        for generation in range(self._completed_gen + 1, self.arena.generations + 1):
             self._play_and_crown("A", generation)
             self._play_and_crown("B", generation)
             self._update_matrix(generation)
             self._record_stable_curves()
+            self._completed_gen = generation
+            last_gen = generation
             stop = self._stop(generation)
+            self._save_manifest(status="running")
             if stop:
                 reason = stop
                 break
             if self._budget_exhausted():
                 reason = "budget"
                 break
-        a_ids = [c["id"] for c in self.state_a.champions(self.parent_run, side="A")]
-        b_ids = [c["id"] for c in self.state_b.champions(self.parent_run, side="B")]
-        matrix = self.state_a.match_matrix(self.parent_run)
-        return ArenaResult(generations=generation, stop_reason=reason,
-                           best_a_id=best_vs_all(matrix, a_ids, b_ids, "A"),
-                           best_b_id=best_vs_all(matrix, a_ids, b_ids, "B"),
-                           stable_a=self.stable_a, stable_b=self.stable_b)
+        self.ledger.set_status(self.parent_run, "finished")
+        self._save_manifest(status="finished", stop_reason=reason)
+        return self._result(last_gen, reason)
 

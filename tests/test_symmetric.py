@@ -72,3 +72,57 @@ def test_symmetric_run_converges_and_stops(tmp_path):
     exec((Path(best_a_dir) / "recognizer.py").read_text(), ns)
     for s in ["ab", "aab", "aabb", "b", "ba", "", "aaa", "bbb", "aba"]:
         assert ns["accepts"](s) == in_L(s)
+
+
+# ---- P7-A: persistence + resume ----
+
+import json as _json  # noqa: E402
+
+
+def test_symmetric_manifest_persisted_and_finished_is_idempotent(tmp_path):
+    ref = CegisReferee()
+    o1 = SymmetricOrchestrator(cfg=_toy_cfg(), root=tmp_path, referee=ref,
+                               executor_a=ScriptedRecognizerRival(),
+                               executor_b=ScriptedAdversaryRival(), sandbox=LocalBackend())
+    r1 = o1.run()
+    manifest = tmp_path / "arena.json"
+    assert manifest.exists()
+    m = _json.loads(manifest.read_text())
+    assert m["status"] == "finished"
+    assert m["stop_reason"] in ("dominance", "plateau", "max_generations")
+    assert m["best_a_id"] == r1.best_a_id
+    assert len(m["champions"]["A"]) >= 1 and len(m["champions"]["B"]) >= 1
+    champ_count_a = len(m["champions"]["A"])
+
+    # re-construct on the same root → finished run is an idempotent no-op (no re-bootstrap)
+    o2 = SymmetricOrchestrator(cfg=_toy_cfg(), root=tmp_path, referee=CegisReferee(),
+                               executor_a=ScriptedRecognizerRival(),
+                               executor_b=ScriptedAdversaryRival(), sandbox=LocalBackend())
+    r2 = o2.run()
+    assert r2.best_a_id == r1.best_a_id and r2.stop_reason == r1.stop_reason
+    m2 = _json.loads(manifest.read_text())
+    assert len(m2["champions"]["A"]) == champ_count_a   # no duplicate champions added
+
+
+def test_symmetric_resume_continues_unfinished(tmp_path):
+    o1 = SymmetricOrchestrator(cfg=_toy_cfg(generations=4), root=tmp_path, referee=CegisReferee(),
+                               executor_a=ScriptedRecognizerRival(),
+                               executor_b=ScriptedAdversaryRival(), sandbox=LocalBackend())
+    o1.run()
+    # simulate a crash AFTER generations completed but BEFORE the finalize write
+    manifest = tmp_path / "arena.json"
+    m = _json.loads(manifest.read_text())
+    m["status"] = "running"
+    manifest.write_text(_json.dumps(m))
+
+    o2 = SymmetricOrchestrator(cfg=_toy_cfg(generations=4), root=tmp_path, referee=CegisReferee(),
+                               executor_a=ScriptedRecognizerRival(),
+                               executor_b=ScriptedAdversaryRival(), sandbox=LocalBackend())
+    assert o2._resuming is True
+    r2 = o2.run()
+    # resumed run still delivers L and finishes cleanly
+    from pathlib import Path as _P
+    ns: dict = {}
+    exec((_P(o2.champion_dir("A", r2.best_a_id)) / "recognizer.py").read_text(), ns)
+    for s in ["ab", "aab", "b", "ba", "", "aba"]:
+        assert ns["accepts"](s) == in_L(s)
