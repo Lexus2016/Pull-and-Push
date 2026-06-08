@@ -66,6 +66,26 @@ CREATE TABLE IF NOT EXISTS checkpoint (
     decision TEXT,
     ts TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS champion (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    side TEXT NOT NULL,             -- 'A' | 'B'
+    generation INTEGER NOT NULL,
+    git_hash TEXT NOT NULL,         -- champion commit in that side's artifact repo
+    stable_score REAL,             -- §5 stable signal at snapshot time
+    repro_json TEXT,               -- pool_hash, referee_version, aggregate, seeds (reproducible scoring)
+    ts TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS match (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id INTEGER NOT NULL,
+    a_champion_id INTEGER NOT NULL,
+    b_champion_id INTEGER NOT NULL,
+    a_score REAL NOT NULL,         -- referee a_score for this exact pairing
+    seed INTEGER NOT NULL,
+    ts TEXT NOT NULL,
+    UNIQUE (a_champion_id, b_champion_id, seed)
+);
 """
 
 
@@ -194,6 +214,69 @@ class StateStore:
         )
         self.conn.commit()
         return int(cur.lastrowid)
+
+    # ---- champion archive + match matrix (symmetric arena, design §3/§4a) ----
+
+    def add_champion(self, run_id: int, side: str, generation: int, git_hash: str,
+                     stable_score: float | None = None, repro: dict | None = None) -> int:
+        import json
+        cur = self.conn.execute(
+            "INSERT INTO champion (run_id, side, generation, git_hash, stable_score, repro_json, ts) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (run_id, side, generation, git_hash, stable_score,
+             json.dumps(repro) if repro else None, _now()),
+        )
+        self.conn.commit()
+        return int(cur.lastrowid)
+
+    def champions(self, run_id: int, side: str | None = None) -> list[dict]:
+        q = "SELECT * FROM champion WHERE run_id=?"
+        args: list = [run_id]
+        if side:
+            q += " AND side=?"
+            args.append(side)
+        q += " ORDER BY generation, id"
+        return [dict(r) for r in self.conn.execute(q, args).fetchall()]
+
+    def champion(self, champion_id: int) -> dict | None:
+        r = self.conn.execute("SELECT * FROM champion WHERE id=?", (champion_id,)).fetchone()
+        return dict(r) if r else None
+
+    def record_match(self, run_id: int, a_champion_id: int, b_champion_id: int,
+                     a_score: float, seed: int) -> None:
+        self.conn.execute(
+            "INSERT OR REPLACE INTO match (run_id, a_champion_id, b_champion_id, a_score, seed, ts) "
+            "VALUES (?,?,?,?,?,?)",
+            (run_id, a_champion_id, b_champion_id, a_score, seed, _now()),
+        )
+        self.conn.commit()
+
+    def match_matrix(self, run_id: int) -> dict:
+        """(a_champion_id, b_champion_id) → a_score, the persisted §4a matrix."""
+        rows = self.conn.execute(
+            "SELECT a_champion_id, b_champion_id, a_score FROM match WHERE run_id=?",
+            (run_id,)).fetchall()
+        return {(r["a_champion_id"], r["b_champion_id"]): r["a_score"] for r in rows}
+
+    def export_tree(self, git_hash: str, dest_dir: str | Path) -> Path:
+        """Materialize a champion commit's file tree into ``dest_dir`` (created if missing).
+
+        Uses ``git archive`` piped to ``tar`` so the live artifact repo is never touched.
+        """
+        dest = Path(dest_dir)
+        dest.mkdir(parents=True, exist_ok=True)
+        archive = subprocess.run(
+            ["git", "-C", str(self.artifact_dir), "archive", git_hash],
+            capture_output=True,
+        )
+        if archive.returncode != 0:
+            raise RuntimeError(f"git archive {git_hash} failed: {archive.stderr.decode(errors='replace')}")
+        extract = subprocess.run(
+            ["tar", "-x", "-C", str(dest)], input=archive.stdout, capture_output=True,
+        )
+        if extract.returncode != 0:
+            raise RuntimeError(f"tar extract failed: {extract.stderr.decode(errors='replace')}")
+        return dest
 
     def record_iteration(
         self,

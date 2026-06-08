@@ -86,3 +86,38 @@ def test_rewind_to_rolls_back_artifact_and_state(tmp_path):
     with pytest.raises(ValueError):                 # a non-kept iteration is not restorable
         s.rewind_to(run_id, 99)
     s.close()
+
+
+def test_create_run_starts_fresh(tmp_path):
+    st = StateStore(tmp_path / "proj")
+    rid = st.create_run(mode="symmetric")
+    assert st.best_score(rid) is None
+
+
+def test_champion_and_match_roundtrip(tmp_path):
+    st = StateStore(tmp_path / "proj")
+    cid_a = st.add_champion(run_id=1, side="A", generation=0, git_hash="aaa",
+                            stable_score=0.4, repro={"pool_hash": "h", "referee_version": "1"})
+    cid_b = st.add_champion(run_id=1, side="B", generation=0, git_hash="bbb", stable_score=0.3)
+    st.record_match(run_id=1, a_champion_id=cid_a, b_champion_id=cid_b, a_score=0.7, seed=0)
+    champs_a = st.champions(run_id=1, side="A")
+    assert champs_a[0]["git_hash"] == "aaa" and champs_a[0]["generation"] == 0
+    assert st.champion(cid_b)["side"] == "B"
+    matrix = st.match_matrix(run_id=1)
+    assert matrix[(cid_a, cid_b)] == 0.7
+
+
+def test_record_match_idempotent_on_seed(tmp_path):
+    st = StateStore(tmp_path / "proj")
+    st.record_match(run_id=1, a_champion_id=1, b_champion_id=2, a_score=0.5, seed=0)
+    st.record_match(run_id=1, a_champion_id=1, b_champion_id=2, a_score=0.9, seed=0)  # replace
+    assert st.match_matrix(run_id=1)[(1, 2)] == 0.9
+
+
+def test_export_tree_materializes_commit(tmp_path):
+    st = _new_store(tmp_path)
+    (st.artifact_dir / "recognizer.py").write_text("def accepts(s):\n    return 'ab' in s\n")
+    h = st.commit("candidate 1")
+    dest = tmp_path / "out"
+    st.export_tree(h, dest)
+    assert (dest / "recognizer.py").read_text() == "def accepts(s):\n    return 'ab' in s\n"
