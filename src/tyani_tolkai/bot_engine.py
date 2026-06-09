@@ -53,11 +53,12 @@ def simulate(
     Returns
     -------
     dict with keys:
-        Scored (OOS):
-            return_oos_pct, liquidations, max_drawdown_pct, max_drawdown_bars,
-            num_trades
+        Scored (OOS tail):
+            return_oos_pct, liquidations, max_drawdown_pct, max_drawdown_bars
+        Scored (whole-period viability gate):
+            full_max_drawdown_pct   # near-100% if the account was destroyed in-sample
         Report-only (full run / in-sample):
-            full_return_pct, in_sample_return_pct, win_rate_pct, profit_factor
+            num_trades, full_return_pct, in_sample_return_pct, win_rate_pct, profit_factor
     """
     if len(orders) != len(bars):
         raise ValueError(
@@ -128,6 +129,8 @@ def simulate(
 
         # ---- equity wipeout ----
         if equity <= 0.01:
+            if peak > 0:
+                max_dd = 100.0          # account destroyed → full-period drawdown is total
             equity = 0.0
             break
 
@@ -193,11 +196,14 @@ def simulate(
     in_sample_return = (oos_eq0 / START_EQUITY - 1.0) * 100.0
 
     return {
-        # scored — OOS only
+        # scored — OOS tail
         "return_oos_pct":      round(return_oos, 4),
         "liquidations":        liq_oos,
         "max_drawdown_pct":    round(oos["dd"], 4),
         "max_drawdown_bars":   oos["uw"],          # bars underwater (replaces max_drawdown_days)
+        # scored — WHOLE-period viability gate (the OOS return is scale-invariant, so draining the
+        # in-sample account to ~0 to game a huge OOS % shows up as a near-100% drawdown here)
+        "full_max_drawdown_pct": round(max_dd, 4),
         # report-only
         "num_trades":          num_trades,
         "full_return_pct":     round((equity / START_EQUITY - 1.0) * 100.0, 4),

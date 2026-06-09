@@ -11,10 +11,14 @@ well here generalised; one that memorised the past does not.
 
 It imports PARAMS and signals(bars) from the strategy.py in the cwd (the artifact), runs the FIXED
 leveraged long/short simulation (stop-loss, liquidation, taker fee, reinvested equity), and prints
-ONE JSON object. Scored keys (all measured on the OUT-OF-SAMPLE tail):
-    return_oos_pct, liquidations, max_drawdown_pct, max_drawdown_days
-The rest are report-only (full-period return, in-sample return, win rate, profit factor, trades,
-period, the OOS split point).
+ONE JSON object. Scored keys:
+    return_oos_pct, liquidations, max_drawdown_pct, max_drawdown_days  (OUT-OF-SAMPLE tail)
+    full_max_drawdown_pct                                             (WHOLE-period viability gate)
+The whole-period drawdown is scored because the OOS return is a scale-invariant ratio: without it
+an optimizer can drain the in-sample account to ~0 (just above the 0.01 bankruptcy floor) so a few
+cents of OOS gain become a huge OOS % while the real account is wiped. A near-100% full-period
+drawdown there (scored dir=lower) makes that a losing move. The rest are report-only (full-period
+return, in-sample return, win rate, profit factor, trades, period, the OOS split point).
 
 Stdlib only (CPython or PyPy). Usage: run_backtest.py [--strategy strategy.py] [--symbol X] [--oos 0.3]
 """
@@ -119,6 +123,8 @@ def main() -> int:
                     close_pos(pos["take"])
 
         if equity <= 0.01:
+            if peak > 0:
+                max_dd = 100.0          # account destroyed → full-period drawdown is total
             equity = 0.0
             break
 
@@ -173,11 +179,17 @@ def main() -> int:
     in_sample_return = ((oos_eq0 / START_EQUITY - 1.0) * 100.0)
 
     out = {
-        # scored metrics — measured on the OUT-OF-SAMPLE tail (generalisation, not memorisation)
+        # scored metrics — OUT-OF-SAMPLE tail (generalisation, not memorisation)
         "return_oos_pct": round(return_oos, 4),
         "liquidations": liq_oos,
         "max_drawdown_pct": round(oos["dd"], 4),
         "max_drawdown_days": round(oos["uw"] / MS_PER_DAY, 4),
+        # scored metric — WHOLE-period VIABILITY gate. The OOS return is a scale-invariant ratio,
+        # so an optimizer can drain the in-sample account to ~0 (kept just above the 0.01 floor)
+        # and a few cents of OOS gain explode into a huge OOS %, while the real account is wiped.
+        # A run that does this shows a near-100% full-period drawdown HERE; scored dir=lower it
+        # collapses the composite, so destroying in-sample is no longer a winning move.
+        "full_max_drawdown_pct": round(max_dd, 4),
         # report-only
         "full_return_pct": round((equity / START_EQUITY - 1.0) * 100.0, 4),
         "in_sample_return_pct": round(in_sample_return, 4),

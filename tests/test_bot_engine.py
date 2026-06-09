@@ -15,7 +15,8 @@ def test_no_orders_is_flat_zero_pnl():
 
 def test_metrics_keys_present():
     m = simulate(_flat_bars(50), [0] * 50, oos_start=30, params={})
-    for k in ("return_oos_pct", "liquidations", "max_drawdown_pct", "max_drawdown_bars", "num_trades"):
+    for k in ("return_oos_pct", "liquidations", "max_drawdown_pct", "max_drawdown_bars",
+              "full_max_drawdown_pct", "num_trades"):
         assert k in m
 
 
@@ -205,3 +206,67 @@ def test_short_trade_profits_on_falling_price():
         f"return_oos_pct={m['return_oos_pct']!r}, expected 9.7901"
     )
     assert m["return_oos_pct"] > 0.0   # short side sign correct
+
+
+# ---------------------------------------------------------------------------
+# REGRESSION: the "destroy in-sample to win OOS" optimizer loophole.
+#
+# return_oos_pct = equity_end / equity_at_oos_start - 1 is a scale-invariant RATIO, so an
+# optimizer can drain the in-sample account to ~0 (kept just above the 0.01 bankruptcy floor)
+# and a tiny OOS gain explodes into a huge OOS %. The OOS % alone cannot tell a destroyed
+# account apart from a viable one. full_max_drawdown_pct is the WHOLE-period viability gate:
+# a drained run shows a near-100% drawdown there (scored dir=lower), so the composite collapses
+# and draining in-sample stops being a winning move.
+def _drain_then_pump(cycles: int):
+    """In-sample: `cycles` stop-loss long trades that each shed ~60% of equity (12x leverage,
+    99% margin, 5% stop) — the account nose-dives toward (but stays above) the 0.01 floor.
+    Out-of-sample: a clean +5%/bar rally the strategy rides long."""
+    bars: list[tuple] = []
+    orders: list[int] = []
+    price = 100.0
+    for _ in range(cycles):
+        bars.append((price, price, price, price, 1.0)); orders.append(1)        # open long @price
+        stop = price * 0.95
+        bars.append((price, price, price * 0.94, stop, 1.0)); orders.append(1)  # low pierces stop → -5%
+        price = stop
+    oos_start = len(bars)
+    for _ in range(5):
+        nxt = price * 1.05
+        bars.append((price, nxt, price, nxt, 1.0)); orders.append(1)            # favourable OOS rally
+        price = nxt
+    return bars, orders, oos_start
+
+
+def test_full_drawdown_exposes_insample_destruction_loophole():
+    params = {"leverage": 12.0, "risk_frac": 0.99, "stop_pct": 5.0, "take_pct": 0.0}
+    bars, orders, oos_start = _drain_then_pump(cycles=8)
+    m = simulate(bars, orders, oos_start=oos_start, params=params)
+
+    # The trap: the scale-invariant OOS ratio looks spectacular...
+    assert m["return_oos_pct"] > 100.0, f"expected a large OOS %, got {m['return_oos_pct']!r}"
+    # ...but the account was actually destroyed in-sample — now VISIBLE to the scorer.
+    assert m["full_max_drawdown_pct"] >= 99.0, (
+        f"full_max_drawdown_pct must expose the in-sample wipeout, got {m['full_max_drawdown_pct']!r}"
+    )
+    assert m["full_return_pct"] <= -90.0, (
+        f"full-period return must reflect the destroyed deposit, got {m['full_return_pct']!r}"
+    )
+    # OOS % is a ratio: drain depth does not change it — proves the OOS metric alone can't gate.
+    bars6, orders6, oos6 = _drain_then_pump(cycles=6)
+    m6 = simulate(bars6, orders6, oos_start=oos6, params=params)
+    assert abs(m6["return_oos_pct"] - m["return_oos_pct"]) < 1e-6
+    assert m6["full_max_drawdown_pct"] < m["full_max_drawdown_pct"]   # shallower drain → smaller full DD
+
+
+def test_viable_strategy_has_low_full_drawdown():
+    # A strategy that does NOT destroy in-sample keeps a small full-period drawdown, so the
+    # viability gate does not punish honest runs (no false positive on the new metric).
+    params = {"leverage": 2.0, "risk_frac": 0.3, "stop_pct": 5.0, "take_pct": 0.0}
+    # gentle, mostly-rising series; one shallow dip
+    closes = [100, 101, 102, 101, 103, 104, 105, 104, 106, 108]
+    bars = [(c, c + 1.0, c - 1.0, float(c), 1.0) for c in closes]
+    orders = [1, 1, 1, 0, 1, 1, 1, 0, 1, 1]
+    m = simulate(bars, orders, oos_start=6, params=params)
+    assert m["full_max_drawdown_pct"] < 30.0, (
+        f"a viable run should stay well under the 30% target, got {m['full_max_drawdown_pct']!r}"
+    )

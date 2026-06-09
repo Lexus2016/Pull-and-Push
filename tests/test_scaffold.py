@@ -140,7 +140,8 @@ def test_btc_template_scores_on_real_harness(home):
     # the committed backtest runs against real data and produces a finite composite
     scaffold.scaffold_project("score-btc", "btcusdt futures strategy", "btcusdt-futures")
     vals, sc = _eval("score-btc")
-    assert set(vals) == {"return_oos_pct", "liquidations", "max_drawdown_pct", "max_drawdown_days"}
+    assert set(vals) == {"return_oos_pct", "full_max_drawdown_pct", "liquidations",
+                         "max_drawdown_pct", "max_drawdown_days"}
     assert 0.0 <= sc <= 100.0
 
 
