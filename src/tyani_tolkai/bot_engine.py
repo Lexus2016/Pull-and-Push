@@ -23,6 +23,19 @@ from typing import Sequence
 START_EQUITY = 100.0
 COMMISSION = 0.0005          # 0.05% taker per side
 
+# Single source of truth: the metric keys `simulate()` actually emits as SCORED outputs.
+# The onboarding path (`score-bot` → simulate) can only score these — any config naming a
+# metric outside this set would silently fail every iteration (the numeric adapter reports it
+# as missing → verdict 'fail' until plateau). build_onboarding_config validates against this
+# set so the mistake is caught at project-creation time, not after a run burns tokens.
+SCORED_METRICS = (
+    "return_oos_pct",
+    "liquidations",
+    "max_drawdown_pct",
+    "max_drawdown_bars",
+    "full_max_drawdown_pct",
+)
+
 
 def simulate(
     bars: Sequence[tuple[float, float, float, float, float]],

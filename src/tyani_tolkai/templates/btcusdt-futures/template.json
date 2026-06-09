@@ -3,7 +3,7 @@
   "name": "BTCUSDT 5m futures strategy",
   "keywords": ["trading", "btc", "btcusdt", "futures", "crypto", "binance", "strategy",
                "backtest", "sharpe", "drawdown", "leverage", "trade", "bot"],
-  "summary": "Tune a leveraged long/short trading strategy with a realistic walk-forward backtest. The executor edits strategy.py (signals() + PARAMS); a committed harness scores return, liquidations and drawdown on a held-out out-of-sample tail (anti-overfit). The engine is symbol-agnostic — it ships with BTCUSDT 5m demo data, and you swap harness/data.csv (time,open,high,low,close,volume) for any instrument or timeframe.",
+  "summary": "Tune a leveraged long/short trading strategy with a realistic walk-forward backtest. The executor edits strategy.py (signals() + PARAMS); a committed harness scores return, liquidations and drawdown on a held-out out-of-sample tail (anti-overfit). The engine is symbol-agnostic — it ships with BTCUSDT 5m demo data, and you swap harness/data.csv (time,open,high,low,close,volume) for any instrument or timeframe. Note: this template's harness emits 'max_drawdown_days' (its bars carry timestamps); the ONBOARDING path (score-bot) instead emits 'max_drawdown_bars'. The two scored-metric contracts differ — use the names your chosen path actually emits.",
   "config": {
     "mode": "asymmetric",
     "agents": {"executor": {"engine": "claude", "timeout": 600},

@@ -25,6 +25,7 @@ from pathlib import Path
 import yaml
 
 from .config import Config
+from .bot_engine import SCORED_METRICS
 from .projects import project_dir, valid_name
 from .proposal_schema import MetricProposal
 from .state import StateStore
@@ -169,6 +170,20 @@ def build_onboarding_config(name: str, *, proposal: MetricProposal, bot_cmd: str
     """
     if not proposal.proposed_metrics:
         raise ValueError("proposal has no metrics; cannot build an evaluation config")
+    # The onboarding scorer is `score-bot` → bot_engine.simulate, which emits a FIXED set of
+    # scored keys. A metric named outside that set is unscoreable: the numeric adapter would
+    # report it missing every iteration → verdict 'fail' until plateau, a run that silently
+    # dies after burning agent tokens. Reject it here, at creation time, with an actionable
+    # message — never let a non-runnable onboarding project be created.
+    unknown = [m.name for m in proposal.proposed_metrics if m.name not in SCORED_METRICS]
+    if unknown:
+        raise ValueError(
+            "onboarding metric(s) not measurable by the score-bot engine: "
+            + ", ".join(sorted(set(unknown)))
+            + ". Allowed (what bot_engine.simulate emits): "
+            + ", ".join(SCORED_METRICS)
+            + ". Edit the proposal so every metric name is one of these."
+        )
     goal = (goal or proposal.goal or "").strip()
     metrics = [{"name": m.name, "dir": m.dir, "weight": m.weight, "target": m.target}
                for m in proposal.proposed_metrics]

@@ -74,6 +74,35 @@ def test_build_onboarding_config_rejects_empty_metrics():
                                          bot_cmd="python bot.py", seed_token="p")
 
 
+def test_build_onboarding_config_rejects_metric_outside_engine_contract():
+    # Regression (audit H1): a metric the score-bot engine never emits (e.g. 'sharpe', or the
+    # template's 'max_drawdown_days' — the engine uses 'max_drawdown_bars') must be rejected at
+    # creation time, not silently fail every iteration until plateau. The error names the offender
+    # and lists the allowed set so the user can fix the proposal.
+    bad = [ProposedMetric(name="sharpe", dir="higher", weight=1.0, target=2.0,
+                          rationale="not emitted by the engine", confidence=0.5)]
+    with pytest.raises(ValueError, match="sharpe"):
+        scaffold.build_onboarding_config("p", proposal=_proposal(metrics=bad),
+                                         bot_cmd="python bot.py", seed_token="p")
+    # the engine uses bars, not days — the natural template-confusion case is caught too
+    days = [ProposedMetric(name="max_drawdown_days", dir="lower", weight=1.0, target=5.0,
+                           rationale="template uses days; engine uses bars", confidence=0.5)]
+    with pytest.raises(ValueError, match="max_drawdown_days"):
+        scaffold.build_onboarding_config("p", proposal=_proposal(metrics=days),
+                                         bot_cmd="python bot.py", seed_token="p")
+
+
+def test_build_onboarding_config_accepts_every_engine_metric():
+    # all five SCORED_METRICS are valid names — none should be rejected
+    from tyani_tolkai.bot_engine import SCORED_METRICS
+    metrics = [ProposedMetric(name=n, dir="higher", weight=1.0, target=1.0,
+                              rationale="engine emits it", confidence=0.5)
+               for n in SCORED_METRICS]
+    cfg = scaffold.build_onboarding_config("p", proposal=_proposal(metrics=metrics),
+                                           bot_cmd="python bot.py", seed_token="p")
+    assert {m["name"] for m in cfg["evaluation"]["metrics"]} == set(SCORED_METRICS)
+
+
 def test_build_onboarding_config_seed_token_defaults_to_name_via_scaffold(home, tmp_path):
     # seed_token flows into the command; when omitted at the scaffold layer it defaults to the name
     res = scaffold.scaffold_onboarding("seedproj", bot_dir=_botdir(tmp_path), data_path=_csv(tmp_path),
