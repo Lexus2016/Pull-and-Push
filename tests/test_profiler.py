@@ -280,3 +280,16 @@ def test_assemble_payload_skips_sensitive_files(tmp_path):
     assert "zzz" not in res.text
     assert "secrets.yaml" in res.dropped
     assert "credentials.json" in res.dropped
+
+
+def test_analyze_bot_no_answer_skips_the_repair(tmp_path):
+    from tyani_tolkai.profiler import HelperAgentError, analyze_bot
+    (tmp_path / "bot.py").write_text("x = 1\n", encoding="utf-8")
+    calls = {"n": 0}
+
+    def runner(_p):
+        calls["n"] += 1
+        raise HelperAgentError("claude gave no answer within 5s (timed out)")
+    with pytest.raises(ProfileError, match="timed out"):
+        analyze_bot(tmp_path, engine="claude", runner=runner)
+    assert calls["n"] == 1

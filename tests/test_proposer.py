@@ -206,3 +206,18 @@ def test_render_markdown_full_and_empty():
     empty = MetricProposal(proposer_engine="c", bot_name="b", goal="g")
     md2 = render_markdown(empty)
     assert "_none_" in md2
+
+
+def test_propose_evaluation_no_answer_skips_the_repair():
+    # a helper that gave no answer (timeout) must fail at once — a repair call would just wait
+    # out a second full timeout and then report "invalid output"
+    from tyani_tolkai.profiler import HelperAgentError
+    from tyani_tolkai.proposer import propose_evaluation, ProposalError
+    calls = {"n": 0}
+
+    def runner(_p):
+        calls["n"] += 1
+        raise HelperAgentError("claude gave no answer within 5s (timed out)")
+    with pytest.raises(ProposalError, match="timed out"):
+        propose_evaluation(_PROFILE, "g", engine="claude", runner=runner)
+    assert calls["n"] == 1

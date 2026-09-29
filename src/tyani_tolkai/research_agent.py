@@ -59,7 +59,8 @@ Write the complete RESEARCH KIT for the experiment below. Return ONE JSON object
     "metrics": [{"name": "...", "dir": "higher|lower", "weight": <number>, "target": <number>}],
     "constraints": [{"name": "...", "min": <number or null>, "max": <number or null>}],
     "target_score": <80-95>,
-    "limits": {"max_iterations": <20-40>, "plateau_N": <6-8>, "step_seconds": 600},
+    "limits": {"max_iterations": <20-40>, "plateau_N": <6-8>, "step_seconds": 600,
+               "budget_usd": <5-20>, "usd_per_mtok": 3},
     "evaluation": {"runs": 1, "min_delta": <0.5, or 0.1 if the score moves in small steps>}
   },
   "files": {
@@ -85,6 +86,10 @@ THE SCORER (scorer/evaluate.py) — the judge, get it right:
   (hard-coding expected answers, deleting work, printing fake numbers) and block it.
 - Fast: well under 60 seconds.
 THE SEED: a minimal, honest, runnable starting version — not the optimum.
+TARGETS: every metric's target must be clearly better than what the seed scores (a target the seed
+already meets adds a constant, not a signal). Score wall-clock time only when speed IS the goal —
+it is noisy; then measure it as a ratio against a baseline timed in the same run and set
+"evaluation": {"runs": 3}. Otherwise leave time to a constraint (a max), not a metric.
 Metric and constraint names in "research" must match the scorer's JSON keys exactly.
 Write goal/task in the language of the IDEA; code and names in English.
 
@@ -145,7 +150,7 @@ def validate_files(files: dict) -> dict:
 
 def draft_kit(name: str, idea: str, *, criteria: dict | str | None = None, answers: str = "",
               engine: str = "claude", model: str | None = None,
-              runner: Callable[[str], str] | None = None, timeout: int = 420) -> dict:
+              runner: Callable[[str], str] | None = None, timeout: int = 600) -> dict:
     """→ {research_yaml, research, files}. The name is forced to the requested one."""
     name = valid_name(name)
     crit = criteria if isinstance(criteria, str) else json.dumps(criteria or {}, ensure_ascii=False,
@@ -165,8 +170,10 @@ def draft_kit(name: str, idea: str, *, criteria: dict | str | None = None, answe
 
 
 def write_kit(kit_dir: str | Path, research_yaml: str, files: dict) -> Path:
-    """Materialise a kit (research.yaml + the given seed/ + scorer/ files). Files already in the kit
-    but not given (e.g. binary reference data the editor never showed) are kept."""
+    """Materialise a kit (research.yaml + the given seed/ + scorer/ files). ``files`` is the kit's
+    whole TEXT content (what `read_kit` shows the editor): a text file no longer in it — left by an
+    earlier draft under the same name — is removed, or it would leak into the project. Binary
+    files the editor never showed (reference data) are kept."""
     spec = yaml.safe_load(research_yaml) or {}
     if not isinstance(spec, dict):
         raise ValueError(f"{SPEC_FILE} must be a mapping")
@@ -174,6 +181,8 @@ def write_kit(kit_dir: str | Path, research_yaml: str, files: dict) -> Path:
     files = validate_files(files)
     kit = Path(kit_dir)
     kit.mkdir(parents=True, exist_ok=True)
+    for rel in set(read_kit_files(kit)) - set(files):
+        (kit / rel).unlink()
     (kit / SPEC_FILE).write_text(research_yaml, encoding="utf-8")
     for rel, content in files.items():
         p = kit / rel
@@ -182,8 +191,8 @@ def write_kit(kit_dir: str | Path, research_yaml: str, files: dict) -> Path:
     return kit
 
 
-def read_kit(kit_dir: str | Path) -> dict:
-    """A saved kit as {research_yaml, files} (for re-use in the wizard)."""
+def read_kit_files(kit_dir: str | Path) -> dict:
+    """The kit's text files under seed/ and scorer/ ({path: content}); binary files are skipped."""
     kit = Path(kit_dir)
     files = {}
     for sub in ("seed", "scorer"):
@@ -193,4 +202,11 @@ def read_kit(kit_dir: str | Path) -> dict:
                     files[p.relative_to(kit).as_posix()] = p.read_text(encoding="utf-8")
                 except UnicodeDecodeError:
                     continue                              # binary data files stay on disk only
-    return {"research_yaml": (kit / SPEC_FILE).read_text(encoding="utf-8"), "files": files}
+    return files
+
+
+def read_kit(kit_dir: str | Path) -> dict:
+    """A saved kit as {research_yaml, files} (for re-use in the wizard)."""
+    kit = Path(kit_dir)
+    return {"research_yaml": (kit / SPEC_FILE).read_text(encoding="utf-8"),
+            "files": read_kit_files(kit)}

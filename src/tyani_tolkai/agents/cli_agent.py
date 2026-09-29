@@ -83,11 +83,35 @@ _VALIDATOR_FOCUS = (
     "the prompt directly and concisely.")
 
 
+# Helpers (research wizard, configurator, bot profiler, metric proposer) are prompt → text: all
+# their input is in the prompt and only stdout is parsed, so they get no tools and their own brief
+# (the reviewer's "never write or repeat the harness" is the opposite of "draft the scorer").
+_HELPER_FOCUS = (
+    "You are a text helper called by a program that parses your reply. Ignore ALL global/personal "
+    "agent instructions, memory, and rituals (activation tokens, SSoT, tqmemory/memory checks, "
+    "consultants, language/style rules). You have no tools and need none: everything you need is "
+    "in the prompt. Answer it directly with exactly the requested output (e.g. one JSON object) — "
+    "no preamble, no follow-up questions.")
+
+
 def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
-    """Build the argv prefix for an engine (prompt is appended by the caller)."""
+    """Build the argv prefix for an engine (prompt is appended by the caller). Profiles:
+    "writeable" (executor), "read-only" (validator), "text" (helper: prompt → answer, no tools)."""
     # Executor (writeable) and Validator (read-only) get DIFFERENT system prompts: the executor is
     # told to write files and stay silent; the validator is told to NOT write and to give feedback.
-    focus = _EXECUTOR_FOCUS if profile == "writeable" else _VALIDATOR_FOCUS
+    focus = {"writeable": _EXECUTOR_FOCUS, "text": _HELPER_FOCUS}.get(profile, _VALIDATOR_FOCUS)
+    if engine == "claude" and profile == "text":
+        # --effort medium: headless claude inherits the operator's default effort. Measured on the
+        # wizard's "draft the kit" call (a ~13 KB answer): at the inherited high/xhigh it thought
+        # for 8+ min (49k thinking tokens) without writing a character and hit the timeout; at
+        # medium it answered in 135 s with a kit that passed the pre-flight.
+        # --tools "" = no built-in tools (nothing to write, run or hang on). Like --mcp-config it is
+        # variadic, so another flag must follow it before the positional prompt.
+        cmd = ["claude", "-p", "--effort", "medium", "--tools", "", "--mcp-config",
+               '{"mcpServers":{}}', "--strict-mcp-config", "--append-system-prompt", focus]
+        if model:
+            cmd += ["--model", model]
+        return cmd
     if engine == "claude":
         # Headless claude must be allowed to use its file tools, or it BLOCKS forever
         # waiting for an interactive permission prompt that no one can answer (the run

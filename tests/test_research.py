@@ -100,6 +100,11 @@ def test_preflight_flags_a_noisy_scorer(tmp_path):
     noisy = ("import json, random\nprint(json.dumps({'speed': random.random(), 'correct': 1}))\n")
     rep = rs.check_kit(_kit(tmp_path, code=noisy))
     assert "noisy" in _codes(rep, "warn")
+    # a noisy field that is not scored (a timing constraint, a report-only number) is only info
+    timing = ("import json, random\nprint(json.dumps({'speed': 1, 'correct': 1, "
+              "'secs': random.random()}))\n")
+    rep = rs.check_kit(_kit(tmp_path / "t", code=timing))
+    assert "noisy" not in _codes(rep, "warn") and "noisy-unscored" in _codes(rep, "info")
 
 
 def test_preflight_refuses_a_seed_that_already_meets_every_target(tmp_path):
@@ -219,6 +224,38 @@ def test_clarify_and_draft_produce_a_checkable_kit(tmp_path):
 def test_draft_rejects_unsafe_or_judgeless_files(files):
     with pytest.raises(ValueError):
         ra.draft_kit("wiz", "idea", runner=lambda p: _draft_out(files))
+
+
+def test_write_kit_drops_stale_text_files_but_keeps_binary_data(tmp_path):
+    # a second draft under the same name must not inherit the first draft's files (they would
+    # land in the project's seed/ or next to the judge); binary data the editor never shows stays
+    d1 = ra.draft_kit("wiz", "idea", runner=lambda p: _draft_out(
+        {"seed/old.py": "x = 1", "seed/val.json": '{"speed": 1, "correct": 1}',
+         "scorer/evaluate.py": _VAL_SCORER, "scorer/old_ref.txt": "stale"}))
+    kit = ra.write_kit(tmp_path / "wiz", d1["research_yaml"], d1["files"])
+    (kit / "scorer" / "ref.bin").write_bytes(b"\xff\xfe\x00binary")
+    d2 = ra.draft_kit("wiz", "idea", runner=lambda p: _draft_out())
+    ra.write_kit(kit, d2["research_yaml"], d2["files"])
+    assert not (kit / "seed" / "old.py").exists() and not (kit / "scorer" / "old_ref.txt").exists()
+    assert (kit / "scorer" / "ref.bin").exists() and (kit / "seed" / "val.json").exists()
+    assert sorted(ra.read_kit(kit)["files"]) == ["scorer/evaluate.py", "seed/val.json"]
+
+
+def test_helper_that_gives_no_answer_is_reported_as_such(monkeypatch):
+    # a timed-out helper used to surface as "no JSON object in configurator output"
+    from tyani_tolkai import profiler
+    from tyani_tolkai.agents.base import RunResult
+
+    class Slow:
+        def run(self, *a):
+            return RunResult(status="timeout", stdout="")
+    monkeypatch.setattr("tyani_tolkai.registry.build_adapter", lambda *a: Slow())
+    with pytest.raises(profiler.HelperAgentError, match="within 7s"):
+        profiler.default_runner("claude", None, 7)("prompt")
+    monkeypatch.setattr(ra, "_runner", lambda *a, **k: profiler.default_runner("claude", None, 7))
+    r = TestClient(create_app(token=None)).post("/api/research/draft",
+                                               json={"name": "wiz", "idea": "x"})
+    assert r.status_code == 502 and "timed out" in r.json()["detail"]
 
 
 def test_prompts_treat_the_idea_as_data():

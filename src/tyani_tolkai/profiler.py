@@ -237,19 +237,27 @@ def assemble_payload(source_root: str | Path, *,
     return res
 
 
-def default_runner(engine: str, model: str | None, timeout: int) -> Callable[[str], str]:
-    """Build a callable prompt->stdout backed by a real read-only CLI agent.
+class HelperAgentError(RuntimeError):
+    """The helper agent gave no answer at all (timed out, crashed, not installed, rate-limited) —
+    distinct from an answer that fails to parse, which is worth one repair attempt."""
 
-    Same adapter + TemporaryDirectory isolation as configurator.generate_config,
-    wrapped as a factory so a fresh adapter is created on each call. The agent
-    gets the prompt only — never the bot's path.
-    """
+
+def default_runner(engine: str, model: str | None, timeout: int) -> Callable[[str], str]:
+    """Build a callable prompt->stdout backed by a real CLI agent in the tool-less "text" profile,
+    in an empty temp dir, a fresh adapter per call. The agent gets the prompt only — never the
+    bot's path. Raises HelperAgentError when the agent does not answer."""
     from .registry import build_adapter
 
     def run(prompt: str) -> str:
-        adapter = build_adapter(engine, model, "read-only")
+        adapter = build_adapter(engine, model, "text")
         with tempfile.TemporaryDirectory() as d:
-            return adapter.run(prompt, d, "read-only", timeout).stdout
+            res = adapter.run(prompt, d, "text", timeout)
+        if res.status == "timeout":
+            raise HelperAgentError(f"{engine} gave no answer within {timeout}s (timed out)")
+        if res.status != "success":
+            tail = (res.stdout or "").strip()[-500:]
+            raise HelperAgentError(f"{engine} {res.status}" + (f": {tail}" if tail else ""))
+        return res.stdout
 
     return run
 
@@ -278,14 +286,20 @@ def analyze_bot(source_root: str | Path, *, engine: str = "claude",
                                    truncated=payload.truncated)
     run = runner if runner is not None else default_runner(engine, model, timeout)
 
-    out = run(prompt)
+    try:
+        out = run(prompt)
+    except HelperAgentError as e:                  # no answer at all: a repair can't help
+        raise ProfileError(f"analysis failed: {e}") from e
     try:
         profile = parse_profile(out, engine=engine, source_root=root)
     except (ValueError, ValidationError) as first_err:
         repair = (prompt + "\n\n[REPAIR] Your previous output was invalid: "
                   + str(first_err)[:_MAX_REPAIR_ERROR_CHARS]
                   + "\nReturn ONLY a single valid JSON object for the schema above.")
-        out2 = run(repair)
+        try:
+            out2 = run(repair)
+        except HelperAgentError as e:
+            raise ProfileError(f"analysis repair failed: {e}") from e
         try:
             profile = parse_profile(out2, engine=engine, source_root=root)
         except (ValueError, ValidationError) as second_err:

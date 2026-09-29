@@ -1658,8 +1658,14 @@ async function impPost(path,body){const r=await fetch(api(path),{method:'POST',
   headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
   const d=await r.json().catch(()=>({}));return{r,d};}
 function impErr(r,d){toast(t('err.prefix')+((d&&d.detail)||r.status),'err');}
-async function impBtn(id,busyKey,fn){const b=$(id),old=b.textContent;b.disabled=true;b.textContent=t(busyKey);
-  try{await fn();}catch(e){toast(t('err.prefix')+e,'err');}finally{b.disabled=false;b.textContent=old;}}
+// a helper-agent step can take minutes: lock the whole step row (no overlapping steps) and tick the
+// elapsed seconds on the busy button, so a long wait reads as "working", not "hung"
+async function impBtn(id,busyKey,fn){const b=$(id),old=b.textContent,t0=Date.now();
+  const row=[...(b.closest('.impsteps')||b.parentNode).querySelectorAll('button')].filter(x=>!x.disabled);
+  row.forEach(x=>x.disabled=true);b.textContent=t(busyKey);
+  const tick=setInterval(()=>{b.textContent=`${t(busyKey)} ${Math.round((Date.now()-t0)/1000)} s`;},1000);
+  try{await fn();}catch(e){toast(t('err.prefix')+e,'err');}
+  finally{clearInterval(tick);row.forEach(x=>x.disabled=false);b.textContent=old;}}
 $('imp_profileBtn').onclick=()=>impBtn('imp_profileBtn','imp.analyzing',async()=>{
   const v=impVals();if(!v.botdir){toast(t('imp.needDirData'),'err');return;}
   const {r,d}=await impPost('/api/profile',{bot_dir:v.botdir,engine:$('imp_engine').value});if(!r.ok)return impErr(r,d);

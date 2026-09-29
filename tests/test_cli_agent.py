@@ -27,6 +27,19 @@ def test_headless_agents_auto_approve_to_never_hang():
     assert "--sandbox" in build_cli_prefix("codex", None, "writeable")
 
 
+def test_helper_profile_is_tool_less_with_its_own_brief():
+    # helpers (wizard, configurator, profiler, proposer) answer from the prompt alone: no tools,
+    # and not the reviewer's "never write the harness" brief — the wizard asks them to draft one
+    from tyani_tolkai.agents.cli_agent import _HELPER_FOCUS, _VALIDATOR_FOCUS
+    cmd = build_cli_prefix("claude", "opus", "text")
+    i = cmd.index("--tools")
+    assert cmd[i + 1] == "" and cmd[i + 2].startswith("--")      # variadic: a flag must follow
+    assert "--dangerously-skip-permissions" not in cmd
+    assert _HELPER_FOCUS in cmd and _VALIDATOR_FOCUS not in cmd
+    assert cmd[-2:] == ["--model", "opus"] and cmd[cmd.index("--effort") + 1] == "medium"
+    assert "read-only" in build_cli_prefix("codex", None, "text")
+
+
 def test_subprocess_detaches_stdin_and_new_session(tmp_path):
     # a CLI that reads stdin must not block on inherited stdin → DEVNULL; and it must run
     # in its own session so Force-Stop can kill the whole group.

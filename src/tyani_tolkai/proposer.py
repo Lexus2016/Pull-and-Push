@@ -13,7 +13,7 @@ from pydantic import ValidationError
 from .bot_engine import SCORED_METRICS
 from .configurator import extract_json
 from .profile_schema import BotProfile
-from .profiler import default_runner
+from .profiler import HelperAgentError, default_runner
 from .proposal_schema import MetricProposal
 
 _MAX_REPAIR_ERROR_CHARS = 500
@@ -155,14 +155,20 @@ def propose_evaluation(profile: BotProfile, goal: str, *, engine: str = "claude"
     prompt = build_proposer_prompt(profile, goal)
     run = runner if runner is not None else default_runner(engine, model, timeout)
 
-    out = run(prompt)
+    try:
+        out = run(prompt)
+    except HelperAgentError as e:                  # no answer at all: a repair can't help
+        raise ProposalError(f"proposal failed: {e}") from e
     try:
         proposal = parse_proposal(out, engine=engine, profile=profile, goal=goal)
     except (ValueError, ValidationError) as first_err:
         repair = (prompt + "\n\n[REPAIR] Your previous output was invalid: "
                   + str(first_err)[:_MAX_REPAIR_ERROR_CHARS]
                   + "\nReturn ONLY a single valid JSON object for the schema above.")
-        out2 = run(repair)
+        try:
+            out2 = run(repair)
+        except HelperAgentError as e:
+            raise ProposalError(f"proposal repair failed: {e}") from e
         try:
             proposal = parse_proposal(out2, engine=engine, profile=profile, goal=goal)
         except (ValueError, ValidationError) as second_err:

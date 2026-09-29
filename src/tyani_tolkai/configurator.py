@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import re
-import tempfile
 
 CONFIGURATOR_PROMPT = """You are the PROJECT CONFIGURATOR for an adversarial co-evolution
 orchestrator (an Executor agent improves an artifact; a deterministic scorer + optional
@@ -101,15 +100,10 @@ def generate_config(description: str, engine: str = "claude", model: str | None 
     """Run the configurator agent on a description and return a parsed config dict.
 
     ``runner`` (a callable ``prompt -> stdout``) is injectable for tests; by default a
-    real CLI agent is used in read-only mode.
+    real tool-less CLI agent (profiler.default_runner; it raises when the agent gives no answer).
     """
     prompt = build_configurator_prompt(description)
-    if runner is not None:
-        out = runner(prompt)
-    else:
-        from .registry import build_adapter
-        adapter = build_adapter(engine, model, "read-only")
-        with tempfile.TemporaryDirectory() as d:
-            res = adapter.run(prompt, d, "read-only", timeout)
-        out = res.stdout
-    return extract_json(out)
+    if runner is None:
+        from .profiler import default_runner       # lazy: profiler imports this module
+        runner = default_runner(engine, model, timeout)
+    return extract_json(runner(prompt))

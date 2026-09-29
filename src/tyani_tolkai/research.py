@@ -303,10 +303,14 @@ def check_kit(kit_dir: str | Path, *, repeats: int = 2) -> dict:
             add("error", "constraint-missing", f"constraint {c.name!r} is not printed by the scorer")
     noisy = sorted(k for k in set(runs[0]) | set(runs[-1])
                    if finite(runs[0].get(k)) and runs[0].get(k) != runs[-1].get(k))
-    if noisy:
-        add("warn", "noisy", f"the scorer is not deterministic ({', '.join(noisy)} changed between "
-                             "two runs on the same seed): set evaluation.runs: 3 and a larger "
-                             "min_delta, or fix the randomness (seed it)")
+    scored = {m.name for m in ev.metrics}
+    if noisy_scored := [k for k in noisy if k in scored]:
+        add("warn", "noisy", f"the scorer is not deterministic ({', '.join(noisy_scored)} changed "
+                             "between two runs on the same seed): set evaluation.runs: 3 and a "
+                             "larger min_delta, or fix the randomness (seed it)")
+    elif noisy:                          # a timing constraint / report field: normal, not a signal
+        add("info", "noisy-unscored", f"{', '.join(noisy)} vary between runs (not scored — only "
+                                      "matters if a constraint sits close to its limit)")
     if missing:
         return result(name=spec.name, values=values, eval_seconds=eval_s, baseline_score=None)
 
