@@ -127,7 +127,7 @@ pip install -e ".[web]"
 pull-and-push web                  # then open the printed URL (default http://127.0.0.1:8765)
 ```
 
-Run the tests: `pip install -e ".[dev]"` then `pytest` (151 pass, 1 docker test skipped).
+Run the tests: `pip install -e ".[dev]"` then `pytest` (434 pass; the 8 Docker tests skip when no Docker daemon is running).
 
 </details>
 
@@ -390,7 +390,7 @@ limits: { budget_usd: 5.0, usd_per_mtok: 3.0 }     # symmetric DOUBLES cost — 
 
 In the **WebUI** pick *Mode → symmetric* in the manual form (rival engines + referee +
 generations), then watch the live **dual stable-curve** (A vs B), the champion counts, and the
-deliverables (best-A-vs-all-B / best-B-vs-all-A). Stop halts it between generations; it resumes.
+deliverables (best-A-vs-all-B / best-B-vs-all-A). Stop halts it after the current side's turn; on resume an unfinished generation is replayed.
 
 To take it to a **real domain**, implement the `Referee` protocol
 (`src/tyani_tolkai/arena/referee.py`) and register it — the arena machinery is domain-agnostic.
@@ -431,7 +431,7 @@ pull-and-push projects delete renamed
 
 ## Tests
 
-The full suite passes (1 docker test skipped), run on Python 3.10 & 3.12 in CI — unit (scorer, config, state, metrics, brief, registry, sandbox),
+The full suite passes (the Docker tests skip without a daemon), run on Python 3.10 & 3.12 in CI — unit (scorer, config, state, metrics, brief, registry, sandbox),
 integration (orchestrator with mock + validator, baseline zero-point, force-stop, missing-
 metric handling), CLI adapter (incl. headless flags + kill), projects round-trip (zip),
 WebUI endpoints (incl. force-stop, agent-log, webhook), and a golden run proving
