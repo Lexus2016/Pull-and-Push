@@ -202,7 +202,8 @@ git pull
 **Cost cap** — `limits.budget_usd` (the form's Budget field) hard-stops a run when the spend reaches
 it. claude and grok report each call's dollar cost; codex, agy and some opencode models report only
 tokens — set `limits.usd_per_mtok` (Price) to price them (cache reads count at 10%). The live status
-shows `$X.XX`, or `≈ $X.XX` when some call reported nothing and had to be estimated from its text.
+shows `$X.XX` when every call reported its own cost, and `≈ $X.XX` when part of it was priced from
+tokens at `usd_per_mtok` or estimated.
 
 **Human checkpoints** — enable `checkpoints.on_target` / `on_plateau` / `every_n` to PAUSE for your
 review (status *awaiting_review*) instead of finishing; the dashboard shows **Continue** / **Accept

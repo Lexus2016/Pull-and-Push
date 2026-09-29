@@ -88,7 +88,8 @@ candidate is never kept, whatever its score.
    `dashboard.json` (a dashboard run). `agent.log` shows what the executor did, one `▸ tool
    path` line per action; an `AGENT TIMEOUT … only reasoned` iteration means the step was too big or
    the effort too high — shrink the task before raising the timeout. `status --json` carries the
-   real `cost_usd`, `tokens` and `cost_measured` (false = part of it was guessed or unpriced), and
+   real `cost_usd`, `tokens` and `cost_measured` (false = part of it was priced from tokens at the
+   flat `usd_per_mtok`, guessed, or unpriced), and
    `outside` — iterations whose executor reached outside its folder (`⚠` in the log). Any
    `outside` > 0: read those iterations and treat a kept candidate after them as suspect.
 9. **Verify before you believe:** `$PP report <name>` (seed → first kept → best → target per metric, kept steps,
