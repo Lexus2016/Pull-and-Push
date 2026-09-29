@@ -320,6 +320,14 @@ class SymmetricOrchestrator:
         """Inner sub-loop stop: external (UI Stop) or the global budget cap."""
         return bool(self._extern_stop and self._extern_stop()) or self._budget_exhausted()
 
+    def close(self) -> None:
+        """Release the three SQLite connections (side A, side B, project ledger)."""
+        for st in (self.state_a, self.state_b, self.ledger):
+            try:
+                st.close()
+            except Exception:
+                pass
+
     def force_kill(self) -> None:
         """Kill the currently-running sub-loop's agent process group (UI Force-Stop)."""
         if getattr(self, "_active_orch", None) is not None:
@@ -477,7 +485,13 @@ class SymmetricOrchestrator:
                 reason = "stopped"
                 break
             self._play_and_crown("A", generation)
+            if self._extern_stop and self._extern_stop():     # Stop landed during A's turn: do NOT
+                reason = "stopped"                            # count the generation as played —
+                break                                         # resume replays it (B never moved)
             self._play_and_crown("B", generation)
+            if self._extern_stop and self._extern_stop():
+                reason = "stopped"
+                break
             self._update_matrix(generation)
             self._record_stable_curves()
             self._completed_gen = generation

@@ -7,6 +7,7 @@ never receives the bot's path.
 """
 from __future__ import annotations
 
+import re
 import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -127,6 +128,26 @@ _SENSITIVE_NAMES = {"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
 _SENSITIVE_SUBSTRINGS = ("secret", "credential", "password", "passwd")
 
 
+# A secret VALUE inside an ordinary file (freqtrade's config.json keeps exchange key/secret there,
+# settings.py / keys.yml / .ini likewise): the file-name filter above can't see it. Mask the value
+# of any key/field whose NAME says it is a credential. Quoted literals are always masked; a bare
+# value only when it looks like a token (long, no spaces) — so `max_tokens = 100` or
+# `api_key = os.environ["X"]` keep their meaning for the analyzer.
+_SECRET_FIELD = re.compile(
+    r"""(?P<key>(?<![\w.-])["']?(?:[\w.-]*(?:api[_-]?key|apikey|secret|passw(?:or)?d|passphrase|private[_-]?key|access[_-]?key|auth[_-]?token|access[_-]?token|bot[_-]?token)[\w.-]*|key)["']?\s*[:=]\s*)"""
+    r"""(?P<val>"[^"\n]*"|'[^'\n]*'|[A-Za-z0-9_\-+/=.:]{16,})""",
+    re.IGNORECASE)
+
+
+def redact_secrets(text: str) -> str:
+    """Replace credential values with <redacted> before any text leaves for a third-party LLM."""
+    def _mask(m: re.Match) -> str:
+        v = m.group("val")
+        q = v[0] if v[:1] in ("'", '"') else ""
+        return m.group("key") + f"{q}<redacted>{q}"
+    return _SECRET_FIELD.sub(_mask, text)
+
+
 def _is_sensitive(p: Path) -> bool:
     """True if a file likely contains secrets — never read or send it to the LLM."""
     name = p.name.lower()
@@ -199,6 +220,7 @@ def assemble_payload(source_root: str | Path, *,
         except (UnicodeDecodeError, OSError):
             res.dropped.append(rel)                 # binary / unreadable
             continue
+        txt = redact_secrets(txt)                   # key/secret VALUES inside ordinary files
         was_truncated = False
         if len(txt) > max_file_chars:
             txt = txt[:max_file_chars] + "\n... [truncated]\n"

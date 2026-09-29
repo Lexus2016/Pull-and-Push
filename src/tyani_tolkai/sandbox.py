@@ -50,13 +50,17 @@ class LocalBackend:
                 cwd=str(cwd),
                 timeout=timeout,
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 env=full_env,
                 input=input,          # stdin (e.g. the referee feeds probes here, off-disk)
             )
             return ExecResult(proc.returncode, proc.stdout, proc.stderr)
         except subprocess.TimeoutExpired as e:
-            return ExecResult(124, e.stdout or "", (e.stderr or "") + "\n[timeout]", timed_out=True)
+            return _timed_out(e)
+        except ValueError as e:                  # shlex: unbalanced quotes in the command
+            return ExecResult(2, "", f"cannot parse the command: {e}")
+        except OSError as e:                     # binary not found / not executable
+            return ExecResult(127, "", f"cannot run the command: {e}")
 
 
 class DockerBackend:
@@ -95,10 +99,20 @@ class DockerBackend:
             argv += ["--cpus", str(self.cpus)]
         argv += [self.image, "sh", "-c", cmd]
         try:
-            proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, input=input)
+            proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=timeout, input=input)
             return ExecResult(proc.returncode, proc.stdout, proc.stderr)
         except subprocess.TimeoutExpired as e:
-            return ExecResult(124, e.stdout or "", (e.stderr or "") + "\n[timeout]", timed_out=True)
+            return _timed_out(e)
+        except OSError as e:                     # docker CLI not installed
+            return ExecResult(127, "", f"cannot run docker: {e}")
+
+
+def _timed_out(e: subprocess.TimeoutExpired) -> ExecResult:
+    """TimeoutExpired carries the partial output as BYTES even under text=True — decode it, or the
+    '+ "[timeout]"' below raises TypeError and a slow scorer crashes the loop instead of failing."""
+    def _s(b) -> str:
+        return b.decode("utf-8", errors="replace") if isinstance(b, bytes) else (b or "")
+    return ExecResult(124, _s(e.stdout), _s(e.stderr) + "\n[timeout]", timed_out=True)
 
 
 def get_backend(name: str, sandbox=None) -> SandboxBackend:

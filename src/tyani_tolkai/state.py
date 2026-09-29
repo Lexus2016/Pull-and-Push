@@ -134,7 +134,7 @@ class StateStore:
     def _git(self, *args: str) -> str:
         out = subprocess.run(
             ["git", "-C", str(self.artifact_dir), *args],
-            capture_output=True, text=True,
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         if out.returncode != 0:
             raise RuntimeError(f"git {' '.join(args)} failed: {out.stderr.strip()}")
@@ -143,6 +143,10 @@ class StateStore:
     def git_init(self) -> str:
         """Init the artifact repo and make an initial commit (allow empty)."""
         self.artifact_dir.mkdir(parents=True, exist_ok=True)
+        if (self.artifact_dir / ".git").is_file():
+            # a copied worktree/submodule pointer: every commit/reset would land in ANOTHER repo
+            raise RuntimeError("artifact/.git is a gitdir pointer file (a copied git worktree?) — "
+                               "refusing to commit into another repository; remove it and retry")
         if not (self.artifact_dir / ".git").exists():
             self._git("init", "-q")
             # local identity so commits work even without global git config
@@ -479,4 +483,29 @@ class StateStore:
                 "UPDATE run SET best_score=?, iter_count=?, plateau_count=0, no_op_count=? WHERE id=?",
                 (best, maxn, noop, run_id))
         self.conn.commit()
+        self._drop_unscored_candidates()
         return removed
+
+    def _drop_unscored_candidates(self) -> int:
+        """The reverse crash case: a 'candidate N' commit sitting on HEAD with no keep row (the
+        process died — power loss, SIGKILL — between committing the candidate and recording its
+        verdict). Reset HEAD back past such commits so a resume continues from the real best, not
+        from a never-scored candidate. Stops at the first kept commit or any non-candidate commit
+        (seed, import, manual), so legitimate history is never touched. Returns commits dropped."""
+        kept = {r["git_hash"] for r in self.conn.execute(
+            "SELECT git_hash FROM iteration WHERE verdict='keep' AND git_hash IS NOT NULL")}
+        try:
+            target = self.head()
+            dropped = 0
+            while target not in kept and self._git("log", "-1", "--format=%s", target).startswith(
+                    "candidate "):
+                parents = self._git("rev-list", "--parents", "-n", "1", target).split()[1:]
+                if len(parents) != 1:
+                    break
+                target = parents[0]
+                dropped += 1
+            if dropped:
+                self.reset_hard(target)
+            return dropped
+        except RuntimeError:          # no commits yet / not a repo — nothing to repair
+            return 0

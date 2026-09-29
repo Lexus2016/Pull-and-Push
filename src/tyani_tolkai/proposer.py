@@ -10,6 +10,7 @@ from collections.abc import Callable
 
 from pydantic import ValidationError
 
+from .bot_engine import SCORED_METRICS
 from .configurator import extract_json
 from .profile_schema import BotProfile
 from .profiler import default_runner
@@ -57,7 +58,10 @@ RULES:
 
 def build_proposer_prompt(profile: BotProfile, goal: str) -> str:
     """Assemble the proposer prompt: rules + allowed names + goal + inert profile JSON."""
-    allowed_metrics = ", ".join(m.name for m in profile.extractable_metrics) or "(none)"
+    # The onboarding scorer is the vetted engine (score-bot → bot_engine.simulate): it measures a
+    # FIXED set of keys itself from the bot's orders. Only those can be scored — names the profile
+    # analyzer made up ("return", "sharpe") would be rejected when the project is created.
+    allowed_metrics = ", ".join(SCORED_METRICS)
     allowed_tunables = ", ".join(t.name for t in profile.tunable_surface) or "(none)"
     return (
         _PROPOSER_HEADER
@@ -71,7 +75,7 @@ def build_proposer_prompt(profile: BotProfile, goal: str) -> str:
 
 def parse_proposal(text: str, *, engine: str, profile: BotProfile, goal: str) -> MetricProposal:
     """Extract the JSON object and validate into a MetricProposal, stamping provenance."""
-    data = extract_json(text)                      # raises ValueError if no JSON object
+    data = extract_json(text, require=("proposed_metrics",))   # ValueError → the repair pass
     data["proposer_engine"] = engine
     data["bot_name"] = profile.bot_name
     data["goal"] = goal
@@ -97,20 +101,20 @@ def ground_proposal(proposal: MetricProposal, profile: BotProfile) -> MetricProp
     kept_metrics = []
     seen_metrics: set[str] = set()
     for m in proposal.proposed_metrics:
-        fact = extractable.get(m.name)
-        if fact is None:
+        if m.name not in SCORED_METRICS:
             proposal.warnings.append(
-                f"dropped metric '{m.name}': not in the profile's extractable_metrics "
-                f"(the engine cannot measure it)"
+                f"dropped metric '{m.name}': the scoring engine cannot measure it "
+                f"(measurable: {', '.join(SCORED_METRICS)})"
             )
             continue
+        fact = extractable.get(m.name)
         if m.name in seen_metrics:
             proposal.warnings.append(
                 f"dropped duplicate metric '{m.name}': keeping the first occurrence only"
             )
             continue
         seen_metrics.add(m.name)
-        if not fact.trustworthy:
+        if fact is not None and not fact.trustworthy:
             proposal.warnings.append(
                 f"metric '{m.name}' is self-reported by the bot — the P3 engine must "
                 f"measure it independently; do not trust the bot's value"
@@ -136,11 +140,6 @@ def ground_proposal(proposal: MetricProposal, profile: BotProfile) -> MetricProp
         kept_tunables.append(t)
     proposal.proposed_tunables = kept_tunables
 
-    if not profile.extractable_metrics:
-        proposal.warnings.append(
-            "profile has no extractable metrics — the P3 engine must define what it "
-            "measures; no grounded metrics could be proposed"
-        )
     return proposal
 
 

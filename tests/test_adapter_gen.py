@@ -13,7 +13,9 @@ from tyani_tolkai.profile_schema import BotProfile, EntryPoint, Tunable
 def test_render_produces_compilable_adapter():
     src = render_adapter_stub()
     assert "def decide(" in src and "def run_protocol_io(" in src
-    assert "bot_protocol" in src
+    # self-contained: the bot runs in a bare sandbox image without this package installed
+    assert "import tyani_tolkai" not in src and "from tyani_tolkai" not in src
+    assert '"ready"' in src and '"order"' in src
     compile(src, "adapter.py", "exec")                  # valid Python
 
 

@@ -8,6 +8,7 @@ across iterations. The weighted aggregate is the run's single score.
 
 from __future__ import annotations
 
+import math
 from typing import Iterable, Literal, Mapping
 
 from .config import MetricCfg
@@ -37,6 +38,10 @@ def normalize(value: float, worst: float, target: float, dir: str = "higher") ->
     if target == worst:
         raise ValueError("worst and target must differ")
     progress = (value - worst) / (target - worst)
+    # max/min don't order NaN: min(100, nan) is 100, so a NaN would read as a PERFECT metric.
+    # A non-measurement scores 0 (the adapters already reject it; this is the last line of defence).
+    if not math.isfinite(progress):
+        return 0.0
     return max(0.0, min(100.0, progress * 100.0))
 
 

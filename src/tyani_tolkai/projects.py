@@ -86,9 +86,39 @@ def rename_project(old: str, new: str) -> None:
     src.rename(dst)
 
 
+def _copy_db(src: Path, dst: Path) -> None:
+    """Consistent copy of a live SQLite DB. The DB runs in WAL mode, so recent commits can still sit
+    in state.db-wal — copying state.db alone exported a stale (even empty) history."""
+    s = sqlite3.connect(str(src))
+    d = sqlite3.connect(str(dst))
+    try:
+        s.backup(d)
+    finally:
+        d.close()
+        s.close()
+
+
+# a symmetric (Co-Evolution Arena) project keeps its state in these, not in artifact/
+_ARENA_ITEMS = ("side_A", "side_B", "_champions", "_r_fixed", "arena.json", "arena.json.tmp")
+
+
 def reset_project(name: str) -> None:
-    """Git-reset the artifact to its initial commit and clear all run history; keep config."""
+    """Git-reset the artifact to its initial commit and clear all run history; keep config.
+    A symmetric project has no artifact/ — reset drops the two sides + arena ledger instead, so the
+    next Run bootstraps a fresh co-evolution."""
     d = project_dir(name)
+    if (d / "side_A").exists() or (d / "arena.json").exists():
+        for item in _ARENA_ITEMS:
+            p = d / item
+            if p.is_dir():
+                _rmtree(p)
+            elif p.exists():
+                p.unlink()
+        for suffix in ("", "-wal", "-shm"):
+            p = d / f"state.db{suffix}"
+            if p.exists():
+                p.unlink()
+        return
     state = StateStore(d)
     try:
         seed = state._git("rev-list", "--max-parents=0", "HEAD").splitlines()[0]
@@ -197,9 +227,10 @@ def export_project(name: str, dest_zip: str | Path, at_hash: str | None = None,
         stage = Path(tmp) / name
         stage.mkdir()
         # copy everything except the live artifact git checkout (travels as a bundle)
-        for item in ("config.yaml", "state.db"):
-            if (d / item).exists():
-                shutil.copy2(d / item, stage / item)
+        if (d / "config.yaml").exists():
+            shutil.copy2(d / "config.yaml", stage / "config.yaml")
+        if (d / "state.db").exists():
+            _copy_db(d / "state.db", stage / "state.db")
         _skip = shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache")
         for sub in ("context", "metrics"):
             if (d / sub).exists():
@@ -238,6 +269,14 @@ def export_project(name: str, dest_zip: str | Path, at_hash: str | None = None,
                 subprocess.run(["git", "-C", str(art), "bundle", "create",
                                 str(stage / "artifact.bundle"), "--all"], check=True,
                                capture_output=True)
+        if (d / "arena.json").exists():            # symmetric: the two sides ARE the deliverable
+            shutil.copy2(d / "arena.json", stage / "arena.json")
+            for side in ("side_A", "side_B"):
+                if (d / side / "artifact").exists():
+                    shutil.copytree(d / side / "artifact", stage / side / "artifact",
+                                    ignore=shutil.ignore_patterns(".git", "__pycache__", "*.pyc"))
+                if (d / side / "state.db").exists():
+                    _copy_db(d / side / "state.db", stage / side / "state.db")
         readme, results = _build_docs(d, name)     # human-readable deliverable docs
         (stage / "README.md").write_text(readme, encoding="utf-8")
         (stage / "RESULTS.md").write_text(results, encoding="utf-8")
@@ -287,13 +326,26 @@ def import_project(src_zip: str | Path, name: str | None = None) -> str:
         if dest.exists():
             raise FileExistsError(f"project already exists: {proj_name}")
         dest.mkdir(parents=True)
-        for item in ("config.yaml", "state.db"):
+        bundle = staged / "artifact.bundle"
+        # A snapshot export (one iteration's files, no git history) can't carry the run history:
+        # its kept iterations point at commits that don't exist here, and the next Run's reconcile
+        # would delete every one of them. Import it as a fresh project that STARTS from the snapshot.
+        snapshot = not bundle.exists() and (staged / "artifact").is_dir()
+        items = ("config.yaml",) if snapshot else ("config.yaml", "state.db")
+        for item in items:
             if (staged / item).exists():
                 shutil.copy2(staged / item, dest / item)
         for sub in ("context", "metrics"):
             if (staged / sub).exists():
                 shutil.copytree(staged / sub, dest / sub)
-        if (staged / "artifact.bundle").exists():
-            subprocess.run(["git", "clone", "-q", str(staged / "artifact.bundle"),
+        if bundle.exists():
+            subprocess.run(["git", "clone", "-q", str(bundle),
                             str(dest / "artifact")], check=True, capture_output=True)
+        elif snapshot:
+            shutil.copytree(staged / "artifact", dest / "artifact")
+            st = StateStore(dest)
+            try:
+                st.git_init()                    # the snapshot becomes this project's seed commit
+            finally:
+                st.close()
         return proj_name

@@ -145,18 +145,23 @@ class Orchestrator:
         for m in metrics:                                      # carry the pinned zero-points forward
             if m.name in baseline:
                 m.worst = baseline[m.name]
-        # 2) re-score every iteration from its stored values; exclude those missing a new metric
+        # 2) re-score every iteration from its stored values; exclude those missing a new metric.
+        # The new bar is the re-scored LATEST KEEP — that is the version in the tree (HEAD). The max
+        # over all history would include discarded candidates whose code is gone: a bar HEAD itself
+        # can't reach, so every following candidate would be discarded into a plateau.
         best = None; rescored = 0; excluded = 0
         for it in iters:
             vals = {mm["name"]: mm["value"] for mm in it.metrics}
             if any(m.name not in vals for m in metrics):
                 state.update_iteration_score(self.run_id, it.n, None)
                 excluded += 1
+                if it.verdict == "keep":
+                    best = None
                 continue
             sc = score(vals, metrics)
             state.update_iteration_score(self.run_id, it.n, sc)
             rescored += 1
-            if best is None or sc > best:
+            if it.verdict == "keep":
                 best = sc
         # 3) persist the new scale (zero-points + bar + signature)
         self._baseline = baseline
@@ -278,7 +283,7 @@ class Orchestrator:
                            report_stats: dict | None = None) -> None:
         """Run the read-only Validator for feedback; guarantee read-only by reverting
         any edits it makes (not every CLI honors a read-only flag)."""
-        if self.validator is None:
+        if self.validator is None or self.aborted:   # Force-Stop during scoring → no LLM call
             return
         cfg, state = self.cfg, self.state
         vprompt = build_validator_prompt(cfg, candidate_diff, values, new_score, verdict,
@@ -351,7 +356,7 @@ class Orchestrator:
         cfg, state = self.cfg, self.state
         every = cfg.evaluation.revalidate_every or 0
         best = state.best_score(self.run_id)
-        if every <= 0 or best is None or n <= 1 or (n - 1) % every != 0:
+        if every <= 0 or best is None or n <= 1 or (n - 1) % every != 0 or self.aborted:
             return
         ph("scoring")
         mres = self._run_metrics()
@@ -437,6 +442,22 @@ class Orchestrator:
         # never polluting the artifact's history.
         parent = state.head()
         cand_hash = state.commit(f"candidate {n}")
+        try:
+            return self._judge_candidate(n, parent, cand_hash, result, ph)
+        except BaseException:
+            # Anything escaping before the verdict is recorded (a crashing scorer, a DB error,
+            # Ctrl-C) must not leave the UNSCORED candidate as HEAD — a resume would silently build
+            # on it as if it were the best. A kept candidate is recorded first, so it stays.
+            try:
+                if state.head() == cand_hash and state.iteration_hash(self.run_id, n) != cand_hash:
+                    state.reset_hard(parent)
+            except Exception:
+                pass
+            raise
+
+    def _judge_candidate(self, n: int, parent: str, cand_hash: str, result, ph) -> IterationOutcome:
+        """Score the committed candidate, then keep it (commit stays) or discard it (reset)."""
+        cfg, state = self.cfg, self.state
         candidate_diff = state.diff(parent, cand_hash)[:_DIFF_KEEP_CHARS]
 
         ph("scoring")                        # Metric Runner scores the candidate
@@ -571,6 +592,9 @@ class Orchestrator:
         if best is not None and best >= cfg.evaluation.target_score:
             self.state.set_status(self.run_id, "finished")
             return LoopSummary("target", best, self.n)
+        if cfg.limits.budget_usd is not None and self.cost_total >= cfg.limits.budget_usd:
+            self.state.set_status(self.run_id, "finished")    # raise budget_usd to continue
+            return LoopSummary("budget", best, self.n)
         if self.plateau_count >= cfg.limits.plateau_N:
             self.state.set_status(self.run_id, "finished")
             return LoopSummary("plateau", best, self.n)

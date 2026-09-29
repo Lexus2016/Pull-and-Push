@@ -62,12 +62,16 @@ def build_configurator_prompt(description: str) -> str:
     return CONFIGURATOR_PROMPT.replace("<<<DESCRIPTION>>>", description.strip())
 
 
-def extract_json(text: str) -> dict:
+def extract_json(text: str, require: tuple[str, ...] = ()) -> dict:
     """Pull the JSON config object out of an agent's free-text output.
 
     Uses ``JSONDecoder.raw_decode`` (string- and nesting-aware — braces inside JSON
     strings won't fool it). Tries fenced ```json blocks first, then any fenced block,
     then the whole text, decoding at each ``{`` until one parses to a dict.
+
+    ``require``: keys the answer object must carry. When the outer object is broken JSON (a
+    trailing comma), the scan would otherwise land on a NESTED object (one metric) and return it
+    as if it were the whole answer — which then validates as an empty result and skips the repair.
     """
     if not text or not text.strip():
         raise ValueError("empty configurator output")
@@ -84,7 +88,7 @@ def extract_json(text: str) -> dict:
                 break
             try:
                 obj, _ = dec.raw_decode(block[s:])
-                if isinstance(obj, dict):
+                if isinstance(obj, dict) and all(k in obj for k in require):
                     return obj
             except json.JSONDecodeError:
                 pass

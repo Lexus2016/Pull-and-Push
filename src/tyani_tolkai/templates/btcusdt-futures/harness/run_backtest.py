@@ -29,6 +29,7 @@ import csv
 import datetime
 import importlib.util
 import json
+import math
 import pathlib
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -39,11 +40,30 @@ MS_PER_DAY = 86_400_000
 
 def load_bars():
     rows = []
-    with open(HERE / "data.csv", newline="") as f:
-        for r in csv.DictReader(f):
-            rows.append((int(float(r["time"])), float(r["open"]), float(r["high"]),
-                         float(r["low"]), float(r["close"]), float(r.get("volume", 0.0) or 0.0)))
+    with open(HERE / "data.csv", newline="", encoding="utf-8") as f:
+        for line, r in enumerate(csv.DictReader(f), start=2):
+            try:
+                row = (int(float(r["time"])), float(r["open"]), float(r["high"]),
+                       float(r["low"]), float(r["close"]), float(r.get("volume", 0.0) or 0.0))
+            except (KeyError, TypeError, ValueError) as e:
+                raise SystemExit(f"data.csv line {line}: bad or missing value ({e})")
+            if not all(math.isfinite(x) for x in row[1:5]):
+                raise SystemExit(f"data.csv line {line}: non-finite price")
+            if rows and row[0] <= rows[-1][0]:
+                raise SystemExit(f"data.csv line {line}: time must strictly increase (oldest bar first)")
+            rows.append(row)
     return rows
+
+
+def as_signal(x):
+    """A position is exactly -1, 0 or 1. Anything else is rejected: a 5 would be a 5x long whose
+    stop and liquidation are computed as for a short (it never stops out on a fall), and a NaN
+    turns the equity into NaN."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return int(v) if v in (-1.0, 0.0, 1.0) else None
 
 
 def load_strategy():
@@ -76,9 +96,13 @@ def main() -> int:
     bars = load_bars()
     if not hasattr(strat, "signals") or not callable(strat.signals):
         raise SystemExit("strategy.py must define signals(bars) -> list of -1/0/1 per bar")
-    want_seq = list(strat.signals(bars))
-    if len(want_seq) != len(bars):
-        raise SystemExit(f"signals() returned {len(want_seq)} positions for {len(bars)} bars")
+    raw = list(strat.signals(bars))
+    if len(raw) != len(bars):
+        raise SystemExit(f"signals() returned {len(raw)} positions for {len(bars)} bars")
+    want_seq = [as_signal(x) for x in raw]
+    bad = next((i for i, x in enumerate(want_seq) if x is None), None)
+    if bad is not None:
+        raise SystemExit(f"signals()[{bad}] = {raw[bad]!r}: every position must be -1, 0 or 1")
 
     oos_frac = min(0.9, max(0.05, args.oos))
     oos_start = int(len(bars) * (1.0 - oos_frac))       # index where the held-out tail begins
@@ -90,6 +114,7 @@ def main() -> int:
     peak = equity; max_dd = 0.0; underwater_ms = 0; peak_ts = bars[0][0] if bars else 0
     # out-of-sample trackers (the SCORED segment) — initialised when we cross oos_start
     oos = {"eq0": None, "peak": None, "dd": 0.0, "uw": 0, "peak_ts": 0, "liq0": 0, "tr0": 0}
+    wiped = False                        # account destroyed (equity floor hit)
 
     def close_pos(exit_price):
         nonlocal equity, pos
@@ -98,6 +123,32 @@ def main() -> int:
         equity += gross
         trades.append(gross - pos["entry_fee"])
         pos = None
+
+    def mark(price):
+        """Equity marked to market (open PnL included). Drawdown is measured on THIS, not on the
+        realised equity — otherwise a strategy that never closes a losing position (a huge
+        stop_pct) shows a 0% drawdown however deep the open loss goes."""
+        if pos is None:
+            return equity
+        return equity + pos["notional"] * (price - pos["entry"]) / pos["entry"] * pos["side"]
+
+    def track(ts, value):
+        """Update the full-run and OOS drawdown trackers with the marked equity. A tie with the
+        high-water mark is NOT underwater (a flat, no-trade tail isn't 'in drawdown')."""
+        nonlocal peak, peak_ts, max_dd, underwater_ms
+        if value >= peak:
+            peak = value; peak_ts = ts
+        else:
+            underwater_ms = max(underwater_ms, ts - peak_ts)
+            if peak > 0:
+                max_dd = max(max_dd, (peak - value) / peak * 100.0)
+        if oos["eq0"] is not None:
+            if value >= oos["peak"]:
+                oos["peak"] = value; oos["peak_ts"] = ts
+            else:
+                oos["uw"] = max(oos["uw"], ts - oos["peak_ts"])
+                if oos["peak"] > 0:
+                    oos["dd"] = max(oos["dd"], (oos["peak"] - value) / oos["peak"] * 100.0)
 
     for i, (ts, o, hi, lo, c, _v) in enumerate(bars):
         if i == oos_start:               # entering the held-out tail → start OOS accounting
@@ -110,7 +161,7 @@ def main() -> int:
                     equity -= pos["margin"]; liquidations += 1
                     trades.append(-pos["margin"] - pos["entry_fee"]); pos = None
                 elif lo <= pos["stop"]:
-                    close_pos(pos["stop"])
+                    close_pos(min(o, pos["stop"]))   # gapped through the stop → filled at the open
                 elif pos["take"] and hi >= pos["take"]:
                     close_pos(pos["take"])
             else:
@@ -118,13 +169,15 @@ def main() -> int:
                     equity -= pos["margin"]; liquidations += 1
                     trades.append(-pos["margin"] - pos["entry_fee"]); pos = None
                 elif hi >= pos["stop"]:
-                    close_pos(pos["stop"])
+                    close_pos(max(o, pos["stop"]))   # gapped through the stop → filled at the open
                 elif pos["take"] and lo <= pos["take"]:
                     close_pos(pos["take"])
 
         if equity <= 0.01:
             if peak > 0:
                 max_dd = 100.0          # account destroyed → full-period drawdown is total
+            oos["dd"] = 100.0           # …and the scored tail is a total loss (in it or never reached)
+            wiped = True
             equity = 0.0
             break
 
@@ -142,26 +195,12 @@ def main() -> int:
             pos = {"side": want, "entry": c, "notional": notional, "margin": margin,
                    "stop": stop, "take": take, "liq": liq, "entry_fee": entry_fee}
 
-        # full-run drawdown (report)
-        if equity > peak:
-            peak = equity; peak_ts = ts
-        else:
-            underwater_ms = max(underwater_ms, ts - peak_ts)
-            if peak > 0:
-                max_dd = max(max_dd, (peak - equity) / peak * 100.0)
-        # out-of-sample drawdown (scored)
-        if oos["eq0"] is not None:
-            if equity > oos["peak"]:
-                oos["peak"] = equity; oos["peak_ts"] = ts
-            else:
-                oos["uw"] = max(oos["uw"], ts - oos["peak_ts"])
-                if oos["peak"] > 0:
-                    oos["dd"] = max(oos["dd"], (oos["peak"] - equity) / oos["peak"] * 100.0)
+        # drawdown: full-run (viability gate) + out-of-sample (scored), marked to market
+        track(ts, mark(c))
 
     if pos is not None and bars:
         close_pos(bars[-1][4])
-        if equity > peak:
-            peak = equity
+        track(bars[-1][0], equity)       # the forced exit (and its fee) is part of the curve
 
     # ---- out-of-sample scored metrics ----
     oos_eq0 = oos["eq0"] if oos["eq0"] and oos["eq0"] > 0 else START_EQUITY
@@ -177,6 +216,8 @@ def main() -> int:
     win_rate = (len(wins) / num_trades * 100.0) if num_trades else 0.0
     profit_factor = round(gross_profit / gross_loss, 4) if gross_loss > 0 else None
     in_sample_return = ((oos_eq0 / START_EQUITY - 1.0) * 100.0)
+    if wiped and oos["eq0"] is None:     # destroyed before the tail: in-sample lost everything
+        in_sample_return = -100.0
 
     out = {
         # scored metrics — OUT-OF-SAMPLE tail (generalisation, not memorisation)

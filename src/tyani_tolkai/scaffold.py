@@ -19,6 +19,7 @@ producing a project that runs immediately, with no hand-authored math.
 from __future__ import annotations
 
 import json
+import shlex
 import shutil
 from pathlib import Path
 
@@ -31,6 +32,13 @@ from .proposal_schema import MetricProposal
 from .state import StateStore
 
 _JUNK = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store")
+# Copying a USER's folder into the artifact (seed copy, onboarding a bot): leave out VCS metadata —
+# a copied .git (or a worktree's .git pointer FILE) made git_init skip its own init and commit into
+# the user's real repository — plus secrets the executor LLM must never see, and bulky caches.
+USER_CODE_IGNORE = shutil.ignore_patterns(
+    ".git", ".hg", ".svn", "__pycache__", "*.pyc", ".DS_Store", ".pytest_cache", ".mypy_cache",
+    ".venv", "venv", "node_modules", ".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx",
+    "id_rsa*", "id_ed25519*", ".netrc", ".pypirc", ".npmrc")
 
 
 def templates_root() -> Path:
@@ -190,8 +198,11 @@ def build_onboarding_config(name: str, *, proposal: MetricProposal, bot_cmd: str
     # cwd is the artifact → `--bot-dir .` is the live edited bot, `../metrics/data.csv` the read-only
     # sibling. `{python}` is substituted by the numeric adapter; `-m tyani_tolkai.cli` avoids relying
     # on the console script being on PATH inside the run sandbox.
+    # every value quoted: a bot command like `python "my bot.py"` or a seed with a space must survive
+    # the shlex.split of the eval command as ONE argument each
     command = (f'{{python}} -m tyani_tolkai.cli score-bot '
-               f'--data {data_rel} --bot-dir . --bot-cmd "{bot_cmd}" --seed {seed_token}')
+               f'--data {shlex.quote(data_rel)} --bot-dir . --bot-cmd {shlex.quote(bot_cmd)} '
+               f'--seed {shlex.quote(seed_token)}')
     cfg = {
         "project": name,
         "description": goal,
@@ -249,7 +260,7 @@ def scaffold_onboarding(name: str, *, bot_dir, data_path, proposal: MetricPropos
     state = StateStore(base)
     try:
         state.artifact_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(bot_dir, state.artifact_dir, dirs_exist_ok=True, ignore=_JUNK)
+        shutil.copytree(bot_dir, state.artifact_dir, dirs_exist_ok=True, ignore=USER_CODE_IGNORE)
         (base / harness_dir).mkdir(parents=True, exist_ok=True)
         shutil.copy2(data_path, base / harness_dir / "data.csv")
         state.git_init()                                # commits the bot as the reset baseline

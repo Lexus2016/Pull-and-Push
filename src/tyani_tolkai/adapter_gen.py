@@ -10,14 +10,22 @@ silently — the failure this milestone exists to prevent); the stub is a forcin
 from __future__ import annotations
 
 
+def _clean(value) -> str:
+    """Make LLM-written profile text safe inside the generated docstring: a backslash (Windows path
+    like src\\Nodes → '\\N' unicode escape) or a triple quote would make adapter.py a SyntaxError."""
+    s = str(value if value is not None else "")
+    s = s.replace("\\", "/").replace('"', "'").replace("\r", " ").replace("\n", " ")
+    return s[:200]
+
+
 def _entry_hints(profile) -> list[str]:
     """Profile-derived comment lines to guide the human filling decide() (best-effort, never raises)."""
     lines: list[str] = []
     ep = getattr(profile, "entry_point", None)
     if ep is not None:
-        loc = getattr(ep, "location", "?")
-        inp = getattr(ep, "inputs", "")
-        out = getattr(ep, "outputs", "")
+        loc = _clean(getattr(ep, "location", "?"))
+        inp = _clean(getattr(ep, "inputs", ""))
+        out = _clean(getattr(ep, "outputs", ""))
         lines.append(f"#     entry point: {loc}")
         if inp:
             lines.append(f"#       consumes: {inp}")
@@ -25,7 +33,7 @@ def _entry_hints(profile) -> list[str]:
             lines.append(f"#       emits:    {out}")
     tun = getattr(profile, "tunable_surface", None) or []
     if tun:
-        names = ", ".join(str(getattr(t, "name", "?")) for t in tun[:8])
+        names = ", ".join(_clean(getattr(t, "name", "?")) for t in tun[:8])
         lines.append(f"#     tunables: {names}")
     return lines
 
@@ -44,12 +52,26 @@ state from it each call). Then prove it:
 """
 from __future__ import annotations
 
+import json
 import sys
 from typing import List, Tuple
 
-from tyani_tolkai import bot_protocol as bp
-
 Bar = Tuple[float, float, float, float, float]  # (open, high, low, close, volume)
+
+# The P3 wire protocol, inlined (stdlib only): the bot runs in a bare sandbox image where the
+# pull-and-push package is NOT installed, so it must not import it.
+INIT, READY, BAR, ORDER, END = "init", "ready", "bar", "order", "end"
+
+
+def _encode(msg: dict) -> str:
+    return json.dumps(msg, separators=(",", ":")) + "\\n"
+
+
+def _decode(line: str) -> dict:
+    obj = json.loads(line)
+    if not isinstance(obj, dict):
+        raise ValueError("protocol message must be a JSON object")
+    return obj
 
 
 def decide(history: List[Bar]) -> int:
@@ -72,16 +94,16 @@ def run_protocol_io(stdin, stdout) -> None:
         line = raw_line.strip()
         if not line:
             continue
-        msg = bp.decode(line)
+        msg = _decode(line)
         t = msg.get("type")
-        if t == bp.INIT:
-            stdout.write(bp.encode({{"type": bp.READY}}))
+        if t == INIT:
+            stdout.write(_encode({{"type": READY}}))
             stdout.flush()
-        elif t == bp.BAR:
+        elif t == BAR:
             history.append((msg["o"], msg["h"], msg["l"], msg["c"], msg["v"]))
-            stdout.write(bp.encode({{"type": bp.ORDER, "n": msg["n"], "want": decide(history)}}))
+            stdout.write(_encode({{"type": ORDER, "n": msg["n"], "want": decide(history)}}))
             stdout.flush()
-        elif t == bp.END:
+        elif t == END:
             return
 
 

@@ -61,7 +61,12 @@ def _reader_thread(
     total = 0
     try:
         assert proc.stdout is not None
-        for raw in proc.stdout:
+        while True:
+            # bounded read: a line with no newline must not be buffered whole (a hostile bot could
+            # stream gigabytes into one line — the cap has to bite BEFORE the memory is spent)
+            raw = proc.stdout.readline(max_bytes - total + 1)
+            if not raw:
+                break
             total += len(raw.encode("utf-8", errors="replace"))
             if total > max_bytes:
                 byte_q.put(True)
@@ -120,6 +125,7 @@ def drive_bot(
     per_read_timeout: float,
     total_timeout: float,
     max_bytes: int = 1_000_000,
+    cwd: str | None = None,
 ) -> list[int]:
     """Spawn *cmd* as a subprocess and drive the P3 streaming protocol.
 
@@ -137,6 +143,9 @@ def drive_bot(
         Wall-clock budget for the entire conversation.
     max_bytes:
         Maximum total bytes accepted from the bot's stdout (default 1 MB).
+    cwd:
+        Working directory for the bot (its folder), so a relative command such as
+        ``python adapter.py`` resolves. Default: a fresh empty temp dir.
 
     Returns
     -------
@@ -157,7 +166,8 @@ def drive_bot(
 
     # The TemporaryDirectory encloses the whole try/finally so it is only
     # removed AFTER the child process is gone.
-    with tempfile.TemporaryDirectory() as cwd:
+    with tempfile.TemporaryDirectory() as tmp_cwd:
+        run_cwd = str(cwd) if cwd else tmp_cwd
         proc: subprocess.Popen | None = None
         reader: threading.Thread | None = None
         watchdog: threading.Timer | None = None
@@ -170,10 +180,10 @@ def drive_bot(
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 bufsize=1,
                 close_fds=True,
-                cwd=cwd,
+                cwd=run_cwd,
             )
 
             # Backstop for write-stall: if the bot stops reading stdin, our
@@ -285,7 +295,7 @@ def drive_bot(
 
 
 def score_bot(cmd, bars, *, params, seed, allow_untrusted=False,
-              per_read_timeout=10.0, total_timeout=120.0):
+              per_read_timeout=10.0, total_timeout=120.0, cwd=None):
     """Score a bot end-to-end: stream bars to it over the protocol, then the vetted engine
     computes the metrics itself from the orders it returned.
 
@@ -300,6 +310,6 @@ def score_bot(cmd, bars, *, params, seed, allow_untrusted=False,
             "score_bot currently provides process separation only, for trusted/reference bots"
         )
     oos_start = bp.seeded_oos_start(len(bars), seed=seed)
-    orders = drive_bot(cmd, bars, params=params,
-                       per_read_timeout=per_read_timeout, total_timeout=total_timeout)
+    orders = drive_bot(cmd, bars, params=params, per_read_timeout=per_read_timeout,
+                       total_timeout=total_timeout, cwd=cwd)
     return simulate(bars, orders, oos_start=oos_start, params=params)

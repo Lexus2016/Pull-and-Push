@@ -54,7 +54,8 @@ def _seed_artifact(state: StateStore, cfg: Config) -> None:
     if cfg.seed.mode == "copy" and cfg.seed.path:
         src = Path(cfg.seed.path).expanduser()
         if src.exists():
-            shutil.copytree(src, state.artifact_dir, dirs_exist_ok=True)
+            from .scaffold import USER_CODE_IGNORE
+            shutil.copytree(src, state.artifact_dir, dirs_exist_ok=True, ignore=USER_CODE_IGNORE)
         else:
             print(f"⚠ seed copy path not found: {src} (starting empty)")
     # 'empty' starts with no artifact — the first iteration creates the initial code.
@@ -87,7 +88,10 @@ def _run_symmetric(cfg, args) -> int:
           f"rivals={cfg.agents['rival_a'].engine}/{cfg.agents['rival_b'].engine}  "
           f"generations={cfg.arena.generations}")
     orch = SymmetricOrchestrator(cfg, base, referee, ex_a, ex_b, sandbox)
-    result = orch.run()
+    try:
+        result = orch.run()
+    finally:
+        orch.close()
     print(f"✔ finished: reason={result.stop_reason}  generations={result.generations}")
     print(f"  best-A-vs-all-B = champion #{result.best_a_id}")
     print(f"  best-B-vs-all-A = champion #{result.best_b_id}")
@@ -278,7 +282,7 @@ def cmd_validate(args) -> int:
     if args.trusted:
         isolation = "subprocess (process-separation only; --trusted asserted by operator)"
         def score_bars(b):
-            return score_bot(bot_cmd, b, params=params, seed=args.seed,
+            return score_bot(bot_cmd, b, params=params, seed=args.seed, cwd=str(bot_dir),
                              per_read_timeout=args.per_read_timeout, total_timeout=args.total_timeout)
     elif docker_available():
         isolation = "docker-sandbox"
@@ -390,9 +394,9 @@ def cmd_check_adapter(args) -> int:
     bot_cmd = shlex.split(args.bot_cmd)
     try:
         run1 = drive_bot(bot_cmd, bars, params={}, per_read_timeout=args.per_read_timeout,
-                         total_timeout=args.total_timeout)
+                         total_timeout=args.total_timeout, cwd=str(bot_dir))
         run2 = drive_bot(bot_cmd, bars, params={}, per_read_timeout=args.per_read_timeout,
-                         total_timeout=args.total_timeout)
+                         total_timeout=args.total_timeout, cwd=str(bot_dir))
     except BotProtocolError as exc:
         print(f"adapter failed the protocol: {exc}", file=sys.stderr)
         return 1

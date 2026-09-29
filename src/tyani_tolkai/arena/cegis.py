@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import itertools
 import json
+import shlex
 import sys
 from pathlib import Path
 
@@ -104,7 +105,7 @@ class CegisReferee:
         py = str(getattr(sandbox, "python", sys.executable)).replace("\\", "/")
         res = None
         try:
-            res = sandbox.run(f"{py} _arena_runner.py", cwd=a_dir, timeout=60,
+            res = sandbox.run(f"{shlex.quote(py)} _arena_runner.py", cwd=a_dir, timeout=60,
                               input=json.dumps(probes))
             verdicts = json.loads(res.stdout) if res.exit_code == 0 else None
         except (json.JSONDecodeError, TypeError, ValueError):

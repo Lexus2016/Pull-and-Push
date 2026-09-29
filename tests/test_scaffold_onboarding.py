@@ -54,7 +54,7 @@ def test_build_onboarding_config_maps_proposal_metrics_and_wires_score_bot():
     assert "{python} -m tyani_tolkai.cli score-bot" in cmd
     assert "--bot-dir ." in cmd
     assert "../metrics/data.csv" in cmd
-    assert '--bot-cmd "python bot.py"' in cmd
+    assert "--bot-cmd 'python bot.py'" in cmd           # shlex-quoted: one argv item
     assert "--seed proj" in cmd
     # local backend avoids docker-in-docker (score-bot does the bot's docker isolation itself)
     assert cfg["sandbox"]["backend"] == "local"

@@ -8,6 +8,7 @@ TYANI_TOLKAI_WEB_PASSWORD env) protects the API when set.
 
 from __future__ import annotations
 
+import hmac
 import json
 import logging
 import os
@@ -21,6 +22,7 @@ log = logging.getLogger("pull_and_push")   # operational events; configured by t
 import yaml
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
+from starlette.background import BackgroundTask
 
 from ..config import Config, load_config
 from ..metrics import get_metric_adapter
@@ -61,6 +63,24 @@ def _fire_webhook(cfg, name: str, payload: dict) -> None:
         pass
 
 
+def _mark_arena_manifest(base: Path, status: str) -> None:
+    """Rewrite a symmetric project's arena.json status when its run thread is gone (crash, or a
+    server restart mid-run). Otherwise the manifest keeps saying 'running' and the dashboard polls
+    a dead run forever. Only a 'running' manifest is touched; resume treats any non-'finished'
+    status the same, so this never changes what the next Run does."""
+    mpath = base / "arena.json"
+    try:
+        m = json.loads(mpath.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if not isinstance(m, dict) or m.get("status") != "running":
+        return
+    m["status"] = status
+    tmp = mpath.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(m, indent=2), encoding="utf-8")
+    os.replace(tmp, mpath)
+
+
 def _select_run_id(state):
     """Pick the run to (re)use when Run is pressed: ALWAYS RESUME the latest run that has history,
     so pressing Run CONTINUES from the last iteration — the iteration count carries on and previous
@@ -85,6 +105,7 @@ class RunManager:
         self._runs: dict[str, dict] = {}
         self._stop: set[str] = set()
         self._lock = threading.Lock()
+        self._epoch = 0              # bumped (under the lock) whenever a run's outcome list is replaced
 
     def stop(self, name: str) -> None:
         self._stop.add(name)
@@ -108,13 +129,22 @@ class RunManager:
         orch.force_kill()          # outside the lock: SIGKILLs the agent's process group
         return True
 
-    def snapshot(self, name: str) -> dict | None:
+    def snapshot(self, name: str, since: int | None = None, epoch: int | None = None) -> dict | None:
+        """The live view of a run. With ``since`` + the ``epoch`` the client last saw, only the
+        outcomes after iteration ``since`` are returned (``delta``: true) — the UI polls every
+        second, and resending the whole history (feedback + diffs) grows to megabytes per poll on
+        a long run. Outcomes are append-only within an epoch; the epoch changes whenever the list
+        is replaced wholesale (a new Run, or the history re-seeded on a re-baseline), and then the
+        full list is sent so the client can't keep stale scores."""
         with self._lock:
             r = self._runs.get(name)
             if r is None:
                 return None          # no in-memory run → caller falls back to idle
+            ep = r.get("epoch", 0)
+            delta = since is not None and epoch == ep
+            outs = [o for o in r["outcomes"] if o["n"] > since] if delta else list(r["outcomes"])
             return {"status": r["status"], "summary": r["summary"],
-                    "outcomes": list(r["outcomes"]), "phase": r.get("phase"),
+                    "outcomes": outs, "delta": delta, "epoch": ep, "phase": r.get("phase"),
                     "baseline": dict(r.get("baseline") or {}), "cost": r.get("cost", 0.0),
                     "best": r.get("best"),   # scale-correct bar from the DB (not max over mixed scales)
                     "checkpoint": r.get("checkpoint")}
@@ -129,7 +159,9 @@ class RunManager:
             if self._runs.get(name, {}).get("status") == "running":
                 raise HTTPException(409, "run already in progress")
             self._stop.discard(name)   # clear inside the lock so a racing /stop isn't lost
+            self._epoch += 1
             self._runs[name] = {"status": "running", "summary": None, "outcomes": [],
+                                "epoch": self._epoch,
                                 "phase": None, "baseline": {}, "cost": 0.0, "best": None,
                                 "checkpoint": None}
         threading.Thread(target=self._run, args=(name,), daemon=True).start()
@@ -177,6 +209,8 @@ class RunManager:
             hist = state.last_iterations(run_id, 100000)        # persisted history, now current-scale
             with self._lock:
                 if name in self._runs:
+                    self._epoch += 1                      # history replaced (re-scored) → full resend
+                    self._runs[name]["epoch"] = self._epoch
                     self._runs[name]["outcomes"] = [
                         {"n": it.n, "verdict": it.verdict, "score": it.score,
                          "feedback": it.feedback, "change": it.change_summary, "ts": it.ts,
@@ -245,7 +279,10 @@ class RunManager:
                                          get_backend(cfg.sandbox.backend, cfg.sandbox))
             with self._lock:
                 self._runs[name]["orch"] = orch          # so Stop / Force-Stop reach the live run
-            result = orch.run(should_stop=lambda: name in self._stop)   # UI Stop between generations
+            try:
+                result = orch.run(should_stop=lambda: name in self._stop)   # UI Stop between turns
+            finally:
+                orch.close()
             term = "stopped" if result.stop_reason == "stopped" else "finished"
             with self._lock:
                 self._runs[name]["status"] = term
@@ -261,6 +298,7 @@ class RunManager:
             with self._lock:
                 self._runs[name]["status"] = "error"
                 self._runs[name]["summary"] = {"error": str(e)}
+            _mark_arena_manifest(base, "error")      # don't leave the manifest saying 'running'
             _fire_webhook(cfg, name, {"project": name, "status": "error", "error": str(e)})
 
 
@@ -378,13 +416,14 @@ def create_app(token: str | None = None) -> FastAPI:
                 _st.conn.commit()
             finally:
                 _st.close()
+        _mark_arena_manifest(_b, "stopped")     # same orphan, symmetric flavour (arena.json)
 
     @app.exception_handler(ValueError)
     async def _value_error(request, exc):       # invalid project name etc → 400, not 500
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
     def auth(t: str | None) -> None:
-        if app.state.token and t != app.state.token:
+        if app.state.token and not hmac.compare_digest(str(t or ""), str(app.state.token)):
             raise HTTPException(401, "bad or missing token")
 
     def _not_while_running(name: str) -> None:
@@ -453,8 +492,10 @@ def create_app(token: str | None = None) -> FastAPI:
         if not (art / ".git").exists():
             return {"files": []}
         import subprocess
-        tracked = subprocess.run(["git", "-C", str(art), "ls-files"],
-                                 capture_output=True, text=True).stdout.split()
+        # -z: NUL-separated and unquoted, so names with spaces or non-ASCII letters survive
+        out = subprocess.run(["git", "-C", str(art), "ls-files", "-z"],
+                             capture_output=True).stdout.decode("utf-8", errors="replace")
+        tracked = [f for f in out.split("\0") if f]
         files = []
         for f in tracked[:40]:
             if f == ".gitignore":
@@ -468,9 +509,10 @@ def create_app(token: str | None = None) -> FastAPI:
         return {"files": files}
 
     @app.get("/api/projects/{name}/live")
-    def api_live(name: str, token: str | None = Query(None)):
+    def api_live(name: str, since: int | None = Query(None), epoch: int | None = Query(None),
+                 token: str | None = Query(None)):
         auth(token)
-        snap = app.state.runs.snapshot(name)
+        snap = app.state.runs.snapshot(name, since=since, epoch=epoch)
         return snap or {"status": "idle", "outcomes": [], "summary": None}
 
     @app.get("/api/projects/{name}/agent-log")
@@ -499,6 +541,7 @@ def create_app(token: str | None = None) -> FastAPI:
         budget, and resume the run. (For a 'target' checkpoint, raise target_score first via the
         config, otherwise it will pause again next boundary.)"""
         auth(token)
+        _not_while_running(name)          # before touching the DB, not only inside start_run
         base = project_dir(name)
         if not (base / "config.yaml").exists():
             raise HTTPException(404, "no such project")
@@ -654,7 +697,8 @@ def create_app(token: str | None = None) -> FastAPI:
         if cfg.seed.mode == "copy" and cfg.seed.path:
             src = Path(cfg.seed.path).expanduser()
             if src.exists():
-                shutil.copytree(src, state.artifact_dir, dirs_exist_ok=True)
+                from ..scaffold import USER_CODE_IGNORE
+                shutil.copytree(src, state.artifact_dir, dirs_exist_ok=True, ignore=USER_CODE_IGNORE)
         state.git_init()
         (base / "config.yaml").write_text(
             yaml.safe_dump(payload, sort_keys=False, allow_unicode=True), encoding="utf-8")
@@ -713,8 +757,10 @@ def create_app(token: str | None = None) -> FastAPI:
         prt = float(payload.get("per_read_timeout") or 10.0)
         tt = float(payload.get("total_timeout") or 120.0)
         try:
-            run1 = drive_bot(cmd, bars, params={}, per_read_timeout=prt, total_timeout=tt)
-            run2 = drive_bot(cmd, bars, params={}, per_read_timeout=prt, total_timeout=tt)
+            run1 = drive_bot(cmd, bars, params={}, per_read_timeout=prt, total_timeout=tt,
+                             cwd=str(bot_dir))       # relative `python adapter.py` resolves
+            run2 = drive_bot(cmd, bars, params={}, per_read_timeout=prt, total_timeout=tt,
+                             cwd=str(bot_dir))
         except BotProtocolError as e:
             return {"ok": False, "well_formed": False, "deterministic": False, "degenerate": False,
                     "reasons": [f"adapter failed the protocol: {e}"]}
@@ -831,7 +877,8 @@ def create_app(token: str | None = None) -> FastAPI:
         if payload.get("trusted"):
             isolation = "subprocess (process-separation only; trusted asserted by operator)"
             def score_bars(b):
-                return score_bot(bot_cmd, b, params=params, seed=seed, per_read_timeout=prt, total_timeout=tt)
+                return score_bot(bot_cmd, b, params=params, seed=seed, per_read_timeout=prt,
+                                 total_timeout=tt, cwd=str(bot_dir))
         elif docker_available():
             isolation = "docker-sandbox"
             def score_bars(b):
@@ -881,11 +928,19 @@ def create_app(token: str | None = None) -> FastAPI:
         """Run the evaluation ONCE on the current artifact — verify the harness works and
         see the metrics or the raw stdout/stderr, without a full run (beats cold-start)."""
         auth(token)
+        # during a run the executor is editing this very working tree: scoring it now would grade a
+        # half-written candidate, and any file the scorer drops would be committed as the agent's
+        _not_while_running(name)
         base = project_dir(name)
         if not (base / "config.yaml").exists():
             raise HTTPException(404, "no such project")
         cfg = load_config(base / "config.yaml")
         state = StateStore(base)
+        was_clean = False
+        try:
+            was_clean = (state.artifact_dir / ".git").exists() and not state.has_changes()
+        except Exception:
+            was_clean = False
         try:
             # apply any already-resolved zero-points (worst) from the latest run
             run = state.conn.execute("SELECT baseline_json FROM run "
@@ -935,6 +990,11 @@ def create_app(token: str | None = None) -> FastAPI:
         except Exception as e:
             return {"ok": False, "logs": f"could not run evaluation: {e}", "metrics": []}
         finally:
+            if was_clean:
+                try:                                  # drop scoring side-effects, like the loop does,
+                    state.revert_uncommitted()        # so they can't leak into the next candidate
+                except Exception:
+                    log.warning("test-eval: could not revert scorer side-effects: project=%s", name)
             state.close()
 
     @app.post("/api/projects/{name}/stop")
@@ -993,10 +1053,16 @@ def create_app(token: str | None = None) -> FastAPI:
                 state.close()
             if not at_hash:
                 raise HTTPException(404, f"iteration {n} is not a restorable (kept) iteration")
-        dest = Path(tempfile.mkdtemp()) / f"{name}.zip"      # unique dir per request
-        export_project(name, dest, at_hash=at_hash, at_label=n)
+        tmp = Path(tempfile.mkdtemp())                       # unique dir per request
+        dest = tmp / f"{name}.zip"
+        try:
+            export_project(name, dest, at_hash=at_hash, at_label=n)
+        except Exception:
+            shutil.rmtree(tmp, ignore_errors=True)
+            raise
         fn = f"{name}.zip" if n is None else f"{name}-iter{n}.zip"
-        return FileResponse(dest, filename=fn, media_type="application/zip")
+        return FileResponse(dest, filename=fn, media_type="application/zip",   # removed once sent
+                            background=BackgroundTask(shutil.rmtree, tmp, ignore_errors=True))
 
     @app.post("/api/projects/{name}/rewind")
     def api_rewind(name: str, n: int = Query(..., alias="iter"),

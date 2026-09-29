@@ -38,6 +38,23 @@ _ANSI = re.compile(
 # arrived yet). We hold it back in `carry` so it isn't half-stripped at the chunk boundary.
 _TRAIL_ESC = re.compile(rb"\x1b(?:\[[0-?]*[ -/]*|\][^\x07\x1b]*|[ -/]*)?$")
 
+# Provider rate-limit / quota detection. A FAILED run (non-zero exit) is checked for any limit
+# hint; a SUCCESSFUL run only for an unambiguous limit notice near the end of its output. Bare
+# words like "quota", "429" or "overloaded" in a successful run are ordinary content — an agent
+# that edited "lines 1429-1440" or wrote a "per-symbol quota" must not pause the whole run and
+# have its edit reverted.
+_RATE_ANY = re.compile(r"rate[ _-]?limit|\b429\b|too many requests|quota|overloaded|usage limit",
+                       re.IGNORECASE)
+_RATE_STRONG = re.compile(r"usage limit reached|rate limit (?:reached|exceeded)|rate_limit_exceeded"
+                          r"|too many requests|insufficient_quota|quota exceeded"
+                          r"|exceeded your current quota|overloaded_error", re.IGNORECASE)
+
+
+def _looks_rate_limited(output: str, returncode: int) -> bool:
+    if returncode != 0:
+        return bool(_RATE_ANY.search(output or ""))
+    return bool(_RATE_STRONG.search((output or "")[-600:]))
+
 
 _EXECUTOR_FOCUS = (
     "You are an autonomous code executor in an automated loop. Ignore ALL global/personal "
@@ -159,10 +176,7 @@ class CLIAgentAdapter:
         if timed_out:
             return RunResult(status="timeout", stdout=full)
         status = "success" if returncode == 0 else "crashed"
-        low = full.lower()
-        if any(k in low for k in ("rate limit", "rate_limit", "ratelimit", "429",
-                                  "too many requests", "quota", "overloaded",
-                                  "usage limit", "insufficient_quota")):
+        if _looks_rate_limited(full, returncode):
             status = "rate_limited"        # transient provider limit — pause, don't retry
         return RunResult(status=status, stdout=full)
 
@@ -194,7 +208,7 @@ class CLIAgentAdapter:
     def _run_plain(self, argv, workdir, timeout) -> RunResult:
         try:
             proc = subprocess.Popen(
-                argv, cwd=str(workdir), text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                argv, cwd=str(workdir), text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL, **_POPEN_GROUP)
         except FileNotFoundError:
             return RunResult(status="crashed", stdout=f"{self.prefix[0]!r} not installed")

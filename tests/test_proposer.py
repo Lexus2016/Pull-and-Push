@@ -86,26 +86,33 @@ def test_ground_warns_self_reported_metric():
     from tyani_tolkai.profile_schema import BotProfile, ExtractableFact
     profile = BotProfile(
         analyzer_engine="c", bot_name="b", source_root="/x", language="python", framework="custom",
-        extractable_metrics=[ExtractableFact(name="pnl", how="bot prints it", trustworthy=False,
-                                             confidence=0.6, evidence=["b.py:1"])],
+        extractable_metrics=[ExtractableFact(name="return_oos_pct", how="bot prints it",
+                                             trustworthy=False, confidence=0.6, evidence=["b.py:1"])],
     )
     p = MetricProposal(proposer_engine="c", bot_name="b", goal="g",
-                       proposed_metrics=[ProposedMetric(name="pnl", dir="higher", weight=1.0,
+                       proposed_metrics=[ProposedMetric(name="return_oos_pct", dir="higher", weight=1.0,
                                                         target=100.0, rationale="x", confidence=0.5)])
     g = ground_proposal(p, profile)
-    assert [m.name for m in g.proposed_metrics] == ["pnl"]
-    assert any("self-reported" in w.lower() and "pnl" in w for w in g.warnings)
+    assert [m.name for m in g.proposed_metrics] == ["return_oos_pct"]
+    assert any("self-reported" in w.lower() and "return_oos_pct" in w for w in g.warnings)
 
 
-def test_ground_empty_extractable_warns():
+def test_ground_keeps_engine_metrics_even_if_the_profile_lists_none():
+    # the onboarding scorer is the vetted engine: it measures SCORED_METRICS itself from the bot's
+    # orders, so an empty profile does not block them — and names outside that set are dropped
+    # (they would be rejected at project creation anyway).
     from tyani_tolkai.proposer import ground_proposal
-    from tyani_tolkai.proposal_schema import MetricProposal
+    from tyani_tolkai.proposal_schema import MetricProposal, ProposedMetric
     from tyani_tolkai.profile_schema import BotProfile
     profile = BotProfile(analyzer_engine="c", bot_name="b", source_root="/x",
                          language="python", framework="custom")
-    p = MetricProposal(proposer_engine="c", bot_name="b", goal="g")
+    mk = lambda n: ProposedMetric(name=n, dir="higher", weight=1.0, target=1.0, rationale="x",
+                                  confidence=0.5)
+    p = MetricProposal(proposer_engine="c", bot_name="b", goal="g",
+                       proposed_metrics=[mk("return_oos_pct"), mk("sharpe")])
     g = ground_proposal(p, profile)
-    assert any("no extractable" in w.lower() or "engine must define" in w.lower() for w in g.warnings)
+    assert [m.name for m in g.proposed_metrics] == ["return_oos_pct"]
+    assert any("sharpe" in w and "cannot measure" in w for w in g.warnings)
 
 
 def test_ground_dedups_duplicate_metric_names():

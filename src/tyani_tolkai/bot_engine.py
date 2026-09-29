@@ -98,6 +98,8 @@ def simulate(
     oos: dict = {"eq0": None, "peak": None, "dd": 0.0,
                  "uw": 0, "peak_bar": 0, "liq0": 0, "tr0": 0}
 
+    wiped = False                     # account destroyed (equity floor hit)
+
     # ------------------------------------------------------------------
     def close_pos(exit_price: float) -> None:
         nonlocal equity, pos
@@ -106,6 +108,32 @@ def simulate(
         equity += gross
         trades.append(gross - pos["entry_fee"])
         pos = None
+
+    def mark(price: float) -> float:
+        """Equity marked to market (open PnL included). Drawdown is measured on THIS, not on the
+        realised equity — otherwise a strategy that simply never closes a losing position (a huge
+        stop_pct) shows a 0% drawdown however deep the open loss goes."""
+        if pos is None:
+            return equity
+        return equity + pos["notional"] * (price - pos["entry"]) / pos["entry"] * pos["side"]
+
+    def track(i: int, value: float) -> None:
+        """Update the full-run and OOS drawdown trackers with the marked equity at bar i. A tie
+        with the high-water mark is NOT underwater (a flat, no-trade tail isn't 'in drawdown')."""
+        nonlocal peak, peak_bar, max_dd
+        if value >= peak:
+            peak     = value
+            peak_bar = i
+        elif peak > 0:
+            max_dd = max(max_dd, (peak - value) / peak * 100.0)
+        if oos["eq0"] is not None:
+            if value >= oos["peak"]:
+                oos["peak"]     = value
+                oos["peak_bar"] = i
+            else:
+                oos["uw"] = max(oos["uw"], i - oos["peak_bar"])
+                if oos["peak"] > 0:
+                    oos["dd"] = max(oos["dd"], (oos["peak"] - value) / oos["peak"] * 100.0)
     # ------------------------------------------------------------------
 
     for i, (o, hi, lo, c, _v) in enumerate(bars):
@@ -126,7 +154,7 @@ def simulate(
                     trades.append(-pos["margin"] - pos["entry_fee"])
                     pos = None
                 elif lo <= pos["stop"]:
-                    close_pos(pos["stop"])
+                    close_pos(min(o, pos["stop"]))   # gapped through the stop → filled at the open
                 elif pos["take"] and hi >= pos["take"]:
                     close_pos(pos["take"])
             else:  # short
@@ -136,7 +164,7 @@ def simulate(
                     trades.append(-pos["margin"] - pos["entry_fee"])
                     pos = None
                 elif hi >= pos["stop"]:
-                    close_pos(pos["stop"])
+                    close_pos(max(o, pos["stop"]))   # gapped through the stop → filled at the open
                 elif pos["take"] and lo <= pos["take"]:
                     close_pos(pos["take"])
 
@@ -144,6 +172,8 @@ def simulate(
         if equity <= 0.01:
             if peak > 0:
                 max_dd = 100.0          # account destroyed → full-period drawdown is total
+            oos["dd"] = 100.0           # …and the scored tail is a total loss (in it or never reached)
+            wiped = True
             equity = 0.0
             break
 
@@ -168,30 +198,14 @@ def simulate(
                 "liq": liq, "entry_fee": entry_fee,
             }
 
-        # ---- full-run drawdown (report) ----
-        if equity > peak:
-            peak     = equity
-            peak_bar = i
-        else:
-            if peak > 0:
-                max_dd = max(max_dd, (peak - equity) / peak * 100.0)
-
-        # ---- OOS drawdown (scored) ----
-        if oos["eq0"] is not None:
-            if equity > oos["peak"]:
-                oos["peak"]     = equity
-                oos["peak_bar"] = i
-            else:
-                oos["uw"] = max(oos["uw"], i - oos["peak_bar"])
-                if oos["peak"] > 0:
-                    oos["dd"] = max(oos["dd"], (oos["peak"] - equity) / oos["peak"] * 100.0)
+        # ---- drawdown: full-run (viability gate) + OOS (scored), marked to market ----
+        track(i, mark(c))
 
     # ---- close any open position at final bar's close ----
     # bars are (o, h, l, c, v) — close is index 3, not 4 (harness had ts at 0, so close was at 4)
     if pos is not None and bars:
         close_pos(bars[-1][3])
-        if equity > peak:
-            peak = equity
+        track(len(bars) - 1, equity)      # the forced exit (and its fee) is part of the curve
 
     # ---- out-of-sample scored metrics ----
     oos_eq0    = oos["eq0"] if oos["eq0"] and oos["eq0"] > 0 else START_EQUITY
@@ -207,6 +221,8 @@ def simulate(
     win_rate     = (len(wins) / num_trades * 100.0) if num_trades else 0.0
     profit_factor = round(gross_profit / gross_loss, 4) if gross_loss > 0 else None
     in_sample_return = (oos_eq0 / START_EQUITY - 1.0) * 100.0
+    if wiped and oos["eq0"] is None:      # destroyed before the tail: in-sample lost everything
+        in_sample_return = -100.0
 
     return {
         # scored — OOS tail

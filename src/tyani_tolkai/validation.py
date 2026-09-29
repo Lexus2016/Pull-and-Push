@@ -230,7 +230,10 @@ def check_adapter_orders(run1, run2, n_bars: int) -> dict:
     degenerate = bool(run1) and len(set(run1)) <= 1
     if degenerate:
         reasons.append("degenerate: the same order on every bar — decide() may be unwired or constant")
-    ok = well_formed and deterministic and not degenerate
+    enough = n_bars >= 2                  # 0/1 bars "pass" every check vacuously
+    if not enough:
+        reasons.append(f"too few bars to judge the adapter ({n_bars}); use at least 2")
+    ok = well_formed and deterministic and not degenerate and enough
     return {"well_formed": well_formed, "deterministic": deterministic,
             "degenerate": degenerate, "ok": ok, "reasons": reasons}
 
