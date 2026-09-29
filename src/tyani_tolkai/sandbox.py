@@ -32,9 +32,14 @@ class LocalBackend:
     """Run the command on the host with a timeout. No isolation — Phase 1 only."""
 
     name = "local"
-    # Interpreter the metric adapters invoke (host venv). Forward slashes so the path stays
-    # intact through shlex.split(posix=True) on Windows too — C:/...\python.exe works there.
-    python = sys.executable.replace("\\", "/")
+
+    @property
+    def python(self) -> str:
+        """The interpreter `{python}` means: the Settings choice / $PULL_AND_PUSH_PYTHON, else the
+        one running Pull-and-Push. Forward slashes so the path stays intact through
+        shlex.split(posix=True) on Windows too — C:/...\\python.exe works there."""
+        from .settings import scorer_python
+        return scorer_python().replace("\\", "/")
 
     def run(self, cmd: str, cwd: str | Path, timeout: int,
             env: dict | None = None, input: str | None = None) -> ExecResult:

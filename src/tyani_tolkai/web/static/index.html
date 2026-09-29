@@ -266,7 +266,7 @@
 
   /* ───────── toast ───────── */
   #toast{position:fixed;right:24px;bottom:24px;padding:14px 20px;border-radius:var(--radius);font-family:var(--mono);
-    font-size:14px;max-width:400px;display:none;z-index:60;border:1px solid;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+    font-size:14px;max-width:400px;display:none;z-index:90;border:1px solid;box-shadow:0 12px 40px rgba(0,0,0,.5)}
   #toast.err{background:#1a0e0e;color:#ffd0d0;border-color:#5a2a2a;display:block}
   #toast.ok{background:#0a1a14;color:#bff5df;border-color:#2c7a58;display:block}
   .hidden{display:none!important}
@@ -289,8 +289,23 @@
     header .right .btn,.lang-sel{padding:8px 10px;font-size:12px;min-height:40px}
     .score{font-size:42px} main{padding:18px 16px}
   }
-  .modal{position:fixed;inset:0;background:rgba(4,9,16,.72);display:flex;align-items:center;justify-content:center;z-index:50}
+  .modal{position:fixed;inset:0;background:rgba(4,9,16,.72);display:flex;align-items:center;justify-content:center;z-index:70}   /* above the feed rail (55) and the flash (60) */
   .modal.hidden{display:none}
+  .ver{font-family:var(--mono);font-size:11px;color:var(--mut)}
+  .upd{font-family:var(--mono);font-size:12px;color:var(--warm);border:1px solid var(--warm-dim);border-radius:var(--radius);
+    padding:6px 10px;text-decoration:none;white-space:nowrap}
+  .upd:hover{background:rgba(255,182,99,.08)}
+  .set-box{width:min(760px,94vw);max-height:86vh}
+  .set-body{overflow:auto;padding:6px 18px 14px}
+  .set-sec{padding:12px 0;border-bottom:1px solid var(--line)}
+  .set-sec:last-child{border-bottom:0}
+  .set-sec h4{margin:0 0 8px;font-size:13px;color:var(--ink);font-family:var(--display);letter-spacing:.02em}
+  .set-row{display:grid;grid-template-columns:110px 1fr;gap:4px 12px;align-items:baseline;font-size:13px;margin:4px 0}
+  .set-row .k{color:var(--mut)}
+  .set-row code,.set-hint code{font-family:var(--mono);font-size:12px;color:var(--ink-dim);word-break:break-all}
+  .set-ok{color:var(--good)} .set-bad{color:var(--bad)}
+  .set-hint{font-size:12px;color:var(--mut);margin-top:6px;line-height:1.5}
+  .set-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:center}
   .modal-box{width:min(640px,92vw);max-height:80vh;display:flex;flex-direction:column;background:var(--panel);
     border:1px solid var(--line-2);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,.5)}
   .modal-head{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
@@ -454,12 +469,14 @@
 <header>
   <button class="iconbtn tipd" id="navBtn" data-i18n-title="nav.toggle" title="Toggle sidebar">☰</button>
   <div class="brand">
-    <h1>Pull-and-Push</h1><span class="pp">[ pull ⇄ push ]</span>
+    <h1>Pull-and-Push</h1><span class="pp">[ pull ⇄ push ]</span><span class="ver" id="ver"></span>
   </div>
   <span class="sub">adversarial co-evolution engine</span>
   <div class="right">
+    <a class="upd hidden tipd" id="updBadge" target="_blank" rel="noopener" data-i18n-title="upd.title" title="A newer version is available"></a>
     <select id="lang" class="lang-sel tipd" data-i18n-title="lang.title" title="Language"><option value="en">EN</option><option value="uk">UA</option><option value="ru">RU</option></select>
     <button class="btn sec tipd" id="feedBtn" style="width:auto;margin:0" data-i18n="feed.btn" data-i18n-title="feed.toggle" title="Activity feed">▦ Feed</button>
+    <button class="btn sec tipd" id="setBtn" style="width:auto;margin:0" data-i18n-title="set.title" title="Settings & diagnostics">⚙</button>
     <button class="btn sec tipd" id="helpBtn" data-i18n="help.btn" data-i18n-title="help.btnTitle" style="width:auto;margin:0">❔ How it works</button>
   </div>
 </header>
@@ -796,11 +813,36 @@
     </div>
   </div>
 </div>
+<div id="settings" class="modal hidden">
+  <div class="modal-box set-box">
+    <div class="modal-head"><b data-i18n="set.head">⚙ Settings &amp; diagnostics</b><button class="x" id="setClose" title="✕">✕</button></div>
+    <div class="set-body" id="setBody"></div>
+    <div class="modal-foot">
+      <button class="btn sec" id="setCopy" style="width:auto" data-i18n="set.copy">⧉ Copy diagnostics</button>
+      <button class="btn sec" id="setRecheck" style="width:auto" data-i18n="set.recheck">↻ Check again</button>
+    </div>
+  </div>
+</div>
+<div id="tokenAsk" class="modal hidden">
+  <div class="modal-box">
+    <div class="modal-head"><b data-i18n="tok.head">🔒 Sign in to this dashboard</b></div>
+    <div class="set-body">
+      <p class="set-hint" style="font-size:13px" data-i18n="tok.body">This dashboard is protected by a token. Paste the link printed by <code>pull-and-push web</code> — or get it with <code>pull-and-push url --open</code>.</p>
+      <input id="tokInput" data-i18n-ph="tok.ph" placeholder="http://127.0.0.1:8765/?token=…" style="margin-top:8px">
+    </div>
+    <div class="modal-foot"><span></span><button class="btn" id="tokGo" style="width:auto" data-i18n="tok.go">Sign in</button></div>
+  </div>
+</div>
 <div id="toast"></div>
 <div id="tip"></div>
 <script>
 const TOKEN=new URLSearchParams(location.search).get('token')||'';
 const api=p=>TOKEN?p+(p.includes('?')?'&':'?')+'token='+encodeURIComponent(TOKEN):p;
+// the session cookie is set by the printed link; without it every API call is 401 → ask once
+{const f=window.fetch.bind(window);let asked=false;
+  window.fetch=async(...a)=>{const r=await f(...a);
+    if(r.status===401&&!asked&&String(a[0]).includes('/api/')){asked=true;$('tokenAsk').classList.remove('hidden');$('tokInput').focus();}
+    return r;};}
 const $=id=>document.getElementById(id);
 let META={},current=null,poll=null,chart=null;
 // escapes text AND attribute values (metric names / paths land inside value="…" / data-path="…")
@@ -1016,9 +1058,14 @@ function fillEngineSelects(){const keep=['f_ex_engine','f_va_engine','g_engine',
   opts($('f_ra_engine'),riv);opts($('f_rb_engine'),riv);
   keep.forEach(([id,v])=>{if(v)setSel(id,v);});}
 
-async function loadMeta(){META=await(await fetch(api('/api/meta'))).json();
+async function loadMeta(){const r=await fetch(api('/api/meta'));
+  if(!r.ok)throw new Error('meta: HTTP '+r.status);   // 401 → the sign-in dialog is already up
+  META=await r.json();
   opts($('f_mode'),META.modes);opts($('f_adapter'),META.adapters);fillEngineSelects();
   if(META.installed&&!['claude','codex','opencode'].some(e=>META.installed[e]))toast(t('eng.none'),'err');
+  $('ver').textContent=META.version?'v'+META.version:'';
+  const u=META.update,b=$('updBadge');b.classList.toggle('hidden',!u);   // source installs only (the app has Sparkle)
+  if(u){b.textContent='⬆ '+u.latest;b.href=u.url||'#';}
   opts($('f_referee'),META.referees||['cegis-recognizer']);
   $('f_mode').onchange=vis;}                 // mode toggle swaps asymmetric ↔ arena fields
 
@@ -1799,8 +1846,111 @@ $('steerBtn').onclick=async()=>{const txt=$('steerText').value.trim();if(!curren
   if(!r.ok){toast(await failMsg(r),'err');return;}          // keep the text so it isn't lost
   $('steerText').value='';toast(t('toast.cmdAdded'),'ok');};
 
+// ── Settings & diagnostics: versions/updates, agent CLIs, the scorer Python, data folder, security ──
+const AGENT_INSTALL={claude:'npm install -g @anthropic-ai/claude-code',codex:'npm install -g @openai/codex',
+  opencode:'npm install -g opencode-ai'};
+let DIAG=null;
+async function openSettings(refresh){$('settings').classList.remove('hidden');
+  $('setBody').innerHTML=`<div class="set-hint" style="padding:14px 0">${esc(t('set.loading'))}</div>`;
+  try{const [d,s]=await Promise.all([fetch(api('/api/diagnostics'+(refresh?'?refresh=1':''))).then(r=>r.json()),
+      fetch(api('/api/settings')).then(r=>r.json())]);
+    DIAG={diagnostics:d,settings:s};renderSettings(d,s);}
+  catch(e){$('setBody').innerHTML=`<div class="set-bad">${esc(t('err.prefix')+e)}</div>`;}}
+window.openSettings=openSettings;          // the macOS app's Settings… (⌘,) menu calls it
+function renderSettings(d,s){
+  const ok=v=>`<span class="set-ok">✓</span> ${esc(v||'')}`,bad=v=>`<span class="set-bad">✗</span> ${esc(v)}`;
+  const row=(k,v)=>`<div class="set-row"><span class="k">${esc(k)}</span><span>${v}</span></div>`;
+  let upd;
+  if(d.app)upd=`${esc(t('set.appUpd'))}<div class="set-actions"><button class="btn sec" id="setUpd" style="width:auto">${esc(t('set.checkUpd'))}</button></div>`;
+  else if(d.update&&d.update.newer)upd=`<b class="set-bad">${esc(t('set.newer',d.update.latest))}</b> <a href="${esc(d.update.url)}" target="_blank" rel="noopener">${esc(t('set.notes'))}</a><div class="set-hint">${t('set.howUpd')}</div>`;
+  else if(d.update)upd=ok(t('set.latest',d.update.latest||''));
+  else upd=`<span class="k">${esc(t(s.settings.update_check?'set.updUnknown':'set.updOff'))}</span>`;
+  const autoChk=d.app?'':`<label class="set-hint" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="setAuto" style="width:auto" ${s.settings.update_check?'checked':''}>${esc(t('set.autoUpd'))}</label>`;
+  const agents=Object.entries(d.agents).map(([n,a])=>row(n,a.path?ok(a.version||a.path)+`<div class="set-hint"><code>${esc(a.path)}</code></div>`
+    :bad(t('set.missing'))+(AGENT_INSTALL[n]?`<div class="set-hint">${esc(t('set.install'))} <code>${esc(AGENT_INSTALL[n])}</code></div>`:''))).join('');
+  const tool=(x)=>x.path?ok(x.version||x.path):bad(t('set.missing'));
+  const sp=d.scorer_python,cands=(s.candidates||[]).filter(c=>c.ok);
+  const opts=`<option value="">${esc(t('set.pyDefault',d.engine_python.version))}</option>`+cands.filter(c=>c.path!==d.engine_python.path)
+    .map(c=>`<option value="${esc(c.path)}" ${s.settings.scorer_python===c.path?'selected':''}>${esc(c.path)} — Python ${esc(c.version)}</option>`).join('')
+    +`<option value="__other" ${s.settings.scorer_python&&!cands.some(c=>c.path===s.settings.scorer_python)?'selected':''}>${esc(t('set.pyOther'))}</option>`;
+  $('setBody').innerHTML=
+    `<div class="set-sec"><h4>${esc(t('set.version'))}</h4>`+row('Pull-and-Push',esc('v'+d.version)+' · '+esc(t(d.app?'set.kindApp':'set.kindSrc')))+
+      row(t('set.updates'),upd)+autoChk+`</div>`+
+    `<div class="set-sec"><h4>${esc(t('set.agents'))}</h4>${agents}`+row('git',tool(d.git)+(d.git.path?'':`<div class="set-hint">${esc(t('set.gitHint'))} <code>xcode-select --install</code></div>`))+
+      row('docker',tool(d.docker))+(d.app?`<div class="set-hint">${esc(t('set.pathHint'))}</div>`:'')+`</div>`+
+    `<div class="set-sec"><h4>${esc(t('set.py'))}</h4>`+row(t('set.pyNow'),(sp.ok?ok('Python '+sp.version):bad(sp.error||'?'))+`<div class="set-hint"><code>${esc(sp.path)}</code> · ${esc(t('set.src_'+sp.source))}</div>`)+
+      `<div class="set-actions"><select id="setPy" style="flex:1;min-width:240px">${opts}</select>`+
+      `<input id="setPyPath" placeholder="/path/to/python3" style="flex:1;min-width:200px" value="${esc(s.settings.scorer_python||'')}">`+
+      `<button class="btn sec" id="setPySave" style="width:auto">${esc(t('set.save'))}</button></div>`+
+      `<div class="set-hint">${t('set.pyHint')}</div></div>`+
+    `<div class="set-sec"><h4>${esc(t('set.data'))}</h4>`+row(t('set.folder'),`<code>${esc(d.data_dir)}</code>`)+
+      (APP?`<div class="set-actions"><button class="btn sec" id="setReveal" style="width:auto">${esc(t('prog.reveal'))}</button></div>`:'')+`</div>`+
+    `<div class="set-sec"><h4>${esc(t('set.security'))}</h4>`+row(t('set.token'),d.security.token?ok(t('set.tokenOn')):bad(t('set.tokenOff')))+
+      row(t('set.network'),d.security.loopback_only?ok(t('set.loopback')):bad(t('set.exposed')))+`</div>`;
+  const py=$('setPy'),path=$('setPyPath');
+  const syncPath=()=>{path.classList.toggle('hidden',py.value!=='__other');};syncPath();py.onchange=syncPath;
+  $('setPySave').onclick=async()=>{const v=py.value==='__other'?path.value.trim():py.value;
+    const r=await fetch(api('/api/settings'),{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({scorer_python:v})});
+    if(!r.ok){toast(await failMsg(r),'err');return;}toast(t('set.saved'),'ok');openSettings();};
+  if($('setAuto'))$('setAuto').onchange=async e=>{await fetch(api('/api/settings'),{method:'PUT',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({update_check:e.target.checked})});openSettings(true);};
+  if($('setUpd'))$('setUpd').onclick=()=>appCall({cmd:'checkUpdates'}).catch(()=>{});
+  if($('setReveal'))$('setReveal').onclick=()=>appCall({cmd:'reveal',path:d.data_dir}).catch(()=>{});}
+$('setBtn').onclick=()=>openSettings();
+$('setClose').onclick=()=>$('settings').classList.add('hidden');
+$('setRecheck').onclick=()=>openSettings(true);
+$('setCopy').onclick=async()=>{try{await navigator.clipboard.writeText(JSON.stringify(DIAG,null,2));toast(t('set.copied'),'ok');}
+  catch(e){toast(t('err.prefix')+e,'err');}};
+$('tokGo').onclick=()=>{const v=$('tokInput').value.trim();if(!v)return;
+  let tok=v;try{tok=new URL(v).searchParams.get('token')||v;}catch(e){}
+  location.href='/?token='+encodeURIComponent(tok);};
+$('tokInput').onkeydown=e=>{if(e.key==='Enter')$('tokGo').click();};
+Object.assign(I18N.en,{"set.title":"Settings & diagnostics","set.head":"⚙ Settings &amp; diagnostics","set.copy":"⧉ Copy diagnostics","set.recheck":"↻ Check again",
+ "set.loading":"Checking…","set.version":"Version","set.kindApp":"macOS app","set.kindSrc":"from source","set.updates":"Updates",
+ "set.appUpd":"The app checks GitHub once a day and offers to install new versions.","set.checkUpd":"Check for updates",
+ "set.newer":"%s is available","set.notes":"What's new","set.howUpd":"Update: <code>git pull &amp;&amp; ./start.sh --update</code> (your projects stay — they live in the data folder).",
+ "set.latest":"up to date (%s)","set.updUnknown":"not checked yet (offline?)","set.updOff":"the daily check is off","set.autoUpd":"Check GitHub for a new version once a day",
+ "set.agents":"Agent CLIs","set.missing":"not found","set.install":"Install:","set.gitHint":"Projects keep their history in git:",
+ "set.pathHint":"The app looks for agents on your login shell's PATH when it starts — installed one just now? Restart the app.",
+ "set.py":"Python for scorers","set.pyNow":"In use","set.pyDefault":"Bundled / current (Python %s)","set.pyOther":"Other…","set.save":"Save",
+ "set.src_default":"the default","set.src_setting":"chosen here","set.src_env":"set by $PULL_AND_PUSH_PYTHON",
+ "set.pyHint":"<code>{python}</code> in an eval command means this interpreter. The bundled one has only the standard library — choose your own if a scorer needs numpy, pandas…",
+ "set.saved":"Saved ✓","set.data":"Data","set.folder":"Folder","set.security":"Security","set.token":"Token","set.tokenOn":"required","set.tokenOff":"off — anyone who reaches the port can use the API",
+ "set.network":"Network","set.loopback":"this computer only","set.exposed":"reachable from the network","set.copied":"Diagnostics copied",
+ "tok.head":"🔒 Sign in to this dashboard","tok.body":"This dashboard is protected by a token. Paste the link printed by <code>pull-and-push web</code> — or get it with <code>pull-and-push url --open</code>.",
+ "tok.ph":"http://127.0.0.1:8765/?token=…","tok.go":"Sign in","upd.title":"A newer version is available — click for the release notes"});
+Object.assign(I18N.uk,{"set.title":"Налаштування й діагностика","set.head":"⚙ Налаштування й діагностика","set.copy":"⧉ Скопіювати діагностику","set.recheck":"↻ Перевірити знову",
+ "set.loading":"Перевіряю…","set.version":"Версія","set.kindApp":"застосунок macOS","set.kindSrc":"з вихідного коду","set.updates":"Оновлення",
+ "set.appUpd":"Застосунок раз на день перевіряє GitHub і пропонує встановити нову версію.","set.checkUpd":"Перевірити оновлення",
+ "set.newer":"Доступна %s","set.notes":"Що нового","set.howUpd":"Оновити: <code>git pull &amp;&amp; ./start.sh --update</code> (проєкти лишаються — вони в теці даних).",
+ "set.latest":"остання версія (%s)","set.updUnknown":"ще не перевірено (немає мережі?)","set.updOff":"щоденну перевірку вимкнено","set.autoUpd":"Раз на день перевіряти GitHub на нову версію",
+ "set.agents":"CLI агентів","set.missing":"не знайдено","set.install":"Встановити:","set.gitHint":"Проєкти зберігають історію в git:",
+ "set.pathHint":"Застосунок шукає агентів у PATH твоєї login-оболонки під час запуску — щойно встановив новий? Перезапусти застосунок.",
+ "set.py":"Python для суддів","set.pyNow":"Зараз","set.pyDefault":"Вбудований / поточний (Python %s)","set.pyOther":"Інший…","set.save":"Зберегти",
+ "set.src_default":"за замовчуванням","set.src_setting":"обрано тут","set.src_env":"задано змінною $PULL_AND_PUSH_PYTHON",
+ "set.pyHint":"<code>{python}</code> у команді оцінки означає цей інтерпретатор. У вбудованому лише стандартна бібліотека — обери свій, якщо судді потрібні numpy, pandas…",
+ "set.saved":"Збережено ✓","set.data":"Дані","set.folder":"Тека","set.security":"Безпека","set.token":"Токен","set.tokenOn":"обов’язковий","set.tokenOff":"вимкнено — будь-хто з доступом до порту може керувати API",
+ "set.network":"Мережа","set.loopback":"лише цей комп’ютер","set.exposed":"доступно з мережі","set.copied":"Діагностику скопійовано",
+ "tok.head":"🔒 Вхід у дашборд","tok.body":"Цей дашборд захищено токеном. Встав посилання, яке надрукував <code>pull-and-push web</code>, — або отримай його командою <code>pull-and-push url --open</code>.",
+ "tok.ph":"http://127.0.0.1:8765/?token=…","tok.go":"Увійти","upd.title":"Доступна нова версія — натисни, щоб побачити, що змінилося"});
+Object.assign(I18N.ru,{"set.title":"Настройки и диагностика","set.head":"⚙ Настройки и диагностика","set.copy":"⧉ Скопировать диагностику","set.recheck":"↻ Проверить снова",
+ "set.loading":"Проверяю…","set.version":"Версия","set.kindApp":"приложение macOS","set.kindSrc":"из исходников","set.updates":"Обновления",
+ "set.appUpd":"Приложение раз в день проверяет GitHub и предлагает установить новую версию.","set.checkUpd":"Проверить обновления",
+ "set.newer":"Доступна %s","set.notes":"Что нового","set.howUpd":"Обновить: <code>git pull &amp;&amp; ./start.sh --update</code> (проекты остаются — они в папке данных).",
+ "set.latest":"последняя версия (%s)","set.updUnknown":"ещё не проверено (нет сети?)","set.updOff":"ежедневная проверка выключена","set.autoUpd":"Раз в день проверять GitHub на новую версию",
+ "set.agents":"CLI агентов","set.missing":"не найден","set.install":"Установить:","set.gitHint":"Проекты хранят историю в git:",
+ "set.pathHint":"Приложение ищет агентов в PATH твоей login-оболочки при запуске — только что установил новый? Перезапусти приложение.",
+ "set.py":"Python для судей","set.pyNow":"Сейчас","set.pyDefault":"Встроенный / текущий (Python %s)","set.pyOther":"Другой…","set.save":"Сохранить",
+ "set.src_default":"по умолчанию","set.src_setting":"выбран здесь","set.src_env":"задан переменной $PULL_AND_PUSH_PYTHON",
+ "set.pyHint":"<code>{python}</code> в команде оценки означает этот интерпретатор. Во встроенном только стандартная библиотека — выбери свой, если судье нужны numpy, pandas…",
+ "set.saved":"Сохранено ✓","set.data":"Данные","set.folder":"Папка","set.security":"Безопасность","set.token":"Токен","set.tokenOn":"обязателен","set.tokenOff":"выключен — любой с доступом к порту может управлять API",
+ "set.network":"Сеть","set.loopback":"только этот компьютер","set.exposed":"доступно из сети","set.copied":"Диагностика скопирована",
+ "tok.head":"🔒 Вход в панель","tok.body":"Эта панель защищена токеном. Вставь ссылку, которую напечатал <code>pull-and-push web</code>, — или получи её командой <code>pull-and-push url --open</code>.",
+ "tok.ph":"http://127.0.0.1:8765/?token=…","tok.go":"Войти","upd.title":"Доступна новая версия — нажми, чтобы увидеть, что изменилось"});
+
 (async()=>{
-  await loadMeta(); await loadTemplates(); applyLang(LANG); await loadProjects(); blankForm(); loadKits();
+  try{await loadMeta();}catch(e){applyLang(LANG);return;}   // not signed in: only the dialog, no half-built page
+  await loadTemplates(); applyLang(LANG); await loadProjects(); blankForm(); loadKits();
   // restore the last-open project AND the tab we were on (state survives a refresh)
   let last=null,view=null; try{last=localStorage.getItem('tt_current');view=localStorage.getItem('tt_view');}catch(e){}
   const exists=[...$('projects').children].some(li=>li.textContent===last);

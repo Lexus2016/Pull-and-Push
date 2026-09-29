@@ -105,6 +105,25 @@ def write_dashboard_marker(url: str, token: str | None) -> Path:
     return f
 
 
+def web_token() -> str:
+    """The terminal dashboard's token: made once, kept owner-only in the data dir, so the address
+    (and the browser's session cookie) survives restarts."""
+    import secrets
+    f = home_root() / "web-token"
+    try:
+        tok = f.read_text(encoding="utf-8").strip()
+        if len(tok) >= 16:
+            return tok
+    except OSError:
+        pass
+    f.parent.mkdir(parents=True, exist_ok=True)
+    tok = secrets.token_urlsafe(24)
+    fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        fh.write(tok)
+    return tok
+
+
 def read_dashboard_marker() -> dict | None:
     """The live dashboard's {url, token, pid}, or None (no marker, or its process is gone)."""
     try:

@@ -22,8 +22,8 @@ from urllib.parse import urlsplit
 log = logging.getLogger("pull_and_push")   # operational events; configured by the CLI's basicConfig
 
 import yaml
-from fastapi import Body, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import Body, FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
@@ -109,6 +109,20 @@ class RunManager:
         self._stop: set[str] = set()
         self._lock = threading.Lock()
         self._epoch = 0              # bumped (under the lock) whenever a run's outcome list is replaced
+        self._events: list[dict] = []   # runs that ended here, oldest first (see ended / events)
+        self._seq = 0
+
+    def ended(self, name: str, status: str, **info) -> None:
+        """Record that a run ended — the macOS app turns these into notifications."""
+        with self._lock:
+            self._seq += 1
+            self._events.append({"seq": self._seq, "project": name, "status": status, "ts": _now(),
+                                 **info})
+            del self._events[:-200]
+
+    def events(self, since: int = 0) -> dict:
+        with self._lock:
+            return {"seq": self._seq, "events": [e for e in self._events if e["seq"] > since]}
 
     def stop(self, name: str) -> None:
         self._stop.add(name)
@@ -265,6 +279,9 @@ class RunManager:
                     "best_score": summary.best_score, "iterations": summary.iterations}
                 self._runs[name]["checkpoint"] = ({"reason": cp_row["reason"], "iter": cp_row["iter"]}
                                                   if cp_row else None)
+            self.ended(name, st, reason=summary.reason, best_score=summary.best_score,
+                       target=cfg.evaluation.target_score, iterations=summary.iterations,
+                       cost=round(orch.cost_total, 4))
             _fire_webhook(cfg, name, {"project": name, "status": st, "reason": summary.reason,
                                       "best_score": summary.best_score,
                                       "iterations": summary.iterations})
@@ -273,6 +290,7 @@ class RunManager:
             with self._lock:
                 self._runs[name]["status"] = "error"
                 self._runs[name]["summary"] = {"error": str(e)}
+            self.ended(name, "error", reason="crash", error=str(e)[:300])
             if state is not None and run_id is not None:
                 try:
                     state.set_status(run_id, "error")   # no zombie 'running' in the db
@@ -309,6 +327,7 @@ class RunManager:
                     "generations": result.generations, "best_a_id": result.best_a_id,
                     "best_b_id": result.best_b_id, "stable_a": result.stable_a,
                     "stable_b": result.stable_b}
+            self.ended(name, term, reason=result.stop_reason, generations=result.generations)
             _fire_webhook(cfg, name, {"project": name, "status": term,
                                       "reason": result.stop_reason})
         except Exception as e:
@@ -316,6 +335,7 @@ class RunManager:
             with self._lock:
                 self._runs[name]["status"] = "error"
                 self._runs[name]["summary"] = {"error": str(e)}
+            self.ended(name, "error", reason="crash", error=str(e)[:300])
             _mark_arena_manifest(base, "error")      # don't leave the manifest saying 'running'
             _fire_webhook(cfg, name, {"project": name, "status": "error", "error": str(e)})
 
@@ -418,6 +438,33 @@ def _persisted_state(name: str) -> dict:
 
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+_TOOLS: dict = {}                         # tool → (checked_at, {path, version}) for diagnostics
+
+
+def _tool_versions(names, refresh: bool = False) -> dict:
+    """{tool: {path, version}} — `<tool> --version`, run in parallel, cached for 10 minutes."""
+    import subprocess
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    def probe(n: str) -> dict:
+        path = shutil.which(n)
+        if not path:
+            return {"path": None, "version": None}
+        try:
+            r = subprocess.run([path, "--version"], capture_output=True, text=True, timeout=8,
+                               stdin=subprocess.DEVNULL)
+            first = (r.stdout or r.stderr).strip().splitlines()
+            return {"path": path, "version": first[0][:120] if first else None}
+        except (OSError, subprocess.TimeoutExpired):
+            return {"path": path, "version": None}
+
+    now = time.time()
+    todo = [n for n in names if refresh or n not in _TOOLS or now - _TOOLS[n][0] > 600]
+    with ThreadPoolExecutor(max_workers=max(1, len(todo))) as ex:
+        for n, info in zip(todo, ex.map(probe, todo)):
+            _TOOLS[n] = (now, info)
+    return {n: _TOOLS[n][1] for n in names}
 
 
 def _hostname(host: str) -> str:
@@ -426,6 +473,11 @@ def _hostname(host: str) -> str:
     if h.startswith("["):
         return h[1:h.find("]")] if "]" in h else h[1:]
     return h.rsplit(":", 1)[0] if h.count(":") == 1 else h
+
+
+def _cookie(request) -> str:
+    """Per-port session cookie name (cookies ignore ports: two dashboards must not clash)."""
+    return f"pp_token_{request.url.port or 80}"
 
 
 def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = None) -> FastAPI:
@@ -461,7 +513,17 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
                 and urlsplit(origin).netloc.lower() != host.strip().lower()):
             return JSONResponse(status_code=403,
                                 content={"detail": f"cross-origin request from {origin!r} refused"})
+        if app.state.token and request.url.path.startswith("/api/") and not _authorized(request):
+            return JSONResponse(status_code=401, content={"detail": "bad or missing token"})
         return await call_next(request)
+
+    def _authorized(request) -> bool:
+        """The token as ?token= (CLI, first page load), the session cookie the first page load
+        sets, or an Authorization: Bearer header."""
+        bearer = request.headers.get("authorization", "")
+        given = [request.query_params.get("token"), request.cookies.get(_cookie(request)),
+                 bearer[7:] if bearer.lower().startswith("bearer ") else None]
+        return any(g and hmac.compare_digest(g, str(app.state.token)) for g in given)
 
     # On startup, no background run can be alive yet — any DB run still marked 'running'
     # is an orphan from a previous process (e.g. the server was restarted mid-run). Heal it
@@ -483,10 +545,6 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
     async def _value_error(request, exc):       # invalid project name etc → 400, not 500
         return JSONResponse(status_code=400, content={"detail": str(exc)})
 
-    def auth(t: str | None) -> None:
-        if app.state.token and not hmac.compare_digest(str(t or ""), str(app.state.token)):
-            raise HTTPException(401, "bad or missing token")
-
     def _not_while_running(name: str) -> None:
         if app.state.runs.is_running(name) or cli_run_alive(project_dir(name)):
             raise HTTPException(409, "a run is in progress; stop it first")
@@ -494,14 +552,22 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
     app.mount("/static", StaticFiles(directory=STATIC), name="static")   # vendored libs + fonts
 
     @app.get("/")
-    def index():
+    def index(request: Request):
+        # the printed link carries ?token= once: trade it for an HttpOnly cookie and drop it from
+        # the address bar — it then stays out of history, logs and bookmarks, and a bookmark of
+        # the plain address keeps working (the terminal's token is stable across restarts)
+        tok = request.query_params.get("token")
+        if app.state.token and tok and hmac.compare_digest(tok, str(app.state.token)):
+            r = RedirectResponse("/", status_code=303)
+            r.set_cookie(_cookie(request), tok, max_age=365 * 86400, httponly=True,
+                         samesite="strict", path="/")
+            return r
         # never cache the SPA shell, so UI updates show up without a hard refresh
         return FileResponse(STATIC / "index.html",
                             headers={"Cache-Control": "no-store, max-age=0"})
 
     @app.get("/api/projects")
-    def api_projects(token: str | None = Query(None)):
-        auth(token)
+    def api_projects():
         import sqlite3
         items = []
         for n in list_projects():
@@ -520,23 +586,66 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"projects": [i["name"] for i in items], "items": items}
 
     @app.get("/api/runs/active")
-    def api_runs_active(token: str | None = Query(None)):
+    def api_runs_active():
         """Runs this server is executing — the macOS app asks before Quit and badges its Dock icon."""
-        auth(token)
         return {"active": app.state.runs.active()}
 
+    @app.get("/api/settings")
+    def api_settings():
+        from .. import settings as st
+        return {"settings": st.load(), "scorer_python": st.python_info(st.scorer_python()),
+                "env_override": os.environ.get(st.PYTHON_ENV),
+                "candidates": [st.python_info(p) for p in st.python_candidates()]}
+
+    @app.put("/api/settings")
+    def api_put_settings(payload: dict = Body(...)):
+        from .. import settings as st
+        try:
+            st.save(payload)
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+        return api_settings()
+
+    @app.get("/api/diagnostics")
+    def api_diagnostics(refresh: bool = Query(False)):
+        """Everything worth checking when something is off — versions, agent CLIs, git, the scorer
+        Python, the data dir, update status, security. Shown in Settings; handy for an agent too."""
+        import sys
+        from .. import __version__
+        from .. import settings as st
+        rel = st.latest_release(force=refresh)
+        tools = _tool_versions(("claude", "codex", "opencode", "agy", "git", "docker"), refresh)
+        return {
+            "version": __version__, "app": os.environ.get("PULL_AND_PUSH_APP"),
+            "engine_python": {"version": sys.version.split()[0], "path": sys.executable},
+            "scorer_python": {**st.python_info(st.scorer_python()),
+                              "source": ("env" if os.environ.get(st.PYTHON_ENV) else
+                                         "setting" if st.load()["scorer_python"] else "default")},
+            "agents": {e: tools[e] for e in ("claude", "codex", "opencode", "agy")},
+            "git": tools["git"], "docker": tools["docker"],
+            "data_dir": str(home_root()),
+            "update": ({"latest": rel.get("tag"), "url": rel.get("url"),
+                        "newer": st.newer(rel.get("tag"), __version__)} if rel else None),
+            "security": {"token": bool(app.state.token),
+                         "loopback_only": allowed_hosts is not None},
+        }
+
+    @app.get("/api/runs/events")
+    def api_runs_events(since: int = Query(0)):
+        """Runs that ended in this server after event `since` (status, reason, best vs target,
+        iterations, cost) — the app's notifications; also handy for an agent watching runs."""
+        return app.state.runs.events(since)
+
     @app.get("/api/projects/{name}")
-    def api_project(name: str, token: str | None = Query(None)):
-        auth(token)
+    def api_project(name: str):
         return _persisted_state(name)
 
     @app.get("/api/projects/{name}/arena")
-    def api_arena(name: str, token: str | None = Query(None)):
+    def api_arena(name: str):
         """Symmetric (Co-Evolution Arena) state from the arena.json manifest: status, the two
         stable curves, champions, deliverables, stop reason. The orchestrator rewrites it after
         every generation, so polling this gives live generation progress + the final result.
         Returns {mode, manifest}; manifest is null for an asymmetric or not-yet-run project."""
-        auth(token)
         base = project_dir(name)
         mpath = base / "arena.json"
         if mpath.exists():
@@ -555,8 +664,7 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"mode": mode, "manifest": None}
 
     @app.get("/api/projects/{name}/files")
-    def api_files(name: str, token: str | None = Query(None)):
-        auth(token)
+    def api_files(name: str):
         art = project_dir(name) / "artifact"
         if not (art / ".git").exists():
             return {"files": []}
@@ -578,15 +686,12 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"files": files}
 
     @app.get("/api/projects/{name}/live")
-    def api_live(name: str, since: int | None = Query(None), epoch: int | None = Query(None),
-                 token: str | None = Query(None)):
-        auth(token)
+    def api_live(name: str, since: int | None = Query(None), epoch: int | None = Query(None)):
         snap = app.state.runs.snapshot(name, since=since, epoch=epoch)
         return snap or {"status": "idle", "outcomes": [], "summary": None}
 
     @app.get("/api/projects/{name}/agent-log")
-    def api_agent_log(name: str, token: str | None = Query(None)):
-        auth(token)
+    def api_agent_log(name: str):
         p = project_dir(name) / "agent.log"   # the executor's real output (tee'd live)
         if not p.exists():
             return {"log": ""}
@@ -597,19 +702,17 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"log": txt[-40000:]}          # tail — enough to follow without flooding
 
     @app.post("/api/projects/{name}/run")
-    def api_run(name: str, token: str | None = Query(None)):
-        auth(token)
+    def api_run(name: str):
         if not (project_dir(name) / "config.yaml").exists():
             raise HTTPException(404, "project has no config.yaml; create it via `tyani-tolkai run`")
         app.state.runs.start_run(name)
         return {"started": name}
 
     @app.post("/api/projects/{name}/checkpoint/continue")
-    def api_cp_continue(name: str, token: str | None = Query(None)):
+    def api_cp_continue(name: str):
         """Operator chose to keep going at a human checkpoint: resolve it, give a fresh plateau
         budget, and resume the run. (For a 'target' checkpoint, raise target_score first via the
         config, otherwise it will pause again next boundary.)"""
-        auth(token)
         _not_while_running(name)          # before touching the DB, not only inside start_run
         base = project_dir(name)
         if not (base / "config.yaml").exists():
@@ -626,9 +729,8 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"continued": name}
 
     @app.post("/api/projects/{name}/checkpoint/accept")
-    def api_cp_accept(name: str, token: str | None = Query(None)):
+    def api_cp_accept(name: str):
         """Operator accepted the result at a checkpoint: resolve it and finish the run."""
-        auth(token)
         base = project_dir(name)
         if not (base / "config.yaml").exists():
             raise HTTPException(404, "no such project")
@@ -644,9 +746,7 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"accepted": name}
 
     @app.post("/api/projects/{name}/command")
-    def api_command(name: str, text: str = Query(...), role: str = Query("executor"),
-                    token: str | None = Query(None)):
-        auth(token)
+    def api_command(name: str, text: str = Query(...), role: str = Query("executor")):
         if role not in ("executor", "validator"):
             raise HTTPException(400, "role must be executor or validator")
         ctx = project_dir(name) / "context"
@@ -657,12 +757,11 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
 
     # ---- server-side directory browser (for the seed-path picker) ----
     @app.get("/api/fs")
-    def api_fs(path: str | None = Query(None), token: str | None = Query(None)):
+    def api_fs(path: str | None = Query(None)):
         """List a directory on the server so the UI can offer a file-manager-style
         picker (the browser sandbox can't hand us a real server path otherwise).
         Read-only: lists names, never file contents. Localhost tool — the user owns
         the machine; we just hide dotfiles and fail soft on unreadable dirs."""
-        auth(token)
         base = Path(path).expanduser() if path else Path.home()
         try:
             base = base.resolve()
@@ -683,12 +782,18 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
 
     # ---- meta for the config form ----
     @app.get("/api/meta")
-    def api_meta(token: str | None = Query(None)):
-        auth(token)
+    def api_meta():
         import tyani_tolkai.arena.cegis  # noqa: F401  (registers the cegis referee)
         from ..arena.referee import list_referees
+        from .. import __version__
+        from ..settings import cached_release, newer
         engines = ["claude", "codex", "opencode", "agy"]
+        rel = cached_release()
         return {
+            "version": __version__,
+            "app": os.environ.get("PULL_AND_PUSH_APP"),   # set inside the macOS app (Sparkle updates it)
+            "update": ({"latest": rel.get("tag"), "url": rel.get("url")}
+                       if rel and newer(rel.get("tag"), __version__) else None),
             "engines": engines,
             # on PATH? An app started from Finder sees only the PATH it was given — tell the UI
             "installed": {e: shutil.which(e) is not None for e in engines},
@@ -702,17 +807,15 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
 
     # ---- research + scaffold phase: vetted templates → runnable project ----
     @app.get("/api/templates")
-    def api_templates(token: str | None = Query(None)):
-        auth(token)
+    def api_templates():
         from ..scaffold import list_templates
         return {"templates": list_templates()}
 
     @app.post("/api/scaffold")
-    def api_scaffold(payload: dict = Body(...), token: str | None = Query(None)):
+    def api_scaffold(payload: dict = Body(...)):
         """Build a ready-to-run project from a template (the scoring harness ships vetted,
         never generated). Description becomes the executor goal; if no template is given it
         is inferred from the description."""
-        auth(token)
         from ..scaffold import pick_template, scaffold_project
         name = (payload.get("project") or "").strip()
         desc = (payload.get("description") or "").strip()
@@ -735,8 +838,7 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
 
     # ---- configurator agent: description → draft config ----
     @app.post("/api/configure")
-    def api_configure(payload: dict = Body(...), token: str | None = Query(None)):
-        auth(token)
+    def api_configure(payload: dict = Body(...)):
         desc = (payload.get("description") or "").strip()
         if not desc:
             raise HTTPException(400, "description required")
@@ -754,8 +856,7 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
 
     # ---- project create / configure ----
     @app.post("/api/projects/create")
-    def api_create(payload: dict = Body(...), token: str | None = Query(None)):
-        auth(token)
+    def api_create(payload: dict = Body(...)):
         name = payload.get("project")
         if not name:
             raise HTTPException(400, "project name required")
@@ -785,9 +886,8 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
 
     # ---- onboarding an existing bot: expose the P4.5/P4.6 backend (adapter + onboard) ----
     @app.post("/api/gen-adapter")
-    def api_gen_adapter(payload: dict = Body(...), token: str | None = Query(None)):
+    def api_gen_adapter(payload: dict = Body(...)):
         """Scaffold adapter.py (vetted protocol plumbing + a decide() stub) into the bot dir."""
-        auth(token)
         from ..adapter_gen import render_adapter_stub
         from ..profile_schema import BotProfile
         bot_dir = Path((payload.get("bot_dir") or "").strip()).expanduser()
@@ -808,14 +908,13 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"wrote": str(out)}
 
     @app.post("/api/check-adapter")
-    def api_check_adapter(payload: dict = Body(...), token: str | None = Query(None)):
+    def api_check_adapter(payload: dict = Body(...)):
         """Trust gate: drive the adapter over the protocol on synthetic bars → verdict PASS/FLAG.
 
         Proves protocol soundness + determinism + non-degeneracy — NOT semantics (sign/scale);
         run `validate` for that. Returns the check_adapter_orders verdict dict (200 even on FLAG;
         the verdict's ``ok`` carries PASS/FLAG so the UI can render either).
         """
-        auth(token)
         import shlex
         from ..bot_runner import drive_bot, BotProtocolError
         from ..validation import synth_bars, check_adapter_orders
@@ -841,9 +940,8 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return check_adapter_orders(run1, run2, len(bars))
 
     @app.post("/api/onboard")
-    def api_onboard(payload: dict = Body(...), token: str | None = Query(None)):
+    def api_onboard(payload: dict = Body(...)):
         """Create a runnable optimization project from a bot + its data + a P2 proposal."""
-        auth(token)
         from ..scaffold import scaffold_onboarding
         from ..proposal_schema import MetricProposal
         name = (payload.get("project") or payload.get("name") or "").strip()
@@ -874,10 +972,9 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
             raise HTTPException(422, str(e))
 
     @app.post("/api/profile")
-    def api_profile(payload: dict = Body(...), token: str | None = Query(None)):
+    def api_profile(payload: dict = Body(...)):
         """Analyze an existing bot (read-only, LLM) → BotProfile (json + markdown). Synchronous,
         like /api/configure; the UI shows a spinner while the analyzer runs."""
-        auth(token)
         from ..profiler import analyze_bot, render_markdown, ProfileError
         src = Path((payload.get("bot_dir") or payload.get("path") or "").strip()).expanduser()
         if not src.exists():
@@ -890,11 +987,10 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"profile": profile.model_dump(), "markdown": render_markdown(profile)}
 
     @app.post("/api/propose")
-    def api_propose(payload: dict = Body(...), token: str | None = Query(None)):
+    def api_propose(payload: dict = Body(...)):
         """Propose evaluation metrics + tunable ranges from a profile + goal (LLM). Synchronous.
 
         The human reviews/edits the proposal before it becomes the onboarding config (ADR gate)."""
-        auth(token)
         from ..proposer import propose_evaluation, render_markdown as render_proposal_md, ProposalError
         from ..profile_schema import BotProfile
         prof = payload.get("profile")
@@ -916,12 +1012,11 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"proposal": proposal.model_dump(), "markdown": render_proposal_md(proposal)}
 
     @app.post("/api/validate")
-    def api_validate(payload: dict = Body(...), token: str | None = Query(None)):
+    def api_validate(payload: dict = Body(...)):
         """P4 secondary validation of a bot → evidence report (PASS/FLAG). Synchronous.
 
         Untrusted bots need Docker (isolation = trust); trusted=true uses a process-separation
         subprocess (usable without Docker, for a reference/own bot)."""
-        auth(token)
         import shlex
         from .. import bot_engine
         from ..bot_io import load_bars_csv
@@ -987,9 +1082,8 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return name, kit
 
     @app.post("/api/research/clarify")
-    def api_research_clarify(payload: dict = Body(...), token: str | None = Query(None)):
+    def api_research_clarify(payload: dict = Body(...)):
         """Idea → clarifying questions + a draft of the criteria (helper agent, read-only)."""
-        auth(token)
         from ..research_agent import clarify
         try:
             return clarify(payload.get("idea") or "", engine=payload.get("engine") or "claude",
@@ -1000,9 +1094,8 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
             raise HTTPException(502, f"helper agent failed: {e}")
 
     @app.post("/api/research/draft")
-    def api_research_draft(payload: dict = Body(...), token: str | None = Query(None)):
+    def api_research_draft(payload: dict = Body(...)):
         """Idea + criteria + answers → a complete kit draft (spec + scorer + seed) to review."""
-        auth(token)
         from ..research_agent import draft_kit
         try:
             return draft_kit((payload.get("name") or "").strip(), payload.get("idea") or "",
@@ -1014,17 +1107,15 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
             raise HTTPException(502, f"helper agent failed: {e}")
 
     @app.post("/api/research/check")
-    def api_research_check(payload: dict = Body(...), token: str | None = Query(None)):
+    def api_research_check(payload: dict = Body(...)):
         """Save the (edited) kit and run the pre-flight: the judge is run on the seed twice."""
-        auth(token)
         from ..research import check_kit
         _, kit = _research_payload(payload)
         return check_kit(kit)
 
     @app.post("/api/research/create")
-    def api_research_create(payload: dict = Body(...), token: str | None = Query(None)):
+    def api_research_create(payload: dict = Body(...)):
         """Save the kit (reusable later) and create the project from it — pre-flight must pass."""
-        auth(token)
         from ..research import create_from_kit
         name, kit = _research_payload(payload)
         try:
@@ -1035,9 +1126,8 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
             raise HTTPException(422, str(e))
 
     @app.get("/api/research/kits")
-    def api_research_kits(token: str | None = Query(None)):
+    def api_research_kits():
         """Saved kits (made by the wizard or copied in) — your own reusable templates."""
-        auth(token)
         from ..research import SPEC_FILE, kits_root
         out = []
         root = kits_root()
@@ -1052,8 +1142,7 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"kits": out}
 
     @app.get("/api/research/kits/{name}")
-    def api_research_kit(name: str, token: str | None = Query(None)):
-        auth(token)
+    def api_research_kit(name: str):
         from ..research import kits_root
         from ..research_agent import read_kit
         kit = kits_root() / valid_name(name)
@@ -1062,16 +1151,14 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return read_kit(kit)
 
     @app.get("/api/projects/{name}/config")
-    def api_get_config(name: str, token: str | None = Query(None)):
-        auth(token)
+    def api_get_config(name: str):
         p = project_dir(name) / "config.yaml"
         if not p.exists():
             raise HTTPException(404, "no config for this project")
         return yaml.safe_load(p.read_text(encoding="utf-8"))
 
     @app.put("/api/projects/{name}/config")
-    def api_put_config(name: str, payload: dict = Body(...), token: str | None = Query(None)):
-        auth(token)
+    def api_put_config(name: str, payload: dict = Body(...)):
         _not_while_running(name)
         base = project_dir(name)
         if not (base / "config.yaml").exists():
@@ -1086,10 +1173,9 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
 
     # ---- run control & lifecycle ----
     @app.post("/api/projects/{name}/test-eval")
-    def api_test_eval(name: str, token: str | None = Query(None)):
+    def api_test_eval(name: str):
         """Run the evaluation ONCE on the current artifact — verify the harness works and
         see the metrics or the raw stdout/stderr, without a full run (beats cold-start)."""
-        auth(token)
         # during a run the executor is editing this very working tree: scoring it now would grade a
         # half-written candidate, and any file the scorer drops would be committed as the agent's
         _not_while_running(name)
@@ -1163,8 +1249,7 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
             state.close()
 
     @app.post("/api/projects/{name}/stop")
-    def api_stop(name: str, token: str | None = Query(None)):
-        auth(token)
+    def api_stop(name: str):
         base = project_dir(name)
         if not app.state.runs.is_running(name) and cli_run_alive(base):
             from ..projects import STOP_REQUEST
@@ -1174,8 +1259,7 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"stopping": name}
 
     @app.post("/api/projects/{name}/force-stop")
-    def api_force_stop(name: str, token: str | None = Query(None)):
-        auth(token)
+    def api_force_stop(name: str):
         if not app.state.runs.is_running(name) and cli_run_alive(project_dir(name)):
             raise HTTPException(409, "this run was started from the command line: use Stop (it ends "
                                      "after the current iteration) or Ctrl-C in its terminal")
@@ -1183,15 +1267,13 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"force_stopped": name, "killed": killed}
 
     @app.post("/api/projects/{name}/delete")
-    def api_delete(name: str, token: str | None = Query(None)):
-        auth(token)
+    def api_delete(name: str):
         _not_while_running(name)
         delete_project(name)
         return {"deleted": name}
 
     @app.post("/api/projects/{name}/rename")
-    def api_rename(name: str, to: str = Query(...), token: str | None = Query(None)):
-        auth(token)
+    def api_rename(name: str, to: str = Query(...)):
         _not_while_running(name)
         try:
             rename_project(name, to)
@@ -1202,8 +1284,7 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"renamed": to}
 
     @app.post("/api/projects/{name}/reset")
-    def api_reset(name: str, token: str | None = Query(None)):
-        auth(token)
+    def api_reset(name: str):
         _not_while_running(name)
         if not project_dir(name).exists():
             raise HTTPException(404, f"no such project: {name}")
@@ -1211,9 +1292,7 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"reset": name}
 
     @app.get("/api/projects/{name}/export")
-    def api_export(name: str, n: int | None = Query(None, alias="iter"),
-                   token: str | None = Query(None)):
-        auth(token)
+    def api_export(name: str, n: int | None = Query(None, alias="iter")):
         if not project_dir(name).exists():                   # don't let StateStore mkdir an orphan
             raise HTTPException(404, f"no such project: {name}")
         at_hash = None
@@ -1238,9 +1317,7 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
                             background=BackgroundTask(shutil.rmtree, tmp, ignore_errors=True))
 
     @app.post("/api/projects/{name}/rewind")
-    def api_rewind(name: str, n: int = Query(..., alias="iter"),
-                   token: str | None = Query(None)):
-        auth(token)
+    def api_rewind(name: str, n: int = Query(..., alias="iter")):
         _not_while_running(name)
         if not project_dir(name).exists():
             raise HTTPException(404, f"no such project: {name}")
@@ -1258,9 +1335,7 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         return {"rewound": n}
 
     @app.post("/api/projects/{name}/fork")
-    def api_fork(name: str, n: int = Query(..., alias="iter"), to: str = Query(...),
-                 token: str | None = Query(None)):
-        auth(token)
+    def api_fork(name: str, n: int = Query(..., alias="iter"), to: str = Query(...)):
         _not_while_running(name)
         try:
             valid_name(to)

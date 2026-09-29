@@ -21,7 +21,12 @@ the scorer; the loop is cheap to start and expensive to run on a bad judge.
 - Dashboard: the macOS app (Pull-and-Push.app) or `./start.sh` — humans watch here; it also has a
   wizard "🧪 Research from an idea" that produces the same kit format. Its address and token are
   in `~/.tyani-tolkai/dashboard.json` (0600) while it runs: the app picks the port and a random
-  token, `$PP research start` reads the file by itself.
+  token, `$PP research start` reads the file by itself; `$PP url` prints the sign-in link.
+- Machine check: `GET <url>/api/diagnostics?token=<token>` (agent CLIs + versions, scorer Python,
+  git, update status) and `GET <url>/api/runs/events?since=<seq>&token=<token>` (runs that ended:
+  status, reason, best vs target, cost) — cheaper than polling every project.
+- A scorer that needs numpy/pandas: `{python}` follows Settings ▸ Python for scorers (or
+  `PULL_AND_PUSH_PYTHON`); the macOS app's bundled Python has only the standard library.
 - Worked example: `examples/research/fast-primes/` (speed with correctness/rules as constraints).
 - Design: `docs/design/p8-research-kits.md`. Kit format: `docs/research-kits.md`.
 

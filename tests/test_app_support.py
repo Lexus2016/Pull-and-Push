@@ -178,3 +178,47 @@ def test_second_dashboard_on_the_same_data_refuses(monkeypatch, capsys):
             cli.main(["web", "--port", "auto"])
     finally:
         other.kill()
+
+
+def test_session_cookie_replaces_the_token_in_the_url():
+    c = TestClient(create_app(token="s3cret"), base_url="http://127.0.0.1:8765")
+    assert c.get("/api/projects").status_code == 401
+    r = c.get("/?token=s3cret", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/"
+    ck = r.headers["set-cookie"].lower()
+    assert "pp_token_8765=s3cret" in ck and "httponly" in ck and "samesite=strict" in ck
+    assert c.get("/api/projects").status_code == 200                 # the cookie alone now
+    assert c.get("/?token=wrong", follow_redirects=False).status_code == 200   # no cookie, no leak
+    fresh = TestClient(create_app(token="s3cret"), base_url="http://127.0.0.1:8765")
+    assert fresh.get("/api/projects", headers={"authorization": "Bearer s3cret"}).status_code == 200
+    assert fresh.get("/api/projects", headers={"authorization": "Bearer nope"}).status_code == 401
+    assert fresh.get("/").status_code == 200                          # the page shell is public
+
+
+def test_terminal_dashboard_has_a_stable_owner_only_token(monkeypatch, capsys):
+    from tyani_tolkai.projects import web_token
+    t1 = web_token()
+    assert len(t1) >= 16 and web_token() == t1
+    if os.name != "nt":
+        assert stat.S_IMODE(os.stat(home_root() / "web-token").st_mode) == 0o600
+    seen = {}
+
+    class Srv:
+        def __init__(self, cfg):
+            seen["token"] = cfg.app.state.token
+
+        def run(self, sockets):
+            return None
+    monkeypatch.delenv("TYANI_TOLKAI_WEB_PASSWORD", raising=False)
+    monkeypatch.setattr("uvicorn.Server", Srv)
+    monkeypatch.setattr("tyani_tolkai.settings.latest_release", lambda: None)   # no network
+    assert cli.main(["web", "--port", "auto"]) == 0
+    assert seen["token"] == t1 and f"?token={t1}" in capsys.readouterr().out
+    assert cli.main(["web", "--port", "auto", "--no-auth"]) == 0 and seen["token"] is None
+
+
+def test_url_command(capsys):
+    assert cli.main(["url"]) == 1
+    write_dashboard_marker("http://127.0.0.1:9123", "a b")
+    assert cli.main(["url"]) == 0
+    assert capsys.readouterr().out.strip() == "http://127.0.0.1:9123/?token=a%20b"

@@ -486,7 +486,7 @@ def _dashboard_answers(live: dict) -> bool:
 
 
 def cmd_web(args) -> int:
-    from .projects import (clear_dashboard_marker, home_root, read_dashboard_marker,
+    from .projects import (clear_dashboard_marker, home_root, read_dashboard_marker, web_token,
                            write_dashboard_marker)
     from .web.server import LOOPBACK_HOSTS, create_app
     import logging
@@ -496,6 +496,10 @@ def cmd_web(args) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     token = args.password or os.environ.get("TYANI_TOLKAI_WEB_PASSWORD")
+    if not token and not args.no_auth:
+        # the API starts paid agent runs and executes scorers: other local users and processes
+        # must not reach it with a bare GET/POST. The token is stable (bookmarks keep working).
+        token = web_token()
     live = read_dashboard_marker()
     if live and live.get("pid") != os.getpid() and _dashboard_answers(live):
         # one dashboard per data dir: a second one would mark the first one's live runs "stopped"
@@ -513,16 +517,38 @@ def cmd_web(args) -> int:
     local = url if loopback else f"http://127.0.0.1:{port}/"
     write_dashboard_marker(local.split("?")[0].rstrip("/"), token)   # for `research start`
     print(f"▶ WebUI ready: {url}", flush=True)                       # the macOS app reads this line
-    if not token:
-        print("  (no password set — open locally; set TYANI_TOLKAI_WEB_PASSWORD to protect)")
+    if token:
+        print("  this link signs the browser in; afterwards the plain address is enough "
+              "(lost it? `pull-and-push url --open`)")
+    else:
+        print("  ⚠ --no-auth: anyone who can reach this port can start runs and execute scorers")
     if args.parent_pipe:
         _exit_when_stdin_closes()
+    import threading
+    from .settings import latest_release
+    threading.Thread(target=latest_release, name="update-check", daemon=True).start()   # ≤1/day
     # no access log: every request carries ?token= in its URL
     server = uvicorn.Server(uvicorn.Config(app, log_level="warning", access_log=False))
     try:
         server.run(sockets=[sock])
     finally:
         clear_dashboard_marker()
+    return 0
+
+
+def cmd_url(args) -> int:
+    """The running dashboard's sign-in link (the macOS app's or the terminal's)."""
+    from .projects import read_dashboard_marker
+    live = read_dashboard_marker()
+    if not live:
+        print("✖ no dashboard is running — start the app, or: pull-and-push web", file=sys.stderr)
+        return 1
+    import urllib.parse
+    link = live["url"] + "/" + (f"?token={urllib.parse.quote(live['token'])}" if live.get("token") else "")
+    print(link)
+    if args.open:
+        import webbrowser
+        webbrowser.open(link)
     return 0
 
 
@@ -617,10 +643,16 @@ def main(argv=None) -> int:
     pw = sub.add_parser("web", help="launch the WebUI dashboard")
     pw.add_argument("--host", default="127.0.0.1")
     pw.add_argument("--port", default="8765", help="a port, or 'auto' (8765 if free, else any)")
+    pw.add_argument("--no-auth", action="store_true",
+                    help="no token (anyone who reaches the port can use the API) — not advised")
     pw.add_argument("--parent-pipe", action="store_true",
                     help="exit when stdin closes (the macOS app holds it open for its lifetime)")
     pw.add_argument("--password", default=None, help="protect the UI (else open locally)")
     pw.set_defaults(func=cmd_web)
+
+    pu = sub.add_parser("url", help="print the running dashboard's sign-in link")
+    pu.add_argument("--open", action="store_true", help="also open it in the browser")
+    pu.set_defaults(func=cmd_url)
 
     pf = sub.add_parser("profile", help="analyze an existing bot (read-only) -> BotProfile")
     pf.add_argument("path", help="path to the bot file or directory")
