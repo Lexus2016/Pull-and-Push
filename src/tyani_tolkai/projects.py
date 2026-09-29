@@ -60,8 +60,8 @@ def cli_run_alive(base: Path) -> bool:
         pid = int((Path(base) / RUN_MARKER).read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
         return False
-    if os.name == "nt":                    # no cheap liveness probe: trust the marker (removed on exit)
-        return True
+    if os.name == "nt":
+        return _win_pid_alive(pid)
     try:
         os.kill(pid, 0)
         return True
@@ -69,6 +69,21 @@ def cli_run_alive(base: Path) -> bool:
         return False
     except PermissionError:                # exists, owned by someone else
         return True
+
+
+def _win_pid_alive(pid: int) -> bool:
+    """Windows liveness probe (no os.kill(pid, 0) there): a handle to a process that has not
+    exited reports STILL_ACTIVE. A marker left by a killed run must not lock the project forever."""
+    import ctypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    handle = k32.OpenProcess(0x1000, False, pid)          # PROCESS_QUERY_LIMITED_INFORMATION
+    if not handle:
+        return ctypes.get_last_error() == 5                # ACCESS_DENIED: exists, someone else's
+    try:
+        code = ctypes.c_ulong()
+        return bool(k32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259
+    finally:
+        k32.CloseHandle(handle)
 
 
 def list_projects() -> list[str]:
