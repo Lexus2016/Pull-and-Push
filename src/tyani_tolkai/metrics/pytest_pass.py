@@ -66,4 +66,4 @@ class PytestPassAdapter:
             {"name": m.name, "value": data.get(m.name, 0.0), "dir": m.dir, "weight": m.weight}
             for m in evaluation.metrics
         ]
-        return MetricResult(metrics=metrics, logs=out, ok=ok)
+        return MetricResult(metrics=metrics, logs=out, ok=ok, data=data)   # data: for constraints

@@ -1,0 +1,31 @@
+# A worked research kit: make primes_upto(n) fast without ever getting it wrong.
+# pull-and-push research check examples/research/fast-primes
+# pull-and-push research create examples/research/fast-primes --name my-primes
+name: fast-primes
+goal: >-
+  Make primes_upto(n) in solution.py as fast as possible for large n (around 200 000) while it
+  keeps returning exactly the primes <= n in ascending order.
+task: >-
+  Edit only solution.py and keep the signature primes_upto(n: int) -> list[int]. Standard library
+  only (math, itertools, array, bisect, functools). No precomputed prime tables. One focused change
+  per step. Never read or run anything under ../metrics.
+scorer: "{python} ../metrics/evaluate.py"
+metrics:
+  - {name: speedup, dir: higher, weight: 1.0, target: 3}     # x times faster than a plain sieve
+constraints:
+  - {name: correct_pct, min: 100}
+  - {name: forbidden, max: 0}          # imports outside the allowed set, open/exec/eval…
+  - {name: source_kb, max: 8}
+target_score: 90
+agents:
+  executor: claude
+  validator: codex
+limits:
+  max_iterations: 12
+  plateau_N: 4
+  step_seconds: 300
+  budget_usd: 3
+  usd_per_mtok: 3
+evaluation:
+  runs: 1
+  min_delta: 2

@@ -207,8 +207,10 @@ projects run on hosts that only have `python3` (not a bare `python`).
   so the executor can't see or edit it), your description becomes the executor's goal. No
   hand-authored scorer, nothing to fix before the first **Run**. Templates today:
   `btcusdt-futures` (leveraged BTCUSDT 5m backtest) and `pytest-pass` (make a hidden test suite pass).
-- 🪄 **Generate from a description** — describe the task in plain language; a configurator
-  agent drafts the whole project, you review it in the form, then **Create**.
+- 🧪 **Research from an idea** — describe any measurable experiment in plain language; a helper
+  agent asks what it needs, then drafts the whole research kit (goal, criteria, hard constraints,
+  the scorer and a starting version); you review it, a pre-flight runs the judge, then **Create**.
+  See [Any experiment — research kits](#any-experiment--research-kits).
 - 🔧 **Improve my existing bot** — onboard a bot you already have (analyze → metrics → adapter →
   check → create), so the loop optimises *your* bot on held-out data. Full walkthrough:
   [Improve an existing bot](#improve-an-existing-bot-onboarding).
@@ -242,6 +244,29 @@ iteration in the activity feed is a real git commit, so each keep card carries t
 
 Snapshots are offered for **kept** iterations (each is a committed checkpoint); discarded
 candidates are reverted and not stored. Rewind/fork are disabled while a run is in progress.
+
+## Any experiment — research kits
+
+Anything a script can score can be optimized: code speed or size, a prompt, a config, SQL, text
+against a rubric, a strategy. An experiment is a **research kit** — `research.yaml` (goal, what may
+be edited, metrics, hard constraints, target, budget) + `seed/` (the starting version) + `scorer/`
+(the judge, invisible to the executor). **Hard constraints** (`constraints: [{name, min, max}]`)
+keep a version out no matter how well it scores — "faster, but always correct". A **pre-flight**
+runs the judge on the seed twice before any agent is paid (crashes, missing or NaN metrics, noise,
+a seed that already meets the target).
+
+```bash
+pull-and-push research new    my-research                 # runnable skeleton to edit
+pull-and-push research check  examples/research/fast-primes
+pull-and-push research create examples/research/fast-primes --name my-primes
+pull-and-push research start  my-primes                  # in the running dashboard, else here
+pull-and-push status my-primes && pull-and-push report my-primes
+pull-and-push research save   my-primes --to next-round --source best   # the next round
+```
+
+In the dashboard: **🧪 Research from an idea** (clarify → draft the kit → check the judge →
+create); saved kits are reusable. Format and judge rules: [`docs/research-kits.md`](docs/research-kits.md).
+Agents (Claude Code) drive the same flow with the skill in `skills/pull-and-push-research/`.
 
 ## Improve an existing bot (onboarding)
 

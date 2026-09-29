@@ -48,6 +48,24 @@ class MetricCfg(BaseModel):
         return self
 
 
+class ConstraintCfg(BaseModel):
+    """A hard gate: a candidate whose value falls outside [min, max] is never kept, whatever its
+    score — e.g. "correct_pct must stay 100" while speed is optimized (a weighted sum alone would
+    trade one for the other). ``name`` is any number the scorer prints: a scored metric or a
+    report-only field."""
+    name: str
+    min: float | None = None
+    max: float | None = None
+
+    @model_validator(mode="after")
+    def _bounded(self) -> "ConstraintCfg":
+        if self.min is None and self.max is None:
+            raise ValueError(f"constraint {self.name!r} needs a min and/or a max")
+        if self.min is not None and self.max is not None and self.min > self.max:
+            raise ValueError(f"constraint {self.name!r}: min > max")
+        return self
+
+
 class EvaluationCfg(BaseModel):
     # only adapters that get_metric_adapter actually implements — don't advertise unbuilt ones
     adapter: Literal["numeric", "command-exit", "pytest-pass"]
@@ -62,6 +80,8 @@ class EvaluationCfg(BaseModel):
     # Re-score the current best every N iterations; if it no longer holds its score (a noise/flaky
     # win), demote it so the loop re-improves from the truth. 0 = off (default — costs a scorer run).
     revalidate_every: int = 0
+    # hard gates checked on every candidate before it may be kept (see ConstraintCfg)
+    constraints: list[ConstraintCfg] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def _require_command(self) -> "EvaluationCfg":

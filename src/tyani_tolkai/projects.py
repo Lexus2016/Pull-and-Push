@@ -48,6 +48,29 @@ def project_dir(name: str) -> Path:
     return projects_root() / name
 
 
+RUN_MARKER = "run.pid"      # written by a CLI run for its lifetime (the dashboard must not touch it)
+STOP_REQUEST = "stop.request"   # the dashboard's Stop for a CLI run: checked between iterations
+
+
+def cli_run_alive(base: Path) -> bool:
+    """Is a CLI (`pull-and-push run` / `research start --foreground`) run of this project alive?
+    The dashboard then leaves the project alone: no 'orphan' healing at startup, no second run, no
+    delete/reset/rename under it."""
+    try:
+        pid = int((Path(base) / RUN_MARKER).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return False
+    if os.name == "nt":                    # no cheap liveness probe: trust the marker (removed on exit)
+        return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:                # exists, owned by someone else
+        return True
+
+
 def list_projects() -> list[str]:
     return sorted(p.name for p in projects_root().iterdir() if p.is_dir())
 

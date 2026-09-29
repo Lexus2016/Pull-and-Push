@@ -28,7 +28,7 @@ from ..config import Config, load_config
 from ..metrics import get_metric_adapter
 from ..orchestrator import Orchestrator
 from ..projects import (
-    delete_project, export_project, fork_project, list_projects, project_dir,
+    cli_run_alive, delete_project, export_project, fork_project, list_projects, project_dir,
     rename_project, reset_project, valid_name,
 )
 from ..registry import build_adapter
@@ -155,6 +155,8 @@ class RunManager:
             return bool(r and r["status"] == "running")
 
     def start_run(self, name: str) -> None:
+        if cli_run_alive(project_dir(name)):
+            raise HTTPException(409, "a command-line run of this project is in progress")
         with self._lock:
             if self._runs.get(name, {}).get("status") == "running":
                 raise HTTPException(409, "run already in progress")
@@ -409,6 +411,8 @@ def create_app(token: str | None = None) -> FastAPI:
     # so the UI doesn't show a zombie 'running' with no history.
     for _name in list_projects():
         _b = project_dir(_name)
+        if cli_run_alive(_b):                   # a live CLI run owns it — not an orphan
+            continue
         if (_b / "state.db").exists():
             _st = StateStore(_b)
             try:
@@ -427,7 +431,7 @@ def create_app(token: str | None = None) -> FastAPI:
             raise HTTPException(401, "bad or missing token")
 
     def _not_while_running(name: str) -> None:
-        if app.state.runs.is_running(name):
+        if app.state.runs.is_running(name) or cli_run_alive(project_dir(name)):
             raise HTTPException(409, "a run is in progress; stop it first")
 
     @app.get("/")
@@ -901,6 +905,93 @@ def create_app(token: str | None = None) -> FastAPI:
                 "gap": result["gap"], "anti_lookahead": result["anti_lookahead"],
                 "isolation": result["isolation"]}
 
+    # ---- research kits (P8): an idea → the wizard → a kit → a runnable project ----
+    def _research_payload(payload: dict):
+        from ..research import kits_root
+        from ..research_agent import write_kit
+        name = valid_name((payload.get("name") or "").strip())
+        try:
+            kit = write_kit(kits_root() / name, payload.get("research_yaml") or "",
+                            payload.get("files") or {})
+        except (ValueError, yaml.YAMLError) as e:
+            raise HTTPException(422, f"invalid kit: {e}")
+        return name, kit
+
+    @app.post("/api/research/clarify")
+    def api_research_clarify(payload: dict = Body(...), token: str | None = Query(None)):
+        """Idea → clarifying questions + a draft of the criteria (helper agent, read-only)."""
+        auth(token)
+        from ..research_agent import clarify
+        try:
+            return clarify(payload.get("idea") or "", engine=payload.get("engine") or "claude",
+                           model=payload.get("model"))
+        except ValueError as e:
+            raise HTTPException(422, f"the helper agent gave no usable answer: {e}")
+        except Exception as e:                            # agent missing / crashed / timed out
+            raise HTTPException(502, f"helper agent failed: {e}")
+
+    @app.post("/api/research/draft")
+    def api_research_draft(payload: dict = Body(...), token: str | None = Query(None)):
+        """Idea + criteria + answers → a complete kit draft (spec + scorer + seed) to review."""
+        auth(token)
+        from ..research_agent import draft_kit
+        try:
+            return draft_kit((payload.get("name") or "").strip(), payload.get("idea") or "",
+                             criteria=payload.get("criteria"), answers=payload.get("answers") or "",
+                             engine=payload.get("engine") or "claude", model=payload.get("model"))
+        except ValueError as e:
+            raise HTTPException(422, f"the draft is not a usable kit: {e}")
+        except Exception as e:
+            raise HTTPException(502, f"helper agent failed: {e}")
+
+    @app.post("/api/research/check")
+    def api_research_check(payload: dict = Body(...), token: str | None = Query(None)):
+        """Save the (edited) kit and run the pre-flight: the judge is run on the seed twice."""
+        auth(token)
+        from ..research import check_kit
+        _, kit = _research_payload(payload)
+        return check_kit(kit)
+
+    @app.post("/api/research/create")
+    def api_research_create(payload: dict = Body(...), token: str | None = Query(None)):
+        """Save the kit (reusable later) and create the project from it — pre-flight must pass."""
+        auth(token)
+        from ..research import create_from_kit
+        name, kit = _research_payload(payload)
+        try:
+            return create_from_kit(kit, name=name)
+        except FileExistsError as e:
+            raise HTTPException(409, str(e))
+        except ValueError as e:
+            raise HTTPException(422, str(e))
+
+    @app.get("/api/research/kits")
+    def api_research_kits(token: str | None = Query(None)):
+        """Saved kits (made by the wizard or copied in) — your own reusable templates."""
+        auth(token)
+        from ..research import SPEC_FILE, kits_root
+        out = []
+        root = kits_root()
+        for d in sorted(root.iterdir()) if root.is_dir() else []:
+            f = d / SPEC_FILE
+            if d.is_dir() and f.is_file():
+                try:
+                    spec = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+                except yaml.YAMLError:
+                    continue
+                out.append({"name": d.name, "goal": str(spec.get("goal") or "")[:200]})
+        return {"kits": out}
+
+    @app.get("/api/research/kits/{name}")
+    def api_research_kit(name: str, token: str | None = Query(None)):
+        auth(token)
+        from ..research import kits_root
+        from ..research_agent import read_kit
+        kit = kits_root() / valid_name(name)
+        if not kit.is_dir():
+            raise HTTPException(404, f"no such kit: {name}")
+        return read_kit(kit)
+
     @app.get("/api/projects/{name}/config")
     def api_get_config(name: str, token: str | None = Query(None)):
         auth(token)
@@ -983,6 +1074,9 @@ def create_app(token: str | None = None) -> FastAPI:
                 scored = {m.name for m in cfg.evaluation.metrics}
                 out["extras"] = {k: v for k, v in (getattr(res, "data", None) or {}).items()
                                  if k not in scored}
+                from ..scorer import constraint_violations
+                out["violations"] = constraint_violations(
+                    {**(getattr(res, "data", None) or {}), **values}, cfg.evaluation.constraints)
                 try:
                     out["score"] = score(values, cfg.evaluation.metrics)
                 except Exception as e:
@@ -1002,12 +1096,20 @@ def create_app(token: str | None = None) -> FastAPI:
     @app.post("/api/projects/{name}/stop")
     def api_stop(name: str, token: str | None = Query(None)):
         auth(token)
+        base = project_dir(name)
+        if not app.state.runs.is_running(name) and cli_run_alive(base):
+            from ..projects import STOP_REQUEST
+            (base / STOP_REQUEST).write_text("stop", encoding="utf-8")   # the CLI loop polls it
+            return {"stopping": name, "cli": True}
         app.state.runs.stop(name)
         return {"stopping": name}
 
     @app.post("/api/projects/{name}/force-stop")
     def api_force_stop(name: str, token: str | None = Query(None)):
         auth(token)
+        if not app.state.runs.is_running(name) and cli_run_alive(project_dir(name)):
+            raise HTTPException(409, "this run was started from the command line: use Stop (it ends "
+                                     "after the current iteration) or Ctrl-C in its terminal")
         killed = app.state.runs.force_stop(name)   # SIGKILL the live agent immediately
         return {"force_stopped": name, "killed": killed}
 

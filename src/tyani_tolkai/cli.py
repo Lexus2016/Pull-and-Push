@@ -23,7 +23,7 @@ from .metrics import get_metric_adapter
 from .orchestrator import Orchestrator
 from .projects import (
     delete_project, export_project, import_project, list_projects,
-    project_dir, rename_project, reset_project,
+    project_dir, rename_project, reset_project, RUN_MARKER, STOP_REQUEST,
 )
 from .registry import build_adapter
 from .sandbox import get_backend
@@ -90,7 +90,7 @@ def _run_symmetric(cfg, args) -> int:
           f"generations={cfg.arena.generations}")
     orch = SymmetricOrchestrator(cfg, base, referee, ex_a, ex_b, sandbox)
     try:
-        result = orch.run()
+        result = orch.run(should_stop=_stop_requested(cfg))
     finally:
         orch.close()
     print(f"✔ finished: reason={result.stop_reason}  generations={result.generations}")
@@ -102,9 +102,30 @@ def _run_symmetric(cfg, args) -> int:
 
 
 def cmd_run(args) -> int:
+    """Run (or --resume) a config. A run.pid marker lives in the project for the run's lifetime so a
+    dashboard started meanwhile shows it as running instead of 'healing' it to stopped."""
     cfg = load_config(args.config)
-    if cfg.mode == "symmetric":
-        return _run_symmetric(cfg, args)
+    base = project_dir(cfg.project)
+    base.mkdir(parents=True, exist_ok=True)
+    marker = base / RUN_MARKER
+    marker.write_text(str(os.getpid()), encoding="utf-8")
+    (base / STOP_REQUEST).unlink(missing_ok=True)       # a stale request must not stop this run
+    try:
+        if cfg.mode == "symmetric":
+            return _run_symmetric(cfg, args)
+        return _run_asymmetric(cfg, args)
+    finally:
+        marker.unlink(missing_ok=True)
+        (base / STOP_REQUEST).unlink(missing_ok=True)
+
+
+def _stop_requested(cfg):
+    """should_stop hook: the dashboard asks a CLI run to stop by dropping a file in the project."""
+    path = project_dir(cfg.project) / STOP_REQUEST
+    return lambda: path.exists()
+
+
+def _run_asymmetric(cfg, args) -> int:
     base = project_dir(cfg.project)
     state = StateStore(base)
     fresh = not (state.artifact_dir / ".git").exists()
@@ -143,7 +164,7 @@ def cmd_run(args) -> int:
     print(f"▶ run: project={cfg.project!r}  executor={ex.engine}  "
           f"validator={cfg.agents.get('validator').engine if validator else 'none'}  "
           f"target={cfg.evaluation.target_score}")
-    summary = orch.run_loop(on_iteration=_print_iter)
+    summary = orch.run_loop(on_iteration=_print_iter, should_stop=_stop_requested(cfg))
     print(f"✔ finished: reason={summary.reason}  best_score={summary.best_score}  "
           f"iterations={summary.iterations}")
     state.close()
@@ -432,6 +453,74 @@ def cmd_web(args) -> int:
     return 0
 
 
+def cmd_research(args) -> int:
+    """Research kits (docs/design/p8-research-kits.md): new / check / create / start / save."""
+    from . import research as rs
+    a = args.action
+    try:
+        if a == "new":
+            kit = rs.new_kit(args.target, name=args.name)
+            print(f"✔ kit skeleton → {kit}\n  edit research.yaml, seed/ and scorer/, then: "
+                  f"pull-and-push research check {kit}")
+        elif a == "check":
+            rep = rs.check_kit(args.target)
+            print(json.dumps(rep, indent=2, default=str) if args.json else rs.format_check(rep))
+            return 0 if rep["ok"] else 3
+        elif a == "create":
+            out = rs.create_from_kit(args.target, name=args.name, check=not args.no_check)
+            if out.get("check"):
+                print(rs.format_check(out["check"]))
+            print(f"✔ project {out['created']!r} created → pull-and-push research start {out['created']}")
+        elif a == "start":
+            name = args.target
+            if not args.foreground:
+                token = args.token or os.environ.get("TYANI_TOLKAI_WEB_PASSWORD")
+                try:
+                    rs.start_via_dashboard(name, args.url, token)
+                    print(f"✔ started in the dashboard ({args.url}) — watch it there; "
+                          f"poll with: pull-and-push status {name}")
+                    return 0
+                except OSError as e:                      # URLError / HTTPError / refused
+                    if getattr(e, "code", None) is not None:   # the dashboard answered with an error
+                        print(f"✖ dashboard refused: {e}", file=sys.stderr)
+                        return 1
+                    print(f"· no dashboard at {args.url} — running in the foreground")
+            return cmd_run(argparse.Namespace(config=str(project_dir(name) / "config.yaml"),
+                                              resume=True))
+        elif a == "save":
+            if not args.to:
+                raise ValueError("research save needs --to <kit dir>")
+            kit = rs.save_kit(args.target, args.to, source=args.source, name=args.name)
+            print(f"✔ kit saved → {kit} (seed = the project's {args.source}); edit it, then "
+                  f"pull-and-push research create {kit} --name <new-name>")
+        return 0
+    except (FileNotFoundError, FileExistsError, ValueError) as e:
+        print(f"✖ {e}", file=sys.stderr)
+        return 2
+
+
+def cmd_status(args) -> int:
+    from . import research as rs
+    try:
+        s = rs.project_status(args.name, last=args.last)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"✖ {e}", file=sys.stderr)
+        return 2
+    print(json.dumps(s, indent=2, default=str) if args.json else rs.format_status(s))
+    return 0
+
+
+def cmd_report(args) -> int:
+    from . import research as rs
+    try:
+        r = rs.project_report(args.name)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"✖ {e}", file=sys.stderr)
+        return 2
+    print(json.dumps(r, indent=2, default=str) if args.json else rs.format_report(r))
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="pull-and-push",
                                 description="Pull-and-Push — adversarial co-evolution agent orchestrator")
@@ -524,6 +613,32 @@ def main(argv=None) -> int:
     pc.add_argument("--per-read-timeout", type=float, default=10.0)
     pc.add_argument("--total-timeout", type=float, default=120.0)
     pc.set_defaults(func=cmd_check_adapter)
+
+    prs = sub.add_parser("research", help="research kits: an experiment as research.yaml + seed/ + "
+                                          "scorer/ (new / check / create / start / save)")
+    prs.add_argument("action", choices=["new", "check", "create", "start", "save"])
+    prs.add_argument("target", help="kit dir (new / check / create) or project name (start / save)")
+    prs.add_argument("--name", default=None, help="project / kit name (default: from the kit)")
+    prs.add_argument("--to", default=None, help="save: the kit dir to write")
+    prs.add_argument("--source", choices=["best", "seed"], default="best",
+                     help="save: seed the new kit with the project's best result or its original seed")
+    prs.add_argument("--no-check", action="store_true", help="create: skip the pre-flight (not advised)")
+    prs.add_argument("--json", action="store_true", help="check: machine-readable report")
+    prs.add_argument("--url", default="http://127.0.0.1:8765", help="start: the dashboard to run it in")
+    prs.add_argument("--token", default=None, help="start: dashboard token (default: env password)")
+    prs.add_argument("--foreground", action="store_true", help="start: run here, not in the dashboard")
+    prs.set_defaults(func=cmd_research)
+
+    pst = sub.add_parser("status", help="compact state of a project's latest run")
+    pst.add_argument("name")
+    pst.add_argument("--last", type=int, default=5, help="how many recent iterations to show")
+    pst.add_argument("--json", action="store_true")
+    pst.set_defaults(func=cmd_status)
+
+    prp = sub.add_parser("report", help="what a run achieved: metrics start→best→target, kept steps, diff")
+    prp.add_argument("name")
+    prp.add_argument("--json", action="store_true")
+    prp.set_defaults(func=cmd_report)
 
     args = p.parse_args(argv)
     return args.func(args)

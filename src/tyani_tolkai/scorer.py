@@ -59,6 +59,23 @@ def score(values: Mapping[str, float], metrics: Iterable[MetricCfg]) -> float:
     return acc / total_w
 
 
+def constraint_violations(values: Mapping[str, object], constraints) -> list[str]:
+    """Human-readable violations of the hard gates (empty = all satisfied). ``values`` is everything
+    the scorer printed (scored metrics + report-only fields). A gate whose value is missing or not
+    a finite number counts as violated — an unmeasured guarantee is not a guarantee."""
+    out: list[str] = []
+    for c in constraints or []:
+        v = values.get(c.name)
+        if isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v):
+            out.append(f"{c.name}: not reported by the scorer")
+            continue
+        if c.min is not None and v < c.min:
+            out.append(f"{c.name}={v:g} < min {c.min:g}")
+        if c.max is not None and v > c.max:
+            out.append(f"{c.name}={v:g} > max {c.max:g}")
+    return out
+
+
 def decide(new_score: float, best_score: float | None, min_delta: float = 0.0) -> Verdict:
     """Keep iff the improvement clears the noise band.
 

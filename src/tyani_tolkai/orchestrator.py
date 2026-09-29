@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 
 from .brief import build_brief, build_validator_prompt
 from .config import Config
-from .scorer import decide, resolve_worst, score
+from .scorer import constraint_violations, decide, resolve_worst, score
 from .state import StateStore
 
 _DIFF_KEEP_CHARS = 2000
@@ -151,6 +151,8 @@ class Orchestrator:
         # can't reach, so every following candidate would be discarded into a plateau.
         best = None; rescored = 0; excluded = 0
         for it in iters:
+            if it.verdict == "fail":          # never scored (eval error / broken constraint)
+                continue
             vals = {mm["name"]: mm["value"] for mm in it.metrics}
             if any(m.name not in vals for m in metrics):
                 state.update_iteration_score(self.run_id, it.n, None)
@@ -494,6 +496,21 @@ class Orchestrator:
             self.plateau_count += 1
             state.update_run(self.run_id, plateau_count=self.plateau_count, iter_count=n)
             return IterationOutcome(n, "fail", None, fb, candidate_diff)
+
+        # hard gates: a candidate that breaks one is never kept, however well it scores
+        broken = constraint_violations({**(getattr(mres, "data", None) or {}), **values},
+                                       cfg.evaluation.constraints)
+        if broken:
+            fb = "constraint violated → not kept: " + "; ".join(broken)
+            if self.last_feedback:
+                fb += "\n\nlast review: " + self.last_feedback
+            state.reset_hard(parent)
+            state.record_iteration(self.run_id, n=n, git_hash=None, score=None, verdict="fail",
+                                   metrics=mres.metrics, change_summary=candidate_diff,
+                                   feedback=fb, agent_exit=result.status)
+            self.plateau_count += 1
+            state.update_run(self.run_id, plateau_count=self.plateau_count, iter_count=n)
+            return IterationOutcome(n, "fail", None, fb, candidate_diff, mres.metrics)
 
         self._resolve_baseline(values)        # pin metric zero-points on first measurement
         new_score = score(values, cfg.evaluation.metrics)
