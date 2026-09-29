@@ -95,21 +95,25 @@ _HELPER_FOCUS = (
     "no preamble, no follow-up questions.")
 
 
+# The loop wants many short steps, not one long think: every role on every engine reasons at
+# "medium" unless the config says otherwise. Left unset, each CLI would use the operator's own
+# default (claude xhigh, grok high) — measured: a Grok executor turn reasoned for the whole
+# 10-minute timeout with zero tool calls; a claude helper thought 8+ min without answering.
+DEFAULT_EFFORT = "medium"
+
+
 def build_cli_prefix(engine: str, model: str | None, profile: str,
                      effort: str | None = None) -> list[str]:
     """Build the argv prefix for an engine (prompt is appended by the caller). Profiles:
     "writeable" (executor), "read-only" (validator), "text" (helper: prompt → answer, no tools).
-    ``effort``: reasoning effort for claude / grok / codex (None = the CLI's own default — which is
-    the operator's personal setting, often "high"; helpers get "medium", see below)."""
-    if profile == "text":
-        effort = effort or "medium"
+    ``effort``: reasoning effort, passed to every engine (None → DEFAULT_EFFORT)."""
+    effort = effort or DEFAULT_EFFORT
     # Executor (writeable) and Validator (read-only) get DIFFERENT system prompts: the executor is
     # told to write files and stay silent; the validator is told to NOT write and to give feedback.
     focus = {"writeable": _EXECUTOR_FOCUS, "text": _HELPER_FOCUS}.get(profile, _VALIDATOR_FOCUS)
     if engine == "claude" and profile == "text":
-        # --effort medium: headless claude inherits the operator's default effort. Measured on the
-        # wizard's "draft the kit" call (a ~13 KB answer): at the inherited high/xhigh it thought
-        # for 8+ min (49k thinking tokens) without writing a character and hit the timeout; at
+        # measured on the wizard's "draft the kit" call (a ~13 KB answer): at the inherited
+        # high/xhigh it thought 8+ min (49k thinking tokens) without writing a character; at
         # medium it answered in 135 s with a kit that passed the pre-flight.
         # --tools "" = no built-in tools (nothing to write, run or hang on). Like --mcp-config it is
         # variadic, so another flag must follow it before the positional prompt.
@@ -134,17 +138,13 @@ def build_cli_prefix(engine: str, model: str | None, profile: str,
         #    as a confined executor (write files, don't run/test, stop).
         cmd = ["claude", "-p", "--dangerously-skip-permissions",
                "--mcp-config", '{"mcpServers":{}}', "--strict-mcp-config",
-               "--append-system-prompt", focus]
-        if effort:
-            cmd += ["--effort", effort]
+               "--append-system-prompt", focus, "--effort", effort]
         if model:
             cmd += ["--model", model]
         return cmd
     if engine == "codex":
         sandbox = "workspace-write" if profile == "writeable" else "read-only"
-        cmd = ["codex", "exec", "--sandbox", sandbox]
-        if effort:
-            cmd += ["-c", f"model_reasoning_effort={effort}"]
+        cmd = ["codex", "exec", "--sandbox", sandbox, "-c", f"model_reasoning_effort={effort}"]
         if model:
             cmd += ["-m", model]
         return cmd
@@ -152,7 +152,9 @@ def build_cli_prefix(engine: str, model: str | None, profile: str,
         # `opencode run` is already non-interactive/auto-approving — it has no
         # --dangerously-skip-permissions flag. The working dir is passed via --dir in run()
         # (opencode ignores the process cwd and otherwise resolves the ENCLOSING git repo).
-        cmd = ["opencode", "run"]
+        # --variant is its reasoning effort; names are provider-specific and an unknown one is
+        # silently ignored (tested), so passing it never breaks a model that lacks it.
+        cmd = ["opencode", "run", "--variant", effort]
         if model:
             cmd += ["-m", model]
         return cmd
@@ -160,7 +162,7 @@ def build_cli_prefix(engine: str, model: str | None, profile: str,
         # auto-approve tools so it can't stall on a prompt. The workspace (--add-dir) and the
         # prompt are added in run(): `--print` TAKES the prompt as its value (agy 1.2+) — a bare
         # `-p` before other flags made agy read the next flag as the prompt and ignore the task.
-        cmd = ["agy", "--dangerously-skip-permissions"]
+        cmd = ["agy", "--dangerously-skip-permissions", "--effort", effort]
         if model:
             cmd += ["--model", model]
         return cmd
@@ -172,10 +174,7 @@ def build_cli_prefix(engine: str, model: str | None, profile: str,
             # reviewer / helper may read, never write: a plain headless `grok -p` DID write a file
             # in a write-bait test (consilium). --deny takes exactly one value (not variadic).
             cmd += ["--deny", "Write", "--deny", "Edit", "--deny", "Bash"]
-        if effort:
-            # measured: at the operator's default "high" an executor turn streamed reasoning for
-            # the whole 10-minute timeout (2278 reasoning events, zero tool calls)
-            cmd += ["--reasoning-effort", effort]
+        cmd += ["--reasoning-effort", effort]
         if model:
             cmd += ["-m", model]
         return cmd

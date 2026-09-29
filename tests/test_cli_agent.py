@@ -1,7 +1,7 @@
 import os
 import sys
 
-from tyani_tolkai.agents.cli_agent import CLIAgentAdapter, build_cli_prefix
+from tyani_tolkai.agents.cli_agent import DEFAULT_EFFORT, CLIAgentAdapter, build_cli_prefix
 
 
 def test_build_cli_prefix_engines():
@@ -232,17 +232,27 @@ def test_codex_answer_is_its_final_message_not_its_banner(tmp_path):
         "PROMPT", tmp_path, "read-only", 30).stdout.strip() == "only noise"
 
 
-def test_reasoning_effort_per_engine():
-    # an agent in the loop inherits the operator's default effort (often "high") unless told
-    assert "--effort" not in build_cli_prefix("claude", None, "writeable")
-    c = build_cli_prefix("claude", None, "writeable", "low")
-    assert c[c.index("--effort") + 1] == "low"
-    g = build_cli_prefix("grok", None, "writeable", "medium")
-    assert g[g.index("--reasoning-effort") + 1] == "medium"
-    x = build_cli_prefix("codex", None, "read-only", "high")
-    assert x[x.index("-c") + 1] == "model_reasoning_effort=high"
-    for eng in ("claude", "grok"):                       # helpers: medium unless told otherwise
-        h = build_cli_prefix(eng, None, "text")
-        flag = "--effort" if eng == "claude" else "--reasoning-effort"
-        assert h[h.index(flag) + 1] == "medium"
-    assert "--effort" not in build_cli_prefix("opencode", None, "writeable", "high")   # ignored
+_EFFORT_FLAG = {"claude": "--effort", "agy": "--effort", "grok": "--reasoning-effort",
+                "codex": "-c", "opencode": "--variant"}
+
+
+def _effort(argv: list[str], engine: str) -> str:
+    value = argv[argv.index(_EFFORT_FLAG[engine]) + 1]
+    return value.removeprefix("model_reasoning_effort=")
+
+
+def test_every_role_on_every_engine_reasons_briefly_by_default():
+    # the loop wants many short steps: unset effort must NOT fall through to the operator's own
+    # default (claude xhigh / grok high — a Grok turn reasoned 10 min with zero tool calls)
+    for engine in _EFFORT_FLAG:
+        for profile in ("writeable", "read-only", "text"):
+            if profile == "text" and engine not in ("claude", "grok"):
+                continue                                  # helpers run on claude / grok only
+            assert _effort(build_cli_prefix(engine, None, profile), engine) == DEFAULT_EFFORT
+    assert DEFAULT_EFFORT == "medium"
+
+
+def test_reasoning_effort_can_be_raised_per_agent():
+    for engine in _EFFORT_FLAG:
+        assert _effort(build_cli_prefix(engine, None, "writeable", "high"), engine) == "high"
+    assert _effort(build_cli_prefix("claude", None, "text", "low"), "claude") == "low"

@@ -71,7 +71,8 @@ candidate is never kept, whatever its score.
 6. **Create:** `$PP research create <dir> [--name <name>]`. First run small: `max_iterations` 3–5,
    `budget_usd` set with `usd_per_mtok`, executor and validator from different providers
    (claude / codex is the proven pair; opencode, agy and grok work too — agy since the v0.4.2 launch
-   fix; give grok `effort: medium`, its "high" default can think through a whole 10-min turn).
+   fix). Every agent reasons at `medium` by default — short steps, not one long think; raise
+   one only for a reason (`{engine: claude, effort: high}`), and prefer more iterations to it.
 7. **Start:** `$PP research start <name>` — it runs inside the dashboard when one is up (found via
    `dashboard.json`); it prints "no dashboard … running in the foreground" otherwise, so launch it
    with Bash `run_in_background: true`, or use `--foreground` explicitly. Either way the

@@ -158,7 +158,7 @@ metrics:                     # scored — each maps (the seed's value → target
 constraints: []              # hard gates, e.g. - {{name: correct_pct, min: 100}}
 target_score: 90             # composite score that counts as done
 agents:
-  executor: claude           # claude | codex | grok | opencode | agy — or {{engine: grok, effort: medium}}
+  executor: claude           # claude | codex | grok | opencode | agy; reasons at medium — raise: {{engine: claude, effort: high}}
   validator: codex           # a DIFFERENT provider — uncorrelated blind spots
 limits:
   max_iterations: 20

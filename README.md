@@ -224,9 +224,11 @@ you trust). For code you don't fully trust, use `sandbox.backend: docker` to iso
 **Agents authenticate themselves** — Pull-and-Push shells out to whichever CLI a project names; no
 API keys live here. Install and log in the engines you use: `claude` (Anthropic), `codex` (OpenAI),
 `grok` (xAI Grok Build: `curl -fsSL https://x.ai/cli/install.sh | bash`), `opencode`, `agy`
-(Google/Antigravity). **Reasoning effort** per agent: `agents: {executor: {engine: grok, effort: medium}}`
-(claude `--effort`, grok `--reasoning-effort`, codex `model_reasoning_effort`); unset = the CLI's own
-default, i.e. your personal setting — often "high", which can make one loop turn run for many minutes. Tip: use **different** providers for executor vs validator
+(Google/Antigravity). **Reasoning effort:** every agent in every role reasons at `medium` by
+default — the loop is many short steps, and a long think on one step only slows it (on its own
+"high", Grok spent a whole 10-minute turn reasoning without touching a file). Raise it per agent:
+`agents: {executor: {engine: claude, effort: high}}` (claude/agy `--effort`, grok
+`--reasoning-effort`, codex `model_reasoning_effort`, opencode `--variant`). Tip: use **different** providers for executor vs validator
 on non-trivial runs — same model = correlated review blind spots.
 
 **Portable scorer commands** — template commands use a `{python}` placeholder (e.g.
@@ -510,8 +512,8 @@ pull-and-push url --open                                   # the running dashboa
   in a file, a JSON helper answer, a real research iteration). It has the fewest long runs behind
   it — for a long unattended run, `claude` / `codex` are the proven pair. `grok` (xAI Grok Build,
   from v0.4.2) runs with `--always-approve` as Executor and with Write/Edit/Bash denied as reviewer
-  or helper (checked with a write-bait); give it `effort: medium` — at the default "high" one turn
-  reasoned for the whole 10-minute timeout.
+  or helper (checked with a write-bait). Every engine reasons at `medium` by default (from v0.4.3):
+  on its own "high", one Grok turn reasoned for the whole 10-minute timeout.
 - **Symmetric mode** (Rival↔Rival + arena) — **shipped** (CLI + WebUI dual-curve, persist/resume,
   Stop, budget cap). Proven to converge on a toy referee with a checkable fixpoint; a real-domain
   referee + a real-LLM end-to-end run are the next step (the machinery is domain-agnostic). The

@@ -1,3 +1,3 @@
 """Pull-and-Push — adversarial co-evolution agent orchestrator (internal package: tyani_tolkai)."""
 
-__version__ = "0.4.2"
+__version__ = "0.4.3"

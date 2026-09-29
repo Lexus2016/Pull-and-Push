@@ -19,8 +19,8 @@ class AgentCfg(BaseModel):
     engine: str                      # adapter name: mock | claude | codex | opencode | agy | grok
     model: str | None = None
     timeout: int = 600               # seconds per agent run
-    # reasoning effort (claude --effort / grok --reasoning-effort / codex model_reasoning_effort);
-    # None = the CLI's default, i.e. the operator's own setting — often "high", slow per turn
+    # reasoning effort per turn (claude/agy --effort, grok --reasoning-effort, codex
+    # model_reasoning_effort, opencode --variant); None = "medium" — short steps, see cli_agent
     effort: str | None = None
 
 
