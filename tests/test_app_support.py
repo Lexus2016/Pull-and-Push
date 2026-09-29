@@ -82,7 +82,8 @@ def test_shutdown_kills_live_agents_and_runs_hooks():
 
 def test_dashboard_marker_roundtrip_is_owner_only():
     f = write_dashboard_marker("http://127.0.0.1:9000", "tok")
-    assert stat.S_IMODE(os.stat(f).st_mode) == 0o600
+    if os.name != "nt":                  # Windows has no POSIX modes (the profile dir's ACL applies)
+        assert stat.S_IMODE(os.stat(f).st_mode) == 0o600
     assert read_dashboard_marker() == {"url": "http://127.0.0.1:9000", "token": "tok",
                                        "pid": os.getpid()}
     clear_dashboard_marker()
