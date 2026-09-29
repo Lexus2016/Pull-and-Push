@@ -14,10 +14,15 @@ something far better than the first try — and you can watch every step happen 
 
 - a trading strategy that should earn more without getting wiped out,
 - code that has to make a hidden test suite pass,
-- a piece of writing you want to score higher against a rubric.
+- a piece of writing you want to score higher against a rubric,
+- any other experiment a script can score — faster or smaller code, a prompt, a config, SQL
+  ([research kits](#any-experiment--research-kits)).
 
 You bring the goal and a way to measure it. Pull-and-Push runs the thousands of small
 attempts for you and hands back the best one.
+
+**Get it:** on a Mac with Apple Silicon — [download the app](https://github.com/Lexus2016/Pull-and-Push/releases/latest) (signed, notarized, updates
+itself from GitHub); anywhere else — [run it from source](#from-source-macos--linux--windows).
 
 ![A live run climbing the quality curve](docs/assets/hero.png)
 
@@ -58,7 +63,7 @@ artifacts and a deterministic referee decides who wins each round. See
 | Start a project in one step | Whole workspace |
 |---|---|
 | ![New project](docs/assets/new-project.png) | ![Overview](docs/assets/progress-overview.png) |
-| Pick a vetted template (ships a working scorer) **or** generate a project from a plain-language description. | Sidebar of projects, the live dashboard, and the activity rail — all in one screen. |
+| Pick a vetted template (ships a working scorer) **or** describe an experiment in plain words — the 🧪 research wizard drafts the criteria, the judge and a starting version. | Sidebar of projects, the live dashboard, and the activity rail — all in one screen. |
 
 | Improve an existing bot | |
 |---|---|
@@ -70,7 +75,7 @@ The technical name is an **adversarial co-evolution orchestrator** — in the sp
 Karpathy's `autoresearch`, and the `consilium` adapter pattern.
 
 - **Off-the-shelf agents, no custom models.** Each role is an existing CLI agent
-  (`claude` / `codex` / `opencode` / `agy`). We only write the parts we fully control: the
+  (`claude` / `codex` / `opencode` / `agy` / `grok`). We only write the parts we fully control: the
   loop, the grader, the metric runner, the state store, and the web UI.
 - **The number comes from code; the AI only advises.** A deterministic scorer computes the
   0–100 from objective metrics. The reviewer AI gives words and ideas — never the number.
@@ -89,6 +94,14 @@ Karpathy's `autoresearch`, and the `consilium` adapter pattern.
   judged by a deterministic referee, with a champion archive + match matrix. Same deterministic-
   judge principle; the referee is the trust anchor.
 
+- **A local engine, a native app.** The engine is a FastAPI server on `127.0.0.1`. The macOS app
+  wraps it in a native window with a bundled CPython and updates itself from GitHub Releases
+  (Sparkle; the DMG and the feed are EdDSA-signed). The terminal CLI and the app share the same
+  projects in `~/.tyani-tolkai/`.
+- **Safe to leave running.** The API needs a token (swapped for a session cookie on the first
+  visit), refuses foreign `Host` headers (DNS rebinding) and cross-origin writes (CSRF), and
+  stopping the server stops its agents.
+
 - **Design spec:** `docs/superpowers/specs/2026-06-03-tyani-tolkai-design.md`
 - **Plan:** `docs/superpowers/plans/2026-06-03-tyani-tolkai-core-mvp.md`
 
@@ -96,7 +109,7 @@ Karpathy's `autoresearch`, and the `consilium` adapter pattern.
 
 ### macOS app (Apple Silicon) — the easiest way
 
-Download **`Pull-and-Push-0.4.1-arm64.dmg`** from
+Download **`Pull-and-Push-0.4.2-arm64.dmg`** from
 [Releases](https://github.com/Lexus2016/Pull-and-Push/releases/latest), open it, drag
 **Pull-and-Push** into Applications and launch it. Python, the dependencies and the dashboard are
 inside; the app is signed and notarized by Apple. You only need Git (the app offers to install the
@@ -144,8 +157,8 @@ the link signs your browser in once, after that the plain address is enough (los
 example** → pick a card → name it → describe the goal → **Create** → press **▶ Run**.
 
 To run a *real* optimization you need one AI coding CLI (no API keys are stored here):
-install and log in to **claude** (Anthropic), **codex** (OpenAI), or **opencode**, then pick
-it in the project. Tip: use *different* providers for the executor and the validator.
+install and log in to **claude** (Anthropic), **codex** (OpenAI), **grok** (xAI), **opencode** or
+**agy**, then pick it in the project. Tip: use *different* providers for the executor and the validator.
 
 <details><summary><b>Prefer to install by hand (or on Windows)?</b></summary>
 
@@ -156,7 +169,7 @@ pip install -e ".[web]"
 pull-and-push web                  # then open the printed URL (default http://127.0.0.1:8765)
 ```
 
-Run the tests: `pip install -e ".[dev]"` then `pytest` (492 pass; the 8 Docker tests skip when no Docker daemon is running).
+Run the tests: `pip install -e ".[dev]"` then `pytest` (493 pass; the 8 Docker tests skip when no Docker daemon is running).
 
 </details>
 
@@ -164,6 +177,11 @@ Run the tests: `pip install -e ".[dev]"` then `pytest` (492 pass; the 8 Docker t
 
 Your projects — config, run history, scores and the artifact — live in **`~/.tyani-tolkai/`**
 (override with `TYANI_TOLKAI_HOME`), **outside** this repo. So updating the code never touches them.
+
+**The macOS app updates itself:** once a day it checks GitHub Releases and offers *Install and
+Relaunch* (or **Pull-and-Push ▸ Check for Updates…**); if research is running, it asks first.
+**From source**, the dashboard shows a **⬆ vX** badge when a new release is out (the daily check
+can be switched off in ⚙ Settings) — then:
 
 ```bash
 cd Pull-and-Push
@@ -199,23 +217,29 @@ you trust). For code you don't fully trust, use `sandbox.backend: docker` to iso
 
 | Variable | Purpose |
 |----------|---------|
-| `TYANI_TOLKAI_WEB_PASSWORD` | If set, the dashboard requires `?token=<value>`. Leave empty for localhost. |
+| `TYANI_TOLKAI_WEB_PASSWORD` | Use this dashboard token instead of the generated one (`~/.tyani-tolkai/web-token`). |
 | `TYANI_TOLKAI_HOME` | Where projects live (default `~/.tyani-tolkai`). |
+| `PULL_AND_PUSH_PYTHON` | The interpreter `{python}` means for scorers (overrides ⚙ Settings ▸ Python for scorers). |
 
 **Agents authenticate themselves** — Pull-and-Push shells out to whichever CLI a project names; no
 API keys live here. Install and log in the engines you use: `claude` (Anthropic), `codex` (OpenAI),
-`opencode`, `agy` (Google/Antigravity). Tip: use **different** providers for executor vs validator
+`grok` (xAI Grok Build: `curl -fsSL https://x.ai/cli/install.sh | bash`), `opencode`, `agy`
+(Google/Antigravity). **Reasoning effort** per agent: `agents: {executor: {engine: grok, effort: medium}}`
+(claude `--effort`, grok `--reasoning-effort`, codex `model_reasoning_effort`); unset = the CLI's own
+default, i.e. your personal setting — often "high", which can make one loop turn run for many minutes. Tip: use **different** providers for executor vs validator
 on non-trivial runs — same model = correlated review blind spots.
 
 **Portable scorer commands** — template commands use a `{python}` placeholder (e.g.
 `{python} ../metrics/run_backtest.py`) that the runner replaces with the sandbox interpreter, so
-projects run on hosts that only have `python3` (not a bare `python`).
+projects run on hosts that only have `python3` (not a bare `python`). Which interpreter that is —
+the bundled one or your own with numpy/pandas — is chosen in **⚙ Settings ▸ Python for scorers**.
 
 **Common issues**
 
 | Symptom | Fix |
 |---------|-----|
-| `claude: not found` / agent missing | Install + log in that CLI, or change the engine in the project's config. |
+| `claude: not found` / agent missing | Install + log in that CLI (⚙ Settings shows what is found and the install command), or change the engine in the project's config. The macOS app reads your login shell's `PATH` at launch — restart it after installing. |
+| The dashboard asks you to sign in | Open the link printed by `pull-and-push web`, or run `pull-and-push url --open`. |
 | Rate-limited / quota hit | The run pauses (status `paused`); press **▶ Run** again to resume from the last best. |
 | Agent repeats `no_op` (no change) | Brief too vague or the file isn't the editable one — tighten the executor goal/task. |
 | A step never ends | Lower `limits.step_seconds` (per-agent timeout), or use **⛔ Force Stop**. |
@@ -235,7 +259,8 @@ projects run on hosts that only have `python3` (not a bare `python`).
   **ready to run**: a real, committed scoring harness lands in `metrics/` (outside the artifact,
   so the executor can't see or edit it), your description becomes the executor's goal. No
   hand-authored scorer, nothing to fix before the first **Run**. Templates today:
-  `btcusdt-futures` (leveraged BTCUSDT 5m backtest) and `pytest-pass` (make a hidden test suite pass).
+  `btcusdt-futures` (leveraged BTCUSDT 5m backtest), `pytest-pass` (make a hidden test suite pass)
+  and `custom` (a minimal scorer to adapt to your task).
 - 🧪 **Research from an idea** — describe any measurable experiment in plain language; a helper
   agent asks what it needs, then drafts the whole research kit (goal, criteria, hard constraints,
   the scorer and a starting version); you review it, a pre-flight runs the judge, then **Create**.
@@ -253,9 +278,16 @@ projects run on hosts that only have `python3` (not a bare `python`).
   updating live during a run.
 - ⛔ **Force Stop** kills the agent instantly; **Stop** waits for the iteration boundary.
 - ⬇ **Export** downloads the current best **result as a `.zip`** (artifact code + `README.md` + `RESULTS.md`).
-- **UI languages:** English (default) · Ukrainian · Russian — switch in the header (with styled,
-  in-design tooltips on every control). The choice and your place in the UI persist across reloads.
-- Optional **completion webhook**: call your URL (GET/POST) when a run finishes.
+- ⚙ **Settings & diagnostics** — agent CLIs with versions (and the install command for a missing
+  one), the Python for scorers, updates, the data folder, security; **Copy diagnostics** for a bug
+  report.
+- 🔒 **Sign-in** — the printed link carries a token once; the browser keeps a session cookie and the
+  plain address works afterwards (`pull-and-push url --open` prints/opens the link again).
+- **UI languages:** English · Ukrainian · Russian — switch in the header (with styled tooltips on
+  every control). The first visit follows your browser's language; in the macOS app the menus follow
+  the switch too. The choice and your place in the UI persist across reloads.
+- Optional **completion webhook**: call your URL (GET/POST) when a run finishes; the macOS app also
+  shows a notification.
 
 ### Snapshots — download, rewind to, or fork any iteration
 
@@ -460,33 +492,43 @@ pull-and-push projects import my-task.zip --to copy-1      # continue on another
 pull-and-push projects reset my-task                       # back to seed, keep config
 pull-and-push projects rename my-task --to renamed
 pull-and-push projects delete renamed
+pull-and-push url --open                                   # the running dashboard's sign-in link
 ```
 
 ## Notes & boundaries (honest)
 
 - **Headless agents** run with permission to use their file tools and a detached stdin, so
-  they can't hang on an interactive prompt (`claude`/`opencode`/`agy` get
-  `--dangerously-skip-permissions`; `codex exec` is sandboxed and non-interactive). A
+  they can't hang on an interactive prompt (`claude`/`agy` get `--dangerously-skip-permissions`;
+  `opencode run` is non-interactive by itself; `codex exec` is sandboxed and non-interactive). A
   per-step timeout is the final backstop.
 - **Executor engine compatibility** (verified by smoke-test): the loop pins each engine to the
-  artifact dir with its own flag — `claude` (cwd) · `codex -C` · `opencode --dir` · `agy --add-dir`.
-  **`claude`, `codex` and `opencode` work** as Executor/Validator (each edits only the artifact).
-  **`agy` is not recommended**: headless `agy -p` either blocks on an interactive permission prompt
-  or, with auto-approve, answers conversationally instead of reliably editing files. Use
-  `claude` / `codex` / `opencode`.
+  artifact dir with its own flag — `claude` (cwd) · `codex -C` · `opencode --dir` · `agy --add-dir` · `grok --cwd`.
+  **`claude`, `codex`, `opencode`, `agy` and `grok` work** as Executor/Validator (each edits only the
+  artifact). `agy` was marked "not recommended" until v0.4.2 — the loop launched it as
+  `agy -p --dangerously-skip-permissions …`, and agy ≥ 1.2 reads the word after `-p` as the prompt,
+  so it ignored the task. The prompt now goes into `--print`; verified with agy 1.2.13 (a bug fix
+  in a file, a JSON helper answer, a real research iteration). It has the fewest long runs behind
+  it — for a long unattended run, `claude` / `codex` are the proven pair. `grok` (xAI Grok Build,
+  from v0.4.2) runs with `--always-approve` as Executor and with Write/Edit/Bash denied as reviewer
+  or helper (checked with a write-bait); give it `effort: medium` — at the default "high" one turn
+  reasoned for the whole 10-minute timeout.
 - **Symmetric mode** (Rival↔Rival + arena) — **shipped** (CLI + WebUI dual-curve, persist/resume,
   Stop, budget cap). Proven to converge on a toy referee with a checkable fixpoint; a real-domain
   referee + a real-LLM end-to-end run are the next step (the machinery is domain-agnostic). The
   Docker sandbox for the referee is implemented but its live run is not yet CI-validated.
 - **Docker backend** is implemented; the `local` backend is fully tested. Keep metric
   commands simple (avoid shell pipes) for cross-backend parity.
-- **WebUI auth** is a token in a URL query param — fine for localhost single-user; front it
-  with a TLS reverse proxy for remote exposure.
+- **WebUI auth**: a token (stable, `~/.tyani-tolkai/web-token`) traded on the first visit for an
+  HttpOnly, SameSite=Strict session cookie; on loopback, foreign `Host` headers and cross-origin
+  writes are refused. For remote access put a TLS reverse proxy in front (`--host 0.0.0.0` turns the
+  Host check off; `--no-auth` drops the token — not advised).
 
 ## Tests
 
 The full suite passes (the Docker tests skip without a daemon), run on Python 3.10 & 3.12 in CI — unit (scorer, config, state, metrics, brief, registry, sandbox),
 integration (orchestrator with mock + validator, baseline zero-point, force-stop, missing-
 metric handling), CLI adapter (incl. headless flags + kill), projects round-trip (zip),
-WebUI endpoints (incl. force-stop, agent-log, webhook), and a golden run proving
-convergence with the harness left untouched (anti-collusion).
+WebUI endpoints (incl. force-stop, agent-log, webhook, auth, settings), a golden run proving
+convergence with the harness left untouched (anti-collusion), and the macOS app's headless
+self-test (`macos/selftest.sh`, also in CI): the dashboard inside the app's own WebView, the native
+bridge, downloads, language switching, the signed update feed, and the engine stopping with the app.

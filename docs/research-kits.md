@@ -24,7 +24,7 @@ constraints:                           # hard gates: a violating version is neve
   - {name: correct_pct, min: 100}
   - {name: source_kb, max: 8}
 target_score: 90                       # composite score that counts as done
-agents: {executor: claude, validator: codex}   # different providers
+agents: {executor: claude, validator: codex}   # different providers; or {engine: grok, effort: medium}
 limits: {max_iterations: 12, plateau_N: 4, step_seconds: 300, budget_usd: 3, usd_per_mtok: 3}
 evaluation: {runs: 1, min_delta: 2}    # runs > 1 = median of N (noisy judges)
 ```
