@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pull-and-push"
-version = "0.2.0"
+version = "0.3.0"
 description = "Pull-and-Push — adversarial co-evolution agent orchestrator (asymmetric MVP)"
 requires-python = ">=3.10"
 dependencies = [
@@ -32,7 +32,7 @@ tyani-tolkai = "tyani_tolkai.cli:main"   # back-compat alias (internal package s
 where = ["src"]
 
 [tool.setuptools.package-data]
-"tyani_tolkai.web" = ["static/*.html"]
+"tyani_tolkai.web" = ["static/*.html", "static/vendor/*", "static/vendor/fonts/*"]
 # Vetted scaffold templates (manifest + seed + harness) ship with the package so the
 # research/scaffold phase works from an installed wheel, not just an editable checkout.
 "tyani_tolkai" = ["templates/**/*", "templates/**/*.csv", "templates/**/*.py", "templates/**/*.json"]

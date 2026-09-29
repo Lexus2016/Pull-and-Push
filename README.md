@@ -94,6 +94,28 @@ Karpathy's `autoresearch`, and the `consilium` adapter pattern.
 
 ## Install & run
 
+### macOS app (Apple Silicon) — the easiest way
+
+Download **`Pull-and-Push-0.3.0-arm64.dmg`** from
+[Releases](https://github.com/Lexus2016/Pull-and-Push/releases/latest), open it, drag
+**Pull-and-Push** into Applications and launch it. Python, the dependencies and the dashboard are
+inside; the app is signed and notarized by Apple. You only need Git (the app offers to install the
+Command Line Tools when it is missing) and, for real runs, an agent CLI (see below).
+
+- Closing the window does not stop research: runs keep going and the Dock icon shows how many.
+  **Quit** (⌘Q) stops the agents — it asks first when something is running.
+- Same projects as the terminal: **`~/.tyani-tolkai/`**. If a dashboard already runs from the
+  terminal (`./start.sh`), the app simply opens it — two dashboards never drive the same data.
+- **File ▸ Install the pull-and-push Command** links the app's CLI into `~/.local/bin`: the
+  terminal and agents work on the same projects, and `research start` finds the app's dashboard.
+- Engine log: **File ▸ Open Engine Log** (`~/Library/Logs/Pull-and-Push/engine.log`).
+- Scorers run on the bundled Python (standard library only). Need your own packages (numpy …)?
+  Write `python3` instead of `{python}` in the eval command to use your Python from PATH.
+- Build it yourself: `macos/build.sh` (`--ad-hoc`: no certificate, this Mac only). Check a built
+  app without a screen: `macos/selftest.sh`.
+
+### From source (macOS / Linux / Windows)
+
 You need **Python 3.10+** (CPython, not PyPy) and **Git**. To run a real optimization you
 also need one AI agent CLI (see the bottom of this section).
 
@@ -127,7 +149,7 @@ pip install -e ".[web]"
 pull-and-push web                  # then open the printed URL (default http://127.0.0.1:8765)
 ```
 
-Run the tests: `pip install -e ".[dev]"` then `pytest` (434 pass; the 8 Docker tests skip when no Docker daemon is running).
+Run the tests: `pip install -e ".[dev]"` then `pytest` (481 pass; the 8 Docker tests skip when no Docker daemon is running).
 
 </details>
 

@@ -85,3 +85,18 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: pwsh -NoProfile -ExecutionPolicy Bypass -File ./start.ps1 --check
+
+  # The macOS app: built ad-hoc (no certificate in CI) and self-tested headless — the dashboard in
+  # the app's own WKWebView, the native bridge, confirm(), a real download, and the engine exiting
+  # with the app on Quit and on SIGKILL (macos/selftest.sh).
+  macos-app:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build Pull-and-Push.app (ad-hoc signed)
+        run: PP_HOST_PYTHON="$(command -v python)" macos/build.sh --ad-hoc
+      - name: Self-test the app
+        run: macos/selftest.sh
