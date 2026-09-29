@@ -21,6 +21,10 @@ PBS_TAG=20260924
 PBS_FILE="cpython-3.12.14+${PBS_TAG}-aarch64-apple-darwin-install_only.tar.gz"
 PBS_SHA256=9763f43db2481a6af36af82ec40302aab7a73632f880129d07a6e81aec846277
 PBS_URL="https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_TAG}/${PBS_FILE/+/%2B}"
+SPARKLE_VERSION=2.10.0
+SPARKLE_SHA256=c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c
+# public half of the EdDSA key that signs every update (private half: see docs/RELEASING.md)
+SPARKLE_PUBLIC_KEY="XOJxKD9vALhIfCUah7ig6chOsMRhiX3a2AtIK5xU27g="
 NAME="Pull-and-Push"
 BUNDLE_ID="com.lexus2016.pull-and-push"
 
@@ -41,7 +45,12 @@ APP="$OUT/$NAME.app"
 RES="$APP/Contents/Resources"
 PY="$RES/python/bin/python3"
 PYLIB="$RES/python/lib/python3.12"
-VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/pyproject.toml" | head -1)"
+# PP_VERSION overrides it — only to build an older-looking copy for testing an update end to end
+VERSION="${PP_VERSION:-$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/pyproject.toml" | head -1)}"
+# CFBundleVersion / sparkle:version: one integer that only grows (0.4.0 → 400, 1.2.3 → 10203)
+IFS=. read -r V_MAJ V_MIN V_PAT <<<"$VERSION"
+BUILD=$((V_MAJ * 10000 + V_MIN * 100 + ${V_PAT:-0}))
+SPARKLE="$CACHE/Sparkle-$SPARKLE_VERSION"
 step() { printf '\n▶ %s\n' "$*"; }
 die() { printf '✖ %s\n' "$*" >&2; exit 1; }
 
@@ -70,7 +79,7 @@ if [ "$MODE" = notarize ]; then
    xcrun notarytool store-credentials $PROFILE --apple-id <apple id> --team-id <team id> --password <app-specific password>
    (or build with --no-notarize)"
 fi
-echo "Pull-and-Push $VERSION — mode: $MODE — identity: $ID"
+echo "Pull-and-Push $VERSION (build $BUILD) — mode: $MODE — identity: $ID"
 
 step "python-build-standalone ($PBS_FILE)"
 mkdir -p "$CACHE"
@@ -81,9 +90,22 @@ if [ ! -f "$TGZ" ]; then
 fi
 echo "$PBS_SHA256  $TGZ" | shasum -a 256 -c - >/dev/null || { rm -f "$TGZ"; die "checksum mismatch: $TGZ"; }
 
+step "Sparkle $SPARKLE_VERSION (updates)"
+if [ ! -d "$SPARKLE/Sparkle.framework" ]; then
+  STGZ="$CACHE/Sparkle-$SPARKLE_VERSION.tar.xz"
+  [ -f "$STGZ" ] || curl -fL --retry 3 -o "$STGZ" \
+    "https://github.com/sparkle-project/Sparkle/releases/download/$SPARKLE_VERSION/Sparkle-$SPARKLE_VERSION.tar.xz"
+  echo "$SPARKLE_SHA256  $STGZ" | shasum -a 256 -c - >/dev/null || { rm -f "$STGZ"; die "checksum mismatch: $STGZ"; }
+  rm -rf "$SPARKLE" && mkdir -p "$SPARKLE" && tar -xJf "$STGZ" -C "$SPARKLE"
+fi
+
 step "bundle skeleton"
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$RES/bin"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Frameworks" "$RES/bin"
+ditto "$SPARKLE/Sparkle.framework" "$APP/Contents/Frameworks/Sparkle.framework"
+# the XPC services are for sandboxed apps only; this one is not sandboxed
+rm -rf "$APP/Contents/Frameworks/Sparkle.framework/XPCServices" \
+       "$APP/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices"
 tar -xzf "$TGZ" -C "$RES"                                  # → Resources/python
 
 step "wheels (downloaded by the host Python)"
@@ -140,7 +162,9 @@ SH
 chmod 755 "$RES/bin/pull-and-push"
 
 step "launcher (Swift)"
-swiftc -O -swift-version 5 -target arm64-apple-macos13.0 -framework AppKit -framework WebKit \
+swiftc -O -swift-version 5 -target arm64-apple-macos13.0 -F "$SPARKLE" -framework Sparkle \
+  -framework AppKit -framework WebKit -framework UserNotifications \
+  -Xlinker -rpath -Xlinker @executable_path/../Frameworks \
   "$ROOT/macos/Sources/main.swift" -o "$APP/Contents/MacOS/$NAME"
 
 step "icon + Info.plist"
@@ -152,7 +176,8 @@ for s in 16 32 128 256 512; do
   sips -z $((s * 2)) $((s * 2)) "$OUT/icon-1024.png" --out "$ICONSET/icon_${s}x${s}@2x.png" >/dev/null
 done
 iconutil -c icns "$ICONSET" -o "$RES/AppIcon.icns"
-sed -e "s/@VERSION@/$VERSION/g" -e "s/@BUNDLE_ID@/$BUNDLE_ID/g" "$ROOT/macos/Info.plist" \
+sed -e "s/@VERSION@/$VERSION/g" -e "s/@BUILD@/$BUILD/g" -e "s/@BUNDLE_ID@/$BUNDLE_ID/g" \
+    -e "s|@SPARKLE_PUBLIC_KEY@|$SPARKLE_PUBLIC_KEY|g" "$ROOT/macos/Info.plist" \
   > "$APP/Contents/Info.plist"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 printf 'APPL????' > "$APP/Contents/PkgInfo"
@@ -173,6 +198,11 @@ while IFS= read -r -d '' f; do
 done < <(find "$RES/python" -type f \( -name '*.so' -o -name '*.dylib' -o -perm -u+x \) -print0)
 echo "  ${#machos[@]} Mach-O files in the bundled Python"
 for f in "${machos[@]}"; do "${SIGN[@]}" "$f" 2>/dev/null || "${SIGN[@]}" "$f"; done
+# Sparkle, inside out: its helpers, then the framework (Sparkle's own signing guide)
+FW="$APP/Contents/Frameworks/Sparkle.framework"
+"${SIGN[@]}" "$FW/Versions/B/Autoupdate"
+"${SIGN[@]}" "$FW/Versions/B/Updater.app"
+"${SIGN[@]}" "$FW"
 "${SIGN[@]}" "$APP/Contents/MacOS/$NAME"
 "${SIGN[@]}" "$APP"
 codesign --verify --strict --deep "$APP"

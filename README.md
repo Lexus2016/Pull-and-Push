@@ -96,21 +96,26 @@ Karpathy's `autoresearch`, and the `consilium` adapter pattern.
 
 ### macOS app (Apple Silicon) — the easiest way
 
-Download **`Pull-and-Push-0.3.0-arm64.dmg`** from
+Download **`Pull-and-Push-0.4.0-arm64.dmg`** from
 [Releases](https://github.com/Lexus2016/Pull-and-Push/releases/latest), open it, drag
 **Pull-and-Push** into Applications and launch it. Python, the dependencies and the dashboard are
 inside; the app is signed and notarized by Apple. You only need Git (the app offers to install the
 Command Line Tools when it is missing) and, for real runs, an agent CLI (see below).
 
-- Closing the window does not stop research: runs keep going and the Dock icon shows how many.
-  **Quit** (⌘Q) stops the agents — it asks first when something is running.
+- **Updates itself from GitHub:** once a day it checks the latest release and offers *Install and
+  Relaunch* (or **Pull-and-Push ▸ Check for Updates…**). Every update and the feed itself are
+  EdDSA-signed; if research is running, the app asks first.
+- Closing the window does not stop research: runs keep going and the Dock icon shows how many. When
+  a run reaches its target, stops or waits for your decision, a **macOS notification** tells you
+  (click it to open the project). **Quit** (⌘Q) stops the agents — it asks first when something runs.
+- **⚙ Settings** (⌘,): agent CLIs with versions, the Python for scorers, updates, data folder, diagnostics.
 - Same projects as the terminal: **`~/.tyani-tolkai/`**. If a dashboard already runs from the
   terminal (`./start.sh`), the app simply opens it — two dashboards never drive the same data.
 - **File ▸ Install the pull-and-push Command** links the app's CLI into `~/.local/bin`: the
   terminal and agents work on the same projects, and `research start` finds the app's dashboard.
 - Engine log: **File ▸ Open Engine Log** (`~/Library/Logs/Pull-and-Push/engine.log`).
 - Scorers run on the bundled Python (standard library only). Need your own packages (numpy …)?
-  Write `python3` instead of `{python}` in the eval command to use your Python from PATH.
+  Pick your Python in **⚙ Settings ▸ Python for scorers**.
 - Build it yourself: `macos/build.sh` (`--ad-hoc`: no certificate, this Mac only). Check a built
   app without a screen: `macos/selftest.sh`.
 
@@ -132,7 +137,9 @@ powershell -ExecutionPolicy Bypass -File .\start.ps1
 ```
 
 `start.sh` (macOS/Linux) and `start.ps1` (Windows) create the virtualenv, install everything,
-and open the dashboard at **http://127.0.0.1:8765**. It is re-runnable — pass `--port 8080` to use another port, or
+and print the dashboard's link (**http://127.0.0.1:8765/?token=…**). The dashboard is token-protected:
+the link signs your browser in once, after that the plain address is enough (lost it?
+`pull-and-push url --open`). It is re-runnable — pass `--port 8080` to use another port, or
 `--update` to reinstall after a `git pull`. Then, in the browser: **🚀 New project from an
 example** → pick a card → name it → describe the goal → **Create** → press **▶ Run**.
 
@@ -149,7 +156,7 @@ pip install -e ".[web]"
 pull-and-push web                  # then open the printed URL (default http://127.0.0.1:8765)
 ```
 
-Run the tests: `pip install -e ".[dev]"` then `pytest` (481 pass; the 8 Docker tests skip when no Docker daemon is running).
+Run the tests: `pip install -e ".[dev]"` then `pytest` (492 pass; the 8 Docker tests skip when no Docker daemon is running).
 
 </details>
 

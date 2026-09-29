@@ -56,12 +56,26 @@ checks = {
     **({f"finds {a} from a bare environment": (js.get("installed") or {}).get(a) is True}
        if (a := __import__("os").environ.get("PP_EXPECT_AGENT")) else {}),
     "export downloaded": isinstance(r.get("download"), dict) and r["download"].get("bytes", 0) > 0,
+    "settings panel renders": js.get("settings_sections") == 5,
     "no fatal error": "fatal" not in r and "engine" not in r,
 }
 for k, ok in checks.items():
     print(("✔ " if ok else "✖ ") + k)
 sys.exit(0 if all(checks.values()) else 1)
 PY
+
+# updates: Sparkle is inside, signed, and pointed at the signed GitHub feed
+plist="$APP/Contents/Info.plist"
+[ -d "$APP/Contents/Frameworks/Sparkle.framework" ] || { echo "✖ Sparkle.framework missing"; exit 1; }
+codesign --verify --strict "$APP/Contents/Frameworks/Sparkle.framework" || { echo "✖ Sparkle is not signed"; exit 1; }
+feed="$(/usr/libexec/PlistBuddy -c 'Print :SUFeedURL' "$plist")"
+key="$(/usr/libexec/PlistBuddy -c 'Print :SUPublicEDKey' "$plist")"
+signed="$(/usr/libexec/PlistBuddy -c 'Print :SURequireSignedFeed' "$plist")"
+build="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$plist")"
+case "$feed" in https://github.com/*/releases/latest/download/appcast.xml) ;; *) echo "✖ feed: $feed"; exit 1;; esac
+[ ${#key} -eq 44 ] && [ "$signed" = true ] && [[ "$build" =~ ^[0-9]+$ ]] \
+  || { echo "✖ Sparkle keys: key=${#key} signed=$signed build=$build"; exit 1; }
+echo "✔ updates: Sparkle signed, signed feed $feed, build $build"
 
 # a crash / force-quit must not leave the engine (and its agents) running either
 "$BIN" >/dev/null 2>&1 &

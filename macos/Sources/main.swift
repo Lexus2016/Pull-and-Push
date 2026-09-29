@@ -8,6 +8,8 @@
 // running.
 
 import AppKit
+import Sparkle
+import UserNotifications
 import WebKit
 
 // MARK: - Strings (native bits only; the dashboard localizes itself)
@@ -61,6 +63,9 @@ enum SelfTest {
     r.reveal_home = await pp.postMessage({cmd: 'reveal', path: META.home});
     r.pick = await pp.postMessage({cmd: 'pick', kind: 'folder'});
     r.confirm = confirm('selftest');
+    await openSettings();
+    r.settings_sections = document.querySelectorAll('#setBody h4').length;
+    document.getElementById('settings').classList.add('hidden');
     r.errors = window.__ppErrors || [];
     const d = await (await fetch(api('/api/projects'))).json();
     r.projects = d.projects;
@@ -286,10 +291,11 @@ final class Engine {
     }
 
     /// GET an engine API path (token appended) → decoded JSON, on the main queue.
-    func get(_ path: String, _ done: @escaping ([String: Any]?) -> Void) {
+    func get(_ path: String, query: [String: String] = [:], _ done: @escaping ([String: Any]?) -> Void) {
         guard let o = origin, var c = URLComponents(url: o.appendingPathComponent(path),
                                                     resolvingAgainstBaseURL: false) else { done(nil); return }
         c.queryItems = [URLQueryItem(name: "token", value: token)]
+            + query.map { URLQueryItem(name: $0.key, value: $0.value) }
         var req = URLRequest(url: c.url!)
         req.timeoutInterval = 3
         URLSession.shared.dataTask(with: req) { data, _, _ in
@@ -310,6 +316,7 @@ final class WebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownl
     let view: WKWebView
     unowned let engine: Engine
     weak var window: NSWindow?
+    var onCheckUpdates: (() -> Void)?
     private var destinations: [ObjectIdentifier: URL] = [:]
 
     init(engine: Engine) {
@@ -513,6 +520,9 @@ final class WebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownl
             }
             let finish: (NSApplication.ModalResponse) -> Void = { replyHandler($0 == .OK ? panel.url?.path : nil, nil) }
             if let win = window { panel.beginSheetModal(for: win, completionHandler: finish) } else { finish(panel.runModal()) }
+        case "checkUpdates":
+            onCheckUpdates?()
+            replyHandler(true, nil)
         case "reveal":
             guard let path = body["path"] as? String, path.hasPrefix("/"),
                   FileManager.default.fileExists(atPath: path) else { return replyHandler(false, nil) }
@@ -541,10 +551,84 @@ final class WebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownl
     }
 }
 
+// MARK: - Notifications
+
+/// A run that ends while you are elsewhere (window closed, another app in front) becomes a macOS
+/// notification; clicking it opens that project. Polls the engine's run-end events.
+final class Notifier: NSObject, UNUserNotificationCenterDelegate {
+    var onOpen: ((String) -> Void)?
+    private var asked = false
+
+    override init() {
+        super.init()
+        if !SelfTest.on { UNUserNotificationCenter.current().delegate = self }
+    }
+
+    /// Asked the first time a run starts — the moment the permission makes sense to the user.
+    func askOnce() {
+        guard !asked, !SelfTest.on else { return }
+        asked = true
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
+    }
+
+    func post(_ e: [String: Any]) {
+        guard !SelfTest.on, let project = e["project"] as? String, let (title, body) = Notifier.text(e) else { return }
+        let c = UNMutableNotificationContent()
+        c.title = "\(project) — \(title)"
+        c.body = body
+        c.sound = .default
+        c.userInfo = ["project": project]
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString,
+                                                                     content: c, trigger: nil))
+    }
+
+    static func text(_ e: [String: Any]) -> (String, String)? {
+        let reason = e["reason"] as? String ?? "", status = e["status"] as? String ?? ""
+        let t = L.t
+        let title: String
+        switch reason {
+        case "stopped": return nil                          // you pressed Stop yourself
+        case "target": title = t("target reached ✓", "ціль досягнуто ✓", "цель достигнута ✓")
+        case "plateau": title = t("stopped: no more progress", "зупинено: покращень більше немає", "остановлено: улучшений больше нет")
+        case "budget": title = t("stopped: budget used up", "зупинено: бюджет вичерпано", "остановлено: бюджет исчерпан")
+        case "max_iter": title = t("stopped: iteration limit", "зупинено: ліміт ітерацій", "остановлено: лимит итераций")
+        case "checkpoint": title = t("waiting for your decision", "чекає твого рішення", "ждёт твоего решения")
+        case "rate_limited": title = t("paused: provider limit", "пауза: ліміт провайдера", "пауза: лимит провайдера")
+        case "baseline_meets_target": title = t("the seed already meets the target", "старт уже досяг цілі", "старт уже достиг цели")
+        default:
+            title = status == "error" ? t("stopped with an error", "зупинено з помилкою", "остановлено с ошибкой")
+                                      : t("finished", "завершено", "завершено")
+        }
+        var parts: [String] = []
+        if let best = e["best_score"] as? Double {
+            let target = (e["target"] as? Double).map { String(format: " / %.0f", $0) } ?? ""
+            parts.append(t("best", "найкраще", "лучшее") + String(format: " %.1f", best) + target)
+        }
+        if let n = e["iterations"] as? Int { parts.append(t("\(n) iterations", "ітерацій: \(n)", "итераций: \(n)")) }
+        if let cost = e["cost"] as? Double, cost > 0 { parts.append(String(format: "≈$%.2f", cost)) }
+        if let err = e["error"] as? String { parts.append(err) }
+        return (title, parts.joined(separator: " · "))
+    }
+
+    func userNotificationCenter(_ c: UNUserNotificationCenter, didReceive r: UNNotificationResponse,
+                                withCompletionHandler done: @escaping () -> Void) {
+        if let p = r.notification.request.content.userInfo["project"] as? String { onOpen?(p) }
+        done()
+    }
+
+    func userNotificationCenter(_ c: UNUserNotificationCenter, willPresent n: UNNotification,
+                                withCompletionHandler done: @escaping (UNNotificationPresentationOptions) -> Void) {
+        done([.banner, .sound])
+    }
+}
+
 // MARK: - App
 
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
     let engine = Engine()
+    let notifier = Notifier()
+    var updater: SPUStandardUpdaterController!
+    var eventSeq: Int?
     var window: NSWindow!
     var web: WebController!
     var path = ""
@@ -552,8 +636,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     var badgeTimer: Timer?
 
     func applicationDidFinishLaunching(_ n: Notification) {
+        // Sparkle: daily check of the appcast on GitHub Releases, EdDSA-verified, user-confirmed
+        updater = SPUStandardUpdaterController(startingUpdater: !SelfTest.on, updaterDelegate: self,
+                                               userDriverDelegate: nil)
         buildMenu()
         web = WebController(engine: engine)
+        web.onCheckUpdates = { [weak self] in self?.updater.checkForUpdates(nil) }
+        notifier.onOpen = { [weak self] project in self?.open(project: project) }
         window = NSWindow(contentRect: initialFrame(), styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered, defer: false)
         window.title = "Pull-and-Push"
@@ -665,8 +754,50 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func startBadge() {
         badgeTimer?.invalidate()
         badgeTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
-            self?.engine.activeRuns { NSApp.dockTile.badgeLabel = $0.isEmpty ? nil : "\($0.count)" }
+            guard let self else { return }
+            self.engine.activeRuns { names in
+                NSApp.dockTile.badgeLabel = names.isEmpty ? nil : "\(names.count)"
+                if !names.isEmpty { self.notifier.askOnce() }
+            }
+            self.engine.get("api/runs/events", query: ["since": String(self.eventSeq ?? 0)]) { d in
+                guard let d, let seq = d["seq"] as? Int else { return }
+                if self.eventSeq != nil {               // the first poll only sets the watermark
+                    (d["events"] as? [[String: Any]] ?? []).forEach(self.notifier.post)
+                }
+                self.eventSeq = seq
+            }
         }
+    }
+
+    func open(project: String) {
+        showWindow()
+        guard let arg = try? JSONSerialization.data(withJSONObject: [project], options: []),
+              let json = String(data: arg, encoding: .utf8) else { return }
+        web.view.evaluateJavaScript("typeof selectProject==='function'&&selectProject(\(json)[0])")
+    }
+
+    // Sparkle's "Install and Relaunch" goes through here: a running research loop is stopped only
+    // after you agree, and the engine is shut down cleanly (agents killed) before the swap.
+    // Declining leaves the update in place — it is installed the next time you quit.
+    func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
+                 untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
+        engine.activeRuns { names in
+            if !names.isEmpty {
+                let a = NSAlert()
+                a.messageText = L.t("Install the update now?", "Встановити оновлення зараз?", "Установить обновление сейчас?")
+                a.informativeText = L.t(
+                    "\(names.joined(separator: ", ")) is running — updating stops the agents. Everything kept so far stays; press Run afterwards to continue.",
+                    "\(names.joined(separator: ", ")) ще працює — оновлення зупинить агентів. Усе збережене лишиться; після оновлення натисни Run, щоб продовжити.",
+                    "\(names.joined(separator: ", ")) ещё работает — обновление остановит агентов. Всё сохранённое останется; после обновления нажми Run, чтобы продолжить.")
+                a.addButton(withTitle: L.t("Update and Relaunch", "Оновити й перезапустити", "Обновить и перезапустить"))
+                a.addButton(withTitle: L.t("When I Quit", "Коли вийду", "Когда выйду"))
+                if a.runModal() != .alertFirstButtonReturn { return }
+            }
+            self.quitting = true
+            self.web.showStatus(L.t("Updating…", "Оновлюю…", "Обновляю…"))
+            self.engine.stop(installHandler)
+        }
+        return true
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ s: NSApplication) -> Bool { false }
@@ -712,6 +843,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(URL(fileURLWithPath: Env.dataDir))
     }
     @objc func openLog() { NSWorkspace.shared.open(Env.engineLog) }
+    @objc func openSettings() {
+        showWindow()
+        web.view.evaluateJavaScript("window.openSettings&&openSettings()")
+    }
 
     /// Links the bundle's CLI into ~/.local/bin: the terminal (and agents working there) then drive
     /// the same projects, and `research start` finds this app's dashboard by itself.
@@ -775,6 +910,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let t = L.t
         _ = menu("Pull-and-Push", [
             item(t("About Pull-and-Push", "Про Pull-and-Push", "О Pull-and-Push"), #selector(about), target: self),
+            item(t("Check for Updates…", "Перевірити оновлення…", "Проверить обновления…"),
+                 #selector(SPUStandardUpdaterController.checkForUpdates(_:)), target: updater),
+            .separator(),
+            item(t("Settings…", "Налаштування…", "Настройки…"), #selector(openSettings), ",", target: self),
             .separator(),
             item(t("Hide Pull-and-Push", "Сховати Pull-and-Push", "Скрыть Pull-and-Push"), #selector(NSApplication.hide(_:)), "h"),
             item(t("Hide Others", "Сховати інші", "Скрыть остальные"), #selector(NSApplication.hideOtherApplications(_:)), "h", [.command, .option]),
