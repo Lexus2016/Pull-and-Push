@@ -24,6 +24,9 @@ from .state import StateStore
 _DIFF_KEEP_CHARS = 2000
 
 
+OUTSIDE_MARK = "⚠ outside:"   # iteration feedback prefix, counted by `research status`
+
+
 @dataclass
 class IterationOutcome:
     n: int
@@ -82,6 +85,7 @@ class Orchestrator:
         self.tokens_total = int(run["tokens_total"] or 0) if (run and "tokens_total" in run.keys()) else 0
         measured = run["cost_measured"] if (run and "cost_measured" in run.keys()) else None
         self.cost_measured = bool(measured) if measured is not None else self.cost_total == 0
+        self._outside: list[str] = []   # this iteration's executor actions outside its folder
         # which metrics carry an EXPLICIT worst from the config (vs auto-pinned). Captured BEFORE the
         # baseline_json load below overwrites m.worst, so a later objective change re-derives the
         # auto-pinned zero-points (under the new dir/target) but honours explicit ones.
@@ -200,6 +204,7 @@ class Orchestrator:
             result = self.executor.run(brief, self.state.artifact_dir, "writeable",
                                        cfg.agents["executor"].timeout)
             self._charge(result, brief)                      # every attempt costs, not just the last
+            self._outside += getattr(result, "outside", None) or []
             if result.status in ("success", "rate_limited") or self.aborted:
                 return result
             # crashed / timeout → restart the process (next loop iteration)
@@ -404,6 +409,21 @@ class Orchestrator:
                 pass
 
     def run_iteration(self, context_text: str = "", on_phase=None) -> IterationOutcome:
+        self._outside = []
+        outcome = self._iteration(context_text, on_phase)
+        if self._outside:
+            # the executor reached outside its folder (the judge lives there): record it on the
+            # iteration, show it, and tell the executor in its next brief
+            shown = "; ".join(self._outside[:3]) + (" …" if len(self._outside) > 3 else "")
+            note = (f"{OUTSIDE_MARK} {len(self._outside)} action(s) outside the artifact folder: "
+                    f"{shown}. Work only in your folder — the judge is hidden on purpose, and "
+                    "reading it does not make a candidate better.")
+            self.state.append_iteration_feedback(self.run_id, outcome.n, note)
+            outcome.feedback = ((outcome.feedback or "") + "\n\n" + note).strip()
+            self.last_feedback = (note + "\n\n" + (self.last_feedback or "")).strip()[:2000]
+        return outcome
+
+    def _iteration(self, context_text: str, on_phase) -> IterationOutcome:
         self.n += 1
         n = self.n
         cfg, state = self.cfg, self.state

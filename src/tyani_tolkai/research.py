@@ -26,6 +26,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator
 
 from .config import AgentCfg, Config, ConstraintCfg, MetricCfg, unpriced_engines
+from .orchestrator import OUTSIDE_MARK
 from .metrics import get_metric_adapter
 from .projects import home_root, project_dir, valid_name
 from .sandbox import get_backend
@@ -493,6 +494,10 @@ def project_status(project: str, last: int = 5) -> dict:
                    cost_measured=bool(run["cost_measured"]) if run["cost_measured"] is not None
                    else not run["cost_total"],
                    tokens=run["tokens_total"] or 0,
+                   # iterations whose executor reached outside its folder (where the judge lives)
+                   outside=st.conn.execute(
+                       "SELECT COUNT(*) FROM iteration WHERE run_id=? AND feedback LIKE ?",
+                       (rid, f"%{OUTSIDE_MARK}%")).fetchone()[0],
                    verdicts=counts,
                    last=[{"n": it.n, "verdict": it.verdict, "score": it.score,
                           "metrics": {m["name"]: m["value"] for m in it.metrics},
@@ -553,7 +558,11 @@ def format_status(s: dict) -> str:
     lines = [f"{s['project']}: {s.get('status')}  best={best} (iter {s.get('best_iteration') or '—'})"
              f"  target={s.get('target_score')}  iterations={s.get('iterations')}/"
              f"{s.get('max_iterations')}  plateau={s.get('plateau')}/{s.get('plateau_N')}"
-             f"  ≈${s.get('cost_usd', 0):.2f}  {s.get('verdicts') or ''}"]
+             f"  {'' if s.get('cost_measured', False) else '≈'}${s.get('cost_usd', 0):.2f}"
+             + (f" ({s['tokens'] / 1000:.0f}k tokens)" if s.get("tokens") else "")
+             + f"  {s.get('verdicts') or ''}"]
+    if s.get("outside"):
+        lines.append(f"  ⚠ {s['outside']} iteration(s) where the executor reached outside its folder")
     for it in s.get("last") or []:
         sc = "—" if it["score"] is None else f"{it['score']:.2f}"
         mets = " ".join(f"{k}={v:g}" for k, v in it["metrics"].items())

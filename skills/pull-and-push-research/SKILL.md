@@ -88,7 +88,9 @@ candidate is never kept, whatever its score.
    `dashboard.json` (a dashboard run). `agent.log` shows what the executor did, one `▸ tool
    path` line per action; an `AGENT TIMEOUT … only reasoned` iteration means the step was too big or
    the effort too high — shrink the task before raising the timeout. `status --json` carries the
-   real `cost_usd`, `tokens` and `cost_measured` (false = part of it was guessed or unpriced).
+   real `cost_usd`, `tokens` and `cost_measured` (false = part of it was guessed or unpriced), and
+   `outside` — iterations whose executor reached outside its folder (`⚠` in the log). Any
+   `outside` > 0: read those iterations and treat a kept candidate after them as suspect.
 9. **Verify before you believe:** `$PP report <name>` (seed → first kept → best → target per metric, kept steps,
    seed → best diff). Read the diff looking for gaming; re-run the scorer on the best artifact
    (`cd ~/.tyani-tolkai/projects/<name>/artifact && python ../metrics/evaluate.py`); if the

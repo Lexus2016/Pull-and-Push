@@ -273,3 +273,41 @@ def test_budget_warning_only_for_engines_that_report_tokens_alone(recwarn):
     assert not [w for w in recwarn if "usd_per_mtok" in str(w.message)]
     with pytest.warns(UserWarning, match="codex report only tokens"):
         Config(**base, agents={"executor": {"engine": "claude"}, "validator": {"engine": "codex"}})
+
+
+# ---- actions outside the artifact folder (where the judge lives) ----
+
+def test_actions_outside_the_artifact_are_flagged(tmp_path):
+    art = tmp_path / "proj" / "artifact"
+    art.mkdir(parents=True)
+    r = StreamReader("grok", art)
+    calls = [
+        ("run_terminal_command", {"command": 'sqlite3 ../state.db "SELECT id FROM run;"'}),   # the run DB
+        ("run_terminal_command", {"command": "rg -l 'def accepts' /Users /tmp"}),              # disk search
+        ("read_file", {"file_path": str(tmp_path / "proj" / "metrics" / "evaluate.py")}),     # the judge
+        ("read_file", {"file_path": "../metrics/evaluate.py"}),
+        # inside the folder, system tools, URLs and file CONTENTS are fine
+        ("read_file", {"file_path": str(art / "solution.py")}),
+        ("read_file", {"file_path": "solution.py"}),
+        ("run_terminal_command", {"command": "/bin/zsh -lc 'python3 -c \"print(1)\"'"}),
+        ("fetch", {"url": "https://example.com/a/b"}),
+        ("write", {"file_path": "solution.py", "content": "PATH = '/Users/x/data.csv'\n"}),
+    ]
+    log = "".join(r.feed(json.dumps({"type": "tool_call", "title": t, "rawInput": a})) for t, a in calls)
+    assert len(r.outside) == 4 and log.count("⚠ outside the artifact folder") == 4
+    assert all("solution.py" not in o for o in r.outside)
+
+
+def test_an_outside_action_is_recorded_shown_and_told_to_the_executor(tmp_path):
+    class Peeker:
+        def run(self, brief, workdir, profile, timeout):
+            return RunResult("success", stdout="done", outside=["read_file ../metrics/evaluate.py"])
+
+    home = tmp_path / "home"
+    o = _orch(home / "projects", _cfg())
+    o.executor = Peeker()
+    out = o.run_iteration()                               # no change → a no-op iteration
+    assert "⚠ outside: 1 action(s)" in out.feedback and "../metrics/evaluate.py" in out.feedback
+    assert o.last_feedback.startswith("⚠ outside:")      # the next brief says it
+    row = o.state.conn.execute("SELECT feedback FROM iteration WHERE n=1").fetchone()
+    assert "⚠ outside:" in row["feedback"]

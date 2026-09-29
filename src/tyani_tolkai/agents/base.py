@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -32,6 +32,7 @@ class RunResult:
     changed: bool = False     # did the agent actually modify files?
     usage: Usage | None = None  # real consumption; None = the CLI reported nothing
     actions: int = 0          # tool calls seen in the stream (0 on a timeout = it only thought)
+    outside: list = field(default_factory=list)   # actions that reached outside the artifact folder
 
 
 class AgentAdapter(Protocol):

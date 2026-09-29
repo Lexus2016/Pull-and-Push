@@ -12,6 +12,8 @@ engine passes everything through, so a plain-text agent still logs exactly as be
 from __future__ import annotations
 
 import json
+import os
+import re
 
 from .base import Usage
 
@@ -42,12 +44,44 @@ def _int(v) -> int:
     return int(v) if isinstance(v, (int, float)) else 0
 
 
+# ---- actions outside the artifact folder ----
+# An executor is told to work only in its folder, but a CLI with a shell and file tools can read
+# anything: in a live arena check grok ran sqlite3 on the run DB, searched the disk with rg and
+# read the referee's source for the answer. That cannot be blocked without an OS sandbox, so every
+# action that reaches outside the folder is flagged — in the log, the iteration and the next brief.
+_PATHISH = re.compile(r"(?<![\w.:/-])(?:~|\.\.(?=[/\\])|/(?!/)|[A-Za-z]:[/\\])[^\s'\"`;|&<>()]*")
+# what an agent WRITES into a file is not where it goes — only targets, commands and queries count
+_CONTENT_KEYS = {"content", "new_string", "old_string", "newText", "oldText", "text", "edits",
+                 "patch", "CodeContent", "ReplacementContent", "ReplacementChunks", "Instruction"}
+_SYSTEM = tuple(os.path.normcase(p) for p in (
+    "/bin", "/sbin", "/usr", "/opt", "/etc", "/dev", "/System", "/Library", "/Applications",
+    "/private/etc", "/var/folders", "/private/var/folders", "/nix"))
+
+
+def _under(path: str, base: str) -> bool:
+    return path == base or path.startswith(base.rstrip(os.sep) + os.sep)
+
+
+def _escapes(token: str, root: str) -> bool:
+    """Does a path (absolute, ~, or relative with ..) point outside ``root``? System locations
+    (interpreters, shells) don't count — unless the artifact itself lives there (a temp dir)."""
+    p = os.path.expanduser(token.strip("'\""))
+    if not p or p in ("/", "~"):
+        return p == "/"
+    full = os.path.normcase(os.path.realpath(p if os.path.isabs(p) else os.path.join(root, p)))
+    if _under(full, root):
+        return False
+    return not any(_under(full, s) and not _under(root, s) for s in _SYSTEM)
+
+
 class StreamReader:
-    def __init__(self, engine: str | None):
+    def __init__(self, engine: str | None, workdir=None):
         self.engine = engine
+        self._root = os.path.normcase(os.path.realpath(str(workdir))) if workdir else None
         self.usage: Usage | None = None
         self.answer: str | None = None
         self.actions = 0
+        self.outside: list[str] = []      # actions that reached outside the artifact folder
         self._log: list[str] = []
         self._delta = ""                  # grok / agy stream text in pieces; flushed per line
         self._since_tool: list[str] = []  # text after the last tool call = the final answer
@@ -118,7 +152,23 @@ class StreamReader:
         self.actions += 1
         self._since_tool = []
         detail = _detail(args)
-        return self._flush_delta() + f"▸ {name}{' ' + detail if detail else ''}\n"
+        line = f"▸ {name}{' ' + detail if detail else ''}"
+        if self._reaches_outside(args):
+            self.outside.append(line[2:])
+            line += "   ⚠ outside the artifact folder"
+        return self._flush_delta() + line + "\n"
+
+    def _reaches_outside(self, args) -> bool:
+        if not self._root or not isinstance(args, dict):
+            return False
+        for k, v in args.items():
+            if k in _CONTENT_KEYS or not isinstance(v, str) or not v.strip():
+                continue
+            if "\n" not in v and len(v) < 1024 and " " not in v.strip() and _escapes(v, self._root):
+                return True                     # a path argument (file_path, TargetFile, …)
+            if any(_escapes(t, self._root) for t in _PATHISH.findall(v[:4096])):
+                return True                     # a path inside a command / search / pattern
+        return False
 
     def _warn(self, message) -> str:
         """An error / warning line, once: codex repeats its config warnings on every start."""

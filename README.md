@@ -236,7 +236,11 @@ on non-trivial runs — same model = correlated review blind spots.
 your personal configuration: claude without your hooks and skills, codex without your MCP servers,
 grok without the Claude/Codex rules it would import, opencode without plugins and `~/.claude` rules
 (agy has no such switch: it still reads your `GEMINI.md` and MCP servers). Every engine streams JSON,
-so the live log shows one line per action and the spend is what the CLI itself reported.
+so the live log shows one line per action and the spend is what the CLI itself reported. Every
+executor action outside the artifact folder (where the judge lives) is marked `⚠` in the log,
+recorded on the iteration and explained to the executor in its next brief — it cannot be blocked
+without an OS sandbox: in a live check grok searched the disk, found the arena referee's source and
+read the answer.
 
 **Portable scorer commands** — template commands use a `{python}` placeholder (e.g.
 `{python} ../metrics/run_backtest.py`) that the runner replaces with the sandbox interpreter, so

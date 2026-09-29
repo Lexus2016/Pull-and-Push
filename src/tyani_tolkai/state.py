@@ -340,6 +340,13 @@ class StateStore:
         self.conn.execute(f"UPDATE run SET {cols} WHERE id = ?", (*fields.values(), run_id))
         self.conn.commit()
 
+    def append_iteration_feedback(self, run_id: int, n: int, text: str) -> None:
+        """Add a note to a recorded iteration's feedback (kept on top of what is there)."""
+        self.conn.execute(
+            "UPDATE iteration SET feedback = TRIM(COALESCE(feedback, '') || char(10) || char(10) || ?) "
+            "WHERE run_id = ? AND n = ?", (text, run_id, n))
+        self.conn.commit()
+
     def update_iteration_score(self, run_id: int, n: int, score: float | None) -> None:
         """Overwrite a stored iteration's composite score — used when the objective changes and
         the whole history is re-scored onto the new metric scale (score=None = not comparable)."""

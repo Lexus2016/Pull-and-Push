@@ -274,16 +274,16 @@ class CLIAgentAdapter:
         # decided on the RENDERED stream, never the raw JSON: claude reports its rate-limit state
         # ("rate_limit_event", "allowed") on every run, so a raw match paused runs that crashed
         full = reader.rendered
-        usage, actions = reader.usage, reader.actions
+        seen = dict(usage=reader.usage, actions=reader.actions, outside=list(reader.outside))
         if self._killed and not timed_out:
-            return RunResult(status="killed", stdout=full, usage=usage, actions=actions)
+            return RunResult(status="killed", stdout=full, **seen)
         if timed_out:
-            return RunResult(status="timeout", stdout=full, usage=usage, actions=actions)
+            return RunResult(status="timeout", stdout=full, **seen)
         status = "success" if returncode == 0 else "crashed"
         if _looks_rate_limited(full, returncode):
             status = "rate_limited"        # transient provider limit — pause, don't retry
         answer = reader.answer if status == "success" and reader.answer else full
-        return RunResult(status=status, stdout=answer, usage=usage, actions=actions)
+        return RunResult(status=status, stdout=answer, **seen)
 
     def run(self, brief: str, workdir: str | Path, profile: str, timeout: int) -> RunResult:
         self._killed = False
@@ -353,7 +353,7 @@ class CLIAgentAdapter:
             timed_out = True
         finally:
             self._proc = None
-        lines = _Lines(StreamReader(self.engine))
+        lines = _Lines(StreamReader(self.engine, workdir))
         lines.push(out or b"")
         lines.close()
         return self._classify(lines.reader, proc.returncode, timed_out)
@@ -382,7 +382,7 @@ class CLIAgentAdapter:
             return RunResult(status="crashed", stdout=f"{self.prefix[0]!r} not installed")
         os.close(slave)
         self._proc = proc
-        lines = _Lines(StreamReader(self.engine))
+        lines = _Lines(StreamReader(self.engine, workdir))
         carry = b""          # a trailing partial escape held over to the next read
         timed_out = False
         deadline = time.monotonic() + max(1, timeout)
@@ -446,7 +446,7 @@ class CLIAgentAdapter:
         except FileNotFoundError:
             return RunResult(status="crashed", stdout=f"{self.prefix[0]!r} not installed")
         self._proc = proc
-        lines = _Lines(StreamReader(self.engine))
+        lines = _Lines(StreamReader(self.engine, workdir))
 
         def _pump():
             try:
