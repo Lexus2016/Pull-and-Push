@@ -78,7 +78,8 @@ for line in sys.stdin:
 '''
 
 
-@pytest.mark.skipif(not docker_available(), reason="docker not available")
+@pytest.mark.skipif(not (docker_available() and __import__("tyani_tolkai.bot_sandbox", fromlist=["x"]).sandbox_image_present()),
+                    reason="docker (linux) + sandbox image not available")
 def test_score_bot_end_to_end_real_docker(tmp_path, capsys):
     d = tmp_path / "bot"; d.mkdir(); d.chmod(0o755)
     (d / "refbot.py").write_text(_REFBOT, encoding="utf-8"); (d / "refbot.py").chmod(0o644)

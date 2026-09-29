@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import subprocess
 import uuid
+from pathlib import Path
 
 from . import bot_protocol
 from .bot_engine import simulate
@@ -22,12 +23,22 @@ class SandboxUnavailable(Exception):
 
 
 def docker_available() -> bool:
-    """True if the Docker CLI+daemon respond."""
+    """True if a Docker daemon that runs LINUX containers responds. A daemon in Windows-container
+    mode answers too, but can't run the sandbox image (nor --read-only) — that is 'unavailable'."""
     try:
-        return subprocess.run(
-            ["docker", "version"],
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15,
-        ).returncode == 0
+        r = subprocess.run(["docker", "info", "--format", "{{.OSType}}"],
+                           capture_output=True, text=True, timeout=15)
+        return r.returncode == 0 and r.stdout.strip() == "linux"
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def sandbox_image_present(image: str = SANDBOX_IMAGE) -> bool:
+    """Is the sandbox image pulled? Runs use --pull=never (no network while an untrusted bot runs),
+    so a missing image must be pulled once up front."""
+    try:
+        return subprocess.run(["docker", "image", "inspect", image], stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL, timeout=15).returncode == 0
     except (OSError, subprocess.SubprocessError):
         return False
 
@@ -62,10 +73,15 @@ def score_bot_sandboxed(bot_cmd, bars, *, bot_dir, seed, params,
     """
     if not docker_available():
         raise SandboxUnavailable(
-            "Docker is required to sandbox an untrusted bot but is not available"
+            "Docker (Linux containers) is required to sandbox an untrusted bot but is not available"
         )
+    if not sandbox_image_present(image):
+        raise SandboxUnavailable(                  # actionable, instead of a masked protocol error
+            f"the sandbox image {image!r} is not pulled — run once: docker pull {image}")
     name = "tt-bot-" + uuid.uuid4().hex
-    cmd = build_docker_cmd(bot_cmd, bot_dir=str(bot_dir), container_name=name, image=image,
+    # absolute: a relative `-v .:/bot` is only understood by newer Docker CLIs
+    cmd = build_docker_cmd(bot_cmd, bot_dir=str(Path(bot_dir).resolve()), container_name=name,
+                           image=image,
                            mem_mb=mem_mb, cpus=cpus, pids=pids)
     try:
         oos_start = bot_protocol.seeded_oos_start(len(bars), seed=seed)

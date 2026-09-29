@@ -112,7 +112,7 @@ def _adapter_dir(tmp_path):
     src = render_adapter_stub().replace("    return 0\n\n\ndef run_protocol_io",
                                         "    return 1 if len(history) % 2 else -1\n\n\n"
                                         "def run_protocol_io")
-    (d / "adapter.py").write_text(src)
+    (d / "adapter.py").write_text(src, encoding="utf-8")
     return d
 
 
@@ -309,3 +309,10 @@ def test_stop_mid_generation_is_replayed_on_resume(tmp_path):
     m = json.loads((tmp_path / "arena.json").read_text())
     assert m["generation"] == 0                             # gen 1 not counted: B never played it
     assert _B.calls == 1                                    # only the bootstrap seed
+
+
+def test_windows_bot_command_keeps_backslash_paths(monkeypatch):
+    from tyani_tolkai import bot_runner
+    monkeypatch.setattr(bot_runner.os, "name", "nt")
+    argv = bot_runner.split_command(r'C:\Py312\python.exe "C:\my bots\bot.py" --x 1')
+    assert argv == [r"C:\Py312\python.exe", r"C:\my bots\bot.py", "--x", "1"]

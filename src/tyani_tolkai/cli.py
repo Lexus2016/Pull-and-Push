@@ -30,6 +30,7 @@ from .sandbox import get_backend
 from .state import StateStore
 from .bot_io import load_bars_csv
 from .bot_sandbox import score_bot_sandboxed as _score_bot_sandboxed, SandboxUnavailable, docker_available
+from .bot_runner import split_command
 from .bot_runner import BotProtocolError, score_bot, drive_bot
 from .bot_protocol import seeded_oos_start
 from . import bot_engine
@@ -236,7 +237,7 @@ def cmd_score_bot(args) -> int:
         print(f"invalid --params JSON: {exc}", file=sys.stderr)
         return 2
     bars = load_bars_csv(data)
-    bot_cmd = shlex.split(args.bot_cmd)
+    bot_cmd = split_command(args.bot_cmd)
     try:
         metrics = _score_bot_sandboxed(bot_cmd, bars, bot_dir=str(bot_dir), seed=args.seed,
                                        params=params, per_read_timeout=args.per_read_timeout,
@@ -274,7 +275,7 @@ def cmd_validate(args) -> int:
         return 2
 
     bars = load_bars_csv(data)
-    bot_cmd = shlex.split(args.bot_cmd)
+    bot_cmd = split_command(args.bot_cmd)
 
     # An UNTRUSTED bot MUST run in the Docker sandbox — the isolation IS the trust mechanism (ADR).
     # `--trusted` is an explicit operator override for a reference/own bot: process-separation only,
@@ -391,7 +392,7 @@ def cmd_check_adapter(args) -> int:
         print(f"bot-dir not found: {bot_dir}", file=sys.stderr)
         return 2
     bars = synth_bars(args.n)
-    bot_cmd = shlex.split(args.bot_cmd)
+    bot_cmd = split_command(args.bot_cmd)
     try:
         run1 = drive_bot(bot_cmd, bars, params={}, per_read_timeout=args.per_read_timeout,
                          total_timeout=args.total_timeout, cwd=str(bot_dir))

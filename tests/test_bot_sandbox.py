@@ -24,9 +24,10 @@ def test_build_docker_cmd_has_all_hardening_flags():
 import subprocess as _sp
 import sys
 import pytest
-from tyani_tolkai.bot_sandbox import docker_available, score_bot_sandboxed, SANDBOX_IMAGE
+from tyani_tolkai.bot_sandbox import (docker_available, sandbox_image_present,
+                                      score_bot_sandboxed, SANDBOX_IMAGE)
 
-_HAVE_DOCKER = docker_available()
+_HAVE_DOCKER = docker_available() and sandbox_image_present()
 docker_required = pytest.mark.skipif(not _HAVE_DOCKER, reason="docker not available")
 
 _REFBOT = '''\

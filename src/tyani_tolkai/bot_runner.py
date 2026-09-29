@@ -20,7 +20,9 @@ Design notes
 from __future__ import annotations
 
 import json
+import os
 import queue
+import shlex
 import subprocess
 import tempfile
 import threading
@@ -33,6 +35,16 @@ from tyani_tolkai.bot_engine import simulate
 
 class BotProtocolError(Exception):
     """Raised when the bot violates the P3 streaming protocol or times out."""
+
+
+def split_command(cmd: str) -> list[str]:
+    """Split a user-typed bot command into argv. POSIX shlex eats backslashes, so on Windows a
+    command like ``C:\\Python312\\python.exe C:\\bots\\bot.py`` would lose its path separators —
+    split it the Windows way there (quotes kept by shlex are stripped from each token)."""
+    if os.name == "nt":
+        return [t[1:-1] if len(t) >= 2 and t[0] == t[-1] and t[0] in "\"'" else t
+                for t in shlex.split(cmd, posix=False)]
+    return shlex.split(cmd)
 
 
 # ---------------------------------------------------------------------------

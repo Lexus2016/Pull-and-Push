@@ -753,7 +753,8 @@ def create_app(token: str | None = None) -> FastAPI:
         if not bot_cmd:
             raise HTTPException(422, "bot_cmd required")
         bars = synth_bars(int(payload.get("n") or 40))
-        cmd = shlex.split(bot_cmd)
+        from ..bot_runner import split_command
+        cmd = split_command(bot_cmd)            # Windows paths keep their backslashes
         prt = float(payload.get("per_read_timeout") or 10.0)
         tt = float(payload.get("total_timeout") or 120.0)
         try:
@@ -871,7 +872,8 @@ def create_app(token: str | None = None) -> FastAPI:
                 raise HTTPException(422, f"invalid params JSON: {e}")
         seed = payload.get("seed") or bot_dir.name
         bars = load_bars_csv(data)
-        bot_cmd = shlex.split(bot_cmd_s)
+        from ..bot_runner import split_command
+        bot_cmd = split_command(bot_cmd_s)
         prt = float(payload.get("per_read_timeout") or 10.0)
         tt = float(payload.get("total_timeout") or 120.0)
         if payload.get("trusted"):
