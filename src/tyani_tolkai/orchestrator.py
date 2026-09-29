@@ -71,6 +71,10 @@ class Orchestrator:
         # set if the SEED already meets the target on the first measurement — a mis-specified
         # objective (target too low / trivial metric / scorer not measuring this artifact), not a win
         self._baseline_meets_target = False
+        # A project made from a research kit had its SEED measured by the pre-flight, which refuses
+        # a seed that already meets the targets — so a first iteration at the target is the
+        # executor's win, not a mis-specified objective (iteration 1 is already an edited version).
+        self._seed_known_below_target = (state.project_dir / "research" / "preflight.json").is_file()
         # estimated cumulative cost (USD) across the run; restored on resume so the budget cap holds
         self.cost_total = float(run["cost_total"]) if (run and "cost_total" in run.keys()
                                                        and run["cost_total"] is not None) else 0.0
@@ -522,7 +526,7 @@ class Orchestrator:
         # measuring this artifact) — not a win. After baseline pinning a normal seed reads ~0, so a
         # first-iteration score at/above the target uniquely flags this. Surface it loudly.
         baseline_warn = ""
-        if n == 1 and new_score >= cfg.evaluation.target_score:
+        if n == 1 and new_score >= cfg.evaluation.target_score and not self._seed_known_below_target:
             self._baseline_meets_target = True
             baseline_warn = (
                 f"⚠ OBJECTIVE LIKELY MIS-SPECIFIED: the starting artifact already scores "

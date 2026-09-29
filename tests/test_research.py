@@ -172,6 +172,16 @@ def test_a_candidate_breaking_a_constraint_is_never_kept(tmp_path):
     assert head == {"speed": 4, "correct": 1}                  # the fast-but-wrong version is gone
 
 
+def test_reaching_the_target_on_iteration_1_of_a_kit_project_is_a_win(tmp_path):
+    # the pre-flight measured the seed (speed 1) below the target (10): an executor that gets there
+    # in one step has WON — not "the seed already meets the target" (iteration 1 is an edited version)
+    rs.create_from_kit(_kit(tmp_path))
+    summary = _run("speedy", [_set(10, 1)], max_iter=3)
+    assert summary.reason == "target" and summary.iterations == 1
+    fb = rs.project_status("speedy", last=1)["last"][0]["note"]
+    assert "MIS-SPECIFIED" not in fb
+
+
 def test_status_report_and_save_for_the_next_round(tmp_path):
     rs.create_from_kit(_kit(tmp_path))
     _run("speedy", [_set(3, 1), _set(6, 1)], max_iter=2)
