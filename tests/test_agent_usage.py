@@ -286,7 +286,8 @@ def test_actions_outside_the_artifact_are_flagged(tmp_path):
     r = StreamReader("grok", art)
     calls = [
         ("run_terminal_command", {"command": 'sqlite3 ../state.db "SELECT id FROM run;"'}),   # the run DB
-        ("run_terminal_command", {"command": "rg -l 'def accepts' /Users /tmp"}),              # disk search
+        # a disk-wide search (a folder that exists on every OS; "/Users" is relative to the drive on Windows)
+        ("run_terminal_command", {"command": f"rg -l 'def accepts' {tmp_path.parent.as_posix()}"}),
         ("read_file", {"file_path": str(tmp_path / "proj" / "metrics" / "evaluate.py")}),     # the judge
         ("read_file", {"file_path": "../metrics/evaluate.py"}),
         # inside the folder, system tools, URLs and file CONTENTS are fine
@@ -358,3 +359,10 @@ def test_opencode_shows_each_tool_call_once():
 def test_an_error_in_an_unknown_json_shape_is_shown():
     r, log = _read("codex", ['{"error": {"message": "auth expired"}}'])
     assert "! auth expired" in log and "auth expired" in r.signals
+
+
+def test_codex_transient_error_is_not_fatal_but_a_failed_turn_is():
+    r, log = _read("codex", [{"type": "error", "message": "Reconnecting... 1/5"}])
+    assert "Reconnecting" in log and not r.failed
+    r, _ = _read("codex", [{"type": "turn.failed", "error": {"message": "stream disconnected"}}])
+    assert r.failed

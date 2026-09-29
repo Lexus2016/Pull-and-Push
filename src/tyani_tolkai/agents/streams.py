@@ -274,8 +274,10 @@ class StreamReader:
                                       cached=cached, output=_int(u.get("output_tokens"))))
             return ""
         if t in ("turn.failed", "error"):
+            # only a failed turn is fatal: a top-level "error" can be transient ("Reconnecting…"),
+            # and a truly fatal one ends codex with a non-zero exit anyway
             err = e.get("error") if isinstance(e.get("error"), dict) else e
-            return self._warn(err.get("message", t), fatal=True)
+            return self._warn(err.get("message", t), fatal=t == "turn.failed")
         return ""
 
     def _grok(self, e: dict) -> str:
