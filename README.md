@@ -545,5 +545,5 @@ integration (orchestrator with mock + validator, baseline zero-point, force-stop
 metric handling), CLI adapter (incl. headless flags + kill), projects round-trip (zip),
 WebUI endpoints (incl. force-stop, agent-log, webhook, auth, settings), a golden run proving
 convergence with the harness left untouched (anti-collusion), and the macOS app's headless
-self-test (`macos/selftest.sh`, also in CI): the dashboard inside the app's own WebView, the native
+self-test (`macos/selftest.sh`, before every release): the dashboard inside the app's own WebView, the native
 bridge, downloads, language switching, the signed update feed, and the engine stopping with the app.

@@ -42,7 +42,8 @@ if [ "${PP_SKIP_CI:-}" != 1 ]; then
   [ "$ci" = success ] || die "CI for HEAD is '$ci' — wait for it (or PP_SKIP_CI=1)"
 fi
 
-# CI covers Linux and Windows; macOS is checked here, on the Mac that builds the app
+# CI covers Linux and Windows; macOS is checked here, on the Mac that builds the app (the signed
+# app's self-test follows the build below)
 step "tests and start.sh --check on this Mac"
 PY="${PP_TEST_PYTHON:-.venv/bin/python}"
 [ -x "$PY" ] || die "no $PY — run ./start.sh --check once (or set PP_TEST_PYTHON)"
