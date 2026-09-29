@@ -279,8 +279,12 @@ class CLIAgentAdapter:
             return RunResult(status="killed", stdout=full, **seen)
         if timed_out:
             return RunResult(status="timeout", stdout=full, **seen)
-        status = "success" if returncode == 0 else "crashed"
-        if _looks_rate_limited(full, returncode):
+        # a CLI may report a fatal error and still exit 0 (agy's result status, claude's is_error)
+        ok = returncode == 0 and not reader.failed
+        status = "success" if ok else "crashed"
+        # a limit is looked for in what the CLI said, not in the agent's prose (a reviewer may well
+        # discuss a "rate limit exceeded" bug in the code it reviews)
+        if _looks_rate_limited(reader.signals, 0 if ok else 1):
             status = "rate_limited"        # transient provider limit — pause, don't retry
         answer = reader.answer if status == "success" and reader.answer else full
         return RunResult(status=status, stdout=answer, **seen)
@@ -474,7 +478,7 @@ class CLIAgentAdapter:
                 pass
         finally:
             self._proc = None
-        th.join(timeout=2)
+        th.join(timeout=15)          # let the pump finish parsing what is buffered (answer, usage)
         rc = proc.returncode if proc.returncode is not None else 0
         return self._classify(lines.reader, rc, timed_out)
 

@@ -223,9 +223,11 @@ def test_charge_prefers_what_the_cli_reported(tmp_path):
     o._charge(RunResult("success", usage=Usage(input=1000, cached=0, output=0, cost_usd=0.25)))
     assert o.cost_total == pytest.approx(0.25)
     # tokens only → priced, cache reads at 10%
+    assert o.cost_measured
     o._charge(RunResult("success", usage=Usage(input=1_000_000, cached=1_000_000, output=0)))
     assert o.cost_total == pytest.approx(0.25 + 10 + 1)
-    assert o.cost_measured and o.tokens_total == 2_001_000
+    assert o.tokens_total == 2_001_000
+    assert not o.cost_measured          # real tokens, but dollars from one flat price → "≈"
 
 
 def test_charge_marks_guesses_and_unpriced_tokens(tmp_path):
@@ -280,6 +282,7 @@ def test_budget_warning_only_for_engines_that_report_tokens_alone(recwarn):
 def test_actions_outside_the_artifact_are_flagged(tmp_path):
     art = tmp_path / "proj" / "artifact"
     art.mkdir(parents=True)
+    (tmp_path / "proj" / "state.db").write_text("")
     r = StreamReader("grok", art)
     calls = [
         ("run_terminal_command", {"command": 'sqlite3 ../state.db "SELECT id FROM run;"'}),   # the run DB
@@ -292,6 +295,8 @@ def test_actions_outside_the_artifact_are_flagged(tmp_path):
         ("run_terminal_command", {"command": "/bin/zsh -lc 'python3 -c \"print(1)\"'"}),
         ("fetch", {"url": "https://example.com/a/b"}),
         ("write", {"file_path": "solution.py", "content": "PATH = '/Users/x/data.csv'\n"}),
+        ("grep", {"pattern": "/api/users", "path": "."}),                        # a pattern is data
+        ("run_terminal_command", {"command": "grep -rn '/api/v2/orders' ."}),     # a route, not a place
     ]
     log = "".join(r.feed(json.dumps({"type": "tool_call", "title": t, "rawInput": a})) for t, a in calls)
     assert len(r.outside) == 4 and log.count("⚠ outside the artifact folder") == 4
@@ -311,3 +316,45 @@ def test_an_outside_action_is_recorded_shown_and_told_to_the_executor(tmp_path):
     assert o.last_feedback.startswith("⚠ outside:")      # the next brief says it
     row = o.state.conn.execute("SELECT feedback FROM iteration WHERE n=1").fetchone()
     assert "⚠ outside:" in row["feedback"]
+
+
+# ---- review fixes (codex, before v0.5.0) ----
+
+def test_a_fatal_error_with_exit_code_zero_is_a_crash(tmp_path):
+    work = tmp_path / "artifact"
+    work.mkdir()
+    agy_fail = [{"event": "result", "result": {"status": "ERROR", "error": "model unavailable"}}]
+    res = CLIAgentAdapter(_fake_cli(tmp_path, agy_fail), engine="agy").run("b", work, "read-only", 30)
+    assert res.status == "crashed" and "model unavailable" in res.stdout
+
+
+def test_a_reviewer_discussing_rate_limits_is_not_paused(tmp_path):
+    work = tmp_path / "artifact"
+    work.mkdir()
+    text = ("The retry loop ignores 429: when the rate limit is exceeded it spins. "
+            "Too many requests are sent — rate limit reached quickly.")
+    review = [{"type": "assistant", "message": {"id": "m1", "content": [{"type": "text", "text": text}]}},
+              {"type": "result", "subtype": "success", "is_error": False, "total_cost_usd": 0.01,
+               "result": text}]
+    res = CLIAgentAdapter(_fake_cli(tmp_path, review), engine="claude").run("b", work, "read-only", 30)
+    assert res.status == "success" and "429" in res.stdout
+
+
+def test_missing_usage_is_not_a_measured_zero():
+    r, _ = _read("claude", [{"type": "result", "subtype": "error_during_execution", "is_error": True,
+                             "result": "boom"}])
+    assert r.usage is None and r.failed
+    r, _ = _read("codex", [{"type": "turn.completed"}])
+    assert r.usage is None
+
+
+def test_opencode_shows_each_tool_call_once():
+    ev = {"type": "tool_use", "part": {"tool": "write", "callID": "c1",
+                                       "state": {"status": "completed", "input": {"filePath": "a.py"}}}}
+    r, log = _read("opencode", [ev, ev])
+    assert r.actions == 1 and log.count("▸ write a.py") == 1
+
+
+def test_an_error_in_an_unknown_json_shape_is_shown():
+    r, log = _read("codex", ['{"error": {"message": "auth expired"}}'])
+    assert "! auth expired" in log and "auth expired" in r.signals

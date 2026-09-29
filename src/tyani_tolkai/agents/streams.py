@@ -52,24 +52,31 @@ def _int(v) -> int:
 _PATHISH = re.compile(r"(?<![\w.:/-])(?:~|\.\.(?=[/\\])|/(?!/)|[A-Za-z]:[/\\])[^\s'\"`;|&<>()]*")
 # what an agent WRITES into a file is not where it goes — only targets, commands and queries count
 _CONTENT_KEYS = {"content", "new_string", "old_string", "newText", "oldText", "text", "edits",
-                 "patch", "CodeContent", "ReplacementContent", "ReplacementChunks", "Instruction"}
-_SYSTEM = tuple(os.path.normcase(p) for p in (
+                 "patch", "CodeContent", "ReplacementContent", "ReplacementChunks", "Instruction",
+                 # a search pattern or a query is data ("/api/users"), not a place
+                 "pattern", "query", "Query", "regex", "description", "prompt", "title"}
+# normalised like every path we compare (realpath + normcase): on Windows "/bin" is C:\\bin
+_SYSTEM = tuple(dict.fromkeys(os.path.normcase(os.path.realpath(p)) for p in (
     "/bin", "/sbin", "/usr", "/opt", "/etc", "/dev", "/System", "/Library", "/Applications",
-    "/private/etc", "/var/folders", "/private/var/folders", "/nix"))
+    "/private/etc", "/var/folders", "/private/var/folders", "/nix",
+    *(os.environ.get(v) for v in ("SystemRoot", "ProgramFiles", "ProgramFiles(x86)", "ProgramData")
+      if os.environ.get(v)))))
 
 
 def _under(path: str, base: str) -> bool:
     return path == base or path.startswith(base.rstrip(os.sep) + os.sep)
 
 
-def _escapes(token: str, root: str) -> bool:
+def _escapes(token: str, root: str, must_exist: bool = False) -> bool:
     """Does a path (absolute, ~, or relative with ..) point outside ``root``? System locations
-    (interpreters, shells) don't count — unless the artifact itself lives there (a temp dir)."""
+    (interpreters, shells) don't count — unless the artifact itself lives there (a temp dir).
+    ``must_exist``: for words inside a command, only a path that is really there counts
+    (``grep "/api/users"`` mentions a route, not a place)."""
     p = os.path.expanduser(token.strip("'\""))
     if not p or p in ("/", "~"):
         return p == "/"
     full = os.path.normcase(os.path.realpath(p if os.path.isabs(p) else os.path.join(root, p)))
-    if _under(full, root):
+    if _under(full, root) or (must_exist and not os.path.exists(full)):
         return False
     return not any(_under(full, s) and not _under(root, s) for s in _SYSTEM)
 
@@ -87,6 +94,9 @@ class StreamReader:
         self._since_tool: list[str] = []  # text after the last tool call = the final answer
         self._msg_usage: dict[str, Usage] = {}   # claude: per-message usage until the result
         self._warned: set[str] = set()
+        self._calls: set[str] = set()     # opencode: tool calls already shown
+        self._signals: list[str] = []     # the CLI's own lines (errors, stderr) — not the agent's prose
+        self.failed = False               # the CLI reported a fatal error (whatever its exit code)
 
     # ---- public ----
 
@@ -100,9 +110,15 @@ class StreamReader:
             except ValueError:
                 obj = None
         if not isinstance(obj, dict):
+            if line:
+                self._signals.append(line + "\n")
             return self._emit(self._flush_delta() + (line + "\n" if line else ""))
         handler = getattr(self, "_" + self.engine, None)
-        return self._emit(handler(obj) if handler else "")
+        out = handler(obj) if handler else ""
+        if not out and obj.get("error") and not obj.get("type") and not obj.get("event"):
+            err = obj["error"]                   # a JSON error in no known shape: never drop it
+            out = self._warn(err.get("message", err) if isinstance(err, dict) else err)
+        return self._emit(out)
 
     def finish(self) -> str:
         """End of stream: flush pending text, settle usage from partial reports (a timeout)."""
@@ -120,6 +136,12 @@ class StreamReader:
     @property
     def rendered(self) -> str:
         return "".join(self._log)
+
+    @property
+    def signals(self) -> str:
+        """What the CLI itself said (errors, warnings, stderr) — where a rate limit is looked for;
+        the agent's own prose may well discuss rate limits."""
+        return "".join(self._signals)
 
     # ---- helpers ----
 
@@ -166,16 +188,18 @@ class StreamReader:
                 continue
             if "\n" not in v and len(v) < 1024 and " " not in v.strip() and _escapes(v, self._root):
                 return True                     # a path argument (file_path, TargetFile, …)
-            if any(_escapes(t, self._root) for t in _PATHISH.findall(v[:4096])):
-                return True                     # a path inside a command / search / pattern
+            if any(_escapes(t, self._root, must_exist=True) for t in _PATHISH.findall(v[:4096])):
+                return True                     # an existing path inside a command
         return False
 
-    def _warn(self, message) -> str:
+    def _warn(self, message, fatal: bool = False) -> str:
         """An error / warning line, once: codex repeats its config warnings on every start."""
+        self.failed = self.failed or fatal
         line = f"! {_short(message, 300)}\n"
         if line in self._warned:
             return ""
         self._warned.add(line)
+        self._signals.append(line)
         return self._flush_delta() + line
 
     def _add_usage(self, u: Usage) -> None:
@@ -202,21 +226,22 @@ class StreamReader:
                     out += self._tool(block.get("name", "tool"), block.get("input"))
             return out
         if t == "result":
-            u = e.get("usage") or {}
-            cost = e.get("total_cost_usd")
-            self.usage = Usage(
-                input=_int(u.get("input_tokens")) + _int(u.get("cache_creation_input_tokens")),
-                cached=_int(u.get("cache_read_input_tokens")), output=_int(u.get("output_tokens")),
-                cost_usd=float(cost) if isinstance(cost, (int, float)) else None)
+            u, cost = e.get("usage"), e.get("total_cost_usd")
+            if isinstance(u, dict) or isinstance(cost, (int, float)):   # absent ≠ a measured zero
+                u = u if isinstance(u, dict) else {}
+                self.usage = Usage(
+                    input=_int(u.get("input_tokens")) + _int(u.get("cache_creation_input_tokens")),
+                    cached=_int(u.get("cache_read_input_tokens")), output=_int(u.get("output_tokens")),
+                    cost_usd=float(cost) if isinstance(cost, (int, float)) else None)
             if isinstance(e.get("result"), str):
                 self.answer = e["result"].strip()
             if e.get("is_error"):
-                return f"! {e.get('subtype', 'error')}: {_short(e.get('result', ''), 300)}\n"
+                return self._warn(f"{e.get('subtype', 'error')}: {e.get('result', '')}", fatal=True)
             return ""
         if t == "rate_limit_event":
             info = e.get("rate_limit_info") or {}
             if info.get("status") == "rejected":
-                return f"! rate limit reached ({info.get('rateLimitType', 'limit')})\n"
+                return self._warn(f"rate limit reached ({info.get('rateLimitType', 'limit')})")
         return ""
 
     def _codex(self, e: dict) -> str:
@@ -242,14 +267,15 @@ class StreamReader:
                 return self._warn(item.get("message", ""))
             return ""
         if t == "turn.completed":
-            u = e.get("usage") or {}
-            cached = _int(u.get("cached_input_tokens"))
-            self._add_usage(Usage(input=max(0, _int(u.get("input_tokens")) - cached), cached=cached,
-                                  output=_int(u.get("output_tokens"))))
+            u = e.get("usage")
+            if isinstance(u, dict):
+                cached = _int(u.get("cached_input_tokens"))
+                self._add_usage(Usage(input=max(0, _int(u.get("input_tokens")) - cached),
+                                      cached=cached, output=_int(u.get("output_tokens"))))
             return ""
         if t in ("turn.failed", "error"):
             err = e.get("error") if isinstance(e.get("error"), dict) else e
-            return f"! {_short(err.get('message', t), 300)}\n"
+            return self._warn(err.get("message", t), fatal=True)
         return ""
 
     def _grok(self, e: dict) -> str:
@@ -265,25 +291,31 @@ class StreamReader:
                 cached=_int(u.get("cache_read_input_tokens")), output=_int(u.get("output_tokens"))))
             return ""
         if t == "end":
-            u = e.get("usage") or {}
-            cost = e.get("total_cost_usd")
-            self.usage = Usage(
-                input=_int(u.get("input_tokens")) + _int(u.get("cache_creation_input_tokens")),
-                cached=_int(u.get("cache_read_input_tokens")), output=_int(u.get("output_tokens")),
-                cost_usd=float(cost) if isinstance(cost, (int, float)) else None)
+            u, cost = e.get("usage"), e.get("total_cost_usd")
+            if isinstance(u, dict) or isinstance(cost, (int, float)):   # absent ≠ a measured zero
+                u = u if isinstance(u, dict) else {}
+                self.usage = Usage(
+                    input=_int(u.get("input_tokens")) + _int(u.get("cache_creation_input_tokens")),
+                    cached=_int(u.get("cache_read_input_tokens")), output=_int(u.get("output_tokens")),
+                    cost_usd=float(cost) if isinstance(cost, (int, float)) else None)
             return ""
-        if t == "error":
-            return self._flush_delta() + f"! {_short(e.get('message') or e.get('data') or e, 300)}\n"
+        if t == "error":       # not treated as fatal: grok's error events are not documented
+            return self._warn(e.get("message") or e.get("data") or e)
         return ""
 
     def _opencode(self, e: dict) -> str:
         t = e.get("type")
         part = e.get("part") or {}
         if t == "tool_use":
+            call = part.get("callID")
+            if call and call in self._calls:     # the same call again (a state update)
+                return ""
+            if call:
+                self._calls.add(call)
             state = part.get("state") or {}
             out = self._tool(part.get("tool", "tool"), state.get("input"))
             if state.get("status") == "error":
-                out += f"! {_short(state.get('error', 'tool failed'), 300)}\n"
+                out += self._warn(state.get("error", "tool failed"))
             return out
         if t == "text":
             return self._text(part.get("text", ""))
@@ -300,7 +332,7 @@ class StreamReader:
         if t == "error":
             err = e.get("error") or {}
             msg = (err.get("data") or {}).get("message") if isinstance(err, dict) else err
-            return f"! {_short(msg or err, 300)}\n"
+            return self._warn(msg or err, fatal=True)
         return ""
 
     def _agy(self, e: dict) -> str:
@@ -328,5 +360,5 @@ class StreamReader:
             if isinstance(r.get("response"), str):
                 self.answer = r["response"].strip()
             if r.get("status") not in (None, "SUCCESS"):
-                return self._flush_delta() + f"! {r.get('status')}: {_short(r.get('error', ''), 300)}\n"
+                return self._warn(f"{r.get('status')}: {r.get('error', '')}", fatal=True)
         return ""

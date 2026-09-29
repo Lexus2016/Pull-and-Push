@@ -369,10 +369,12 @@ class Orchestrator:
             self.tokens_total += usage.input + usage.cached + usage.output
             if usage.cost_usd is not None:
                 self.cost_total += usage.cost_usd
-            elif price > 0:
+                return
+            # real tokens, but the dollars come from one flat usd_per_mtok (no input/output/cache
+            # split per model) — or from nothing at all: the total is approximate either way
+            self.cost_measured = False
+            if price > 0:
                 self.cost_total += (usage.input + usage.cached * 0.1 + usage.output) / 1e6 * price
-            else:
-                self.cost_measured = False       # tokens known, but nothing to price them with
             return
         self.cost_measured = False
         if price > 0:
