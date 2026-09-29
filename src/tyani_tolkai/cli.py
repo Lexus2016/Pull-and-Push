@@ -71,8 +71,8 @@ def _build_rivals(cfg):
     if "scripted" in (a.engine, b.engine):
         from .agents.scripted_rival import ScriptedAdversaryRival, ScriptedRecognizerRival
         return (ScriptedRecognizerRival(), ScriptedAdversaryRival())
-    return (build_adapter(a.engine, a.model, "writeable"),
-            build_adapter(b.engine, b.model, "writeable"))
+    return (build_adapter(a.engine, a.model, "writeable", a.effort),
+            build_adapter(b.engine, b.model, "writeable", b.effort))
 
 
 def _run_symmetric(cfg, args) -> int:
@@ -151,11 +151,11 @@ def _run_asymmetric(cfg, args) -> int:
         run_id = state.create_run(cfg.mode)
 
     ex = cfg.agents["executor"]
-    executor = build_adapter(ex.engine, ex.model, "writeable")
+    executor = build_adapter(ex.engine, ex.model, "writeable", ex.effort)
     validator = None
     if "validator" in cfg.agents:
         va = cfg.agents["validator"]
-        validator = build_adapter(va.engine, va.model, "read-only")
+        validator = build_adapter(va.engine, va.model, "read-only", va.effort)
 
     metric_adapter = get_metric_adapter(cfg.evaluation.adapter)
     sandbox = get_backend(cfg.sandbox.backend, cfg.sandbox)

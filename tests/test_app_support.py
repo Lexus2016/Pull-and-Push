@@ -58,7 +58,7 @@ def test_cross_origin_writes_are_refused():
 def test_meta_reports_which_agent_clis_are_installed(monkeypatch):
     monkeypatch.setattr("shutil.which", lambda e: "/bin/x" if e == "codex" else None)
     inst = _client().get("/api/meta").json()["installed"]
-    assert inst == {"claude": False, "codex": True, "opencode": False, "agy": False}
+    assert inst == {"claude": False, "codex": True, "opencode": False, "agy": False, "grok": False}
 
 
 def test_shutdown_kills_live_agents_and_runs_hooks():
@@ -116,13 +116,18 @@ def test_research_start_uses_the_running_dashboard(monkeypatch, capsys):
 
 
 def test_web_socket_auto_prefers_8765_then_any_free_port():
+    # hold 8765 with a LISTENING socket. SO_REUSEADDR like the code under test: without it a port
+    # merely in TIME_WAIT (a recent connection) refuses this bind while _web_socket may take it —
+    # rightly, it is free — and the test flaked
     busy = socket.socket()
+    if os.name != "nt":
+        busy.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     try:
         busy.bind(("127.0.0.1", 8765))
         busy.listen(1)
     except OSError:
         busy.close()
-        busy = None                                                  # already taken: same case
+        busy = None                                                  # a real listener has it: same case
     s = cli._web_socket("127.0.0.1", "auto")
     try:
         assert s.getsockname()[1] != 8765 and s.getsockname()[1] > 0

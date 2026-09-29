@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from .agents.base import AgentAdapter
 
-_CLI_ENGINES = {"claude", "codex", "opencode", "agy"}
+_CLI_ENGINES = {"claude", "codex", "opencode", "agy", "grok"}
 
 
 class AdapterRegistry:
@@ -25,9 +25,10 @@ class AdapterRegistry:
         raise KeyError(f"unknown engine: {name!r}")
 
 
-def build_adapter(engine: str, model: str | None, profile: str) -> AgentAdapter:
+def build_adapter(engine: str, model: str | None, profile: str,
+                  effort: str | None = None) -> AgentAdapter:
     """Construct a CLI agent adapter for a real engine (spec §8)."""
     if engine in _CLI_ENGINES:
         from .agents.cli_agent import CLIAgentAdapter, build_cli_prefix
-        return CLIAgentAdapter(build_cli_prefix(engine, model, profile), engine=engine)
+        return CLIAgentAdapter(build_cli_prefix(engine, model, profile, effort), engine=engine)
     raise KeyError(f"unknown engine: {engine!r} (use mock for tests, or {_CLI_ENGINES})")

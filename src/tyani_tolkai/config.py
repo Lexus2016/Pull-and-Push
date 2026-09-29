@@ -16,9 +16,12 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class AgentCfg(BaseModel):
-    engine: str                      # adapter name: mock | claude | codex | opencode | agy
+    engine: str                      # adapter name: mock | claude | codex | opencode | agy | grok
     model: str | None = None
     timeout: int = 600               # seconds per agent run
+    # reasoning effort (claude --effort / grok --reasoning-effort / codex model_reasoning_effort);
+    # None = the CLI's default, i.e. the operator's own setting — often "high", slow per turn
+    effort: str | None = None
 
 
 class RoleCfg(BaseModel):
@@ -211,7 +214,7 @@ class Config(BaseModel):
             for r in ("rival_a", "rival_b"):
                 eng = self.agents[r].engine
                 # opencode/agy do NOT write to the subprocess cwd → cannot be rival EXECUTORS
-                if eng in ("opencode", "agy"):
+                if eng in ("opencode", "agy", "grok"):
                     raise ValueError(
                         f"rival {r} engine {eng!r} does not write to the subprocess cwd; "
                         "rival executors must be claude, codex, or mock (tests)")

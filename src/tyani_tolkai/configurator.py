@@ -21,7 +21,7 @@ JSON schema (fill every relevant field, keep it minimal and valid):
   "project": "<kebab-case-name>",
   "mode": "asymmetric",
   "agents": {
-    "executor":  {"engine": "claude|codex|opencode|agy", "timeout": 600},
+    "executor":  {"engine": "claude|codex|opencode|agy|grok", "timeout": 600},
     "validator": {"engine": "<a DIFFERENT provider than executor>", "timeout": 300}
   },
   "roles": {

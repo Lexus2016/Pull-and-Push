@@ -86,7 +86,8 @@ def test_settings_and_diagnostics_endpoints(monkeypatch):
     monkeypatch.setattr("tyani_tolkai.web.server._tool_versions",
                         lambda names, refresh=False: {n: {"path": None, "version": None} for n in names})
     d = c.get("/api/diagnostics").json()
-    assert set(d["agents"]) == {"claude", "codex", "opencode", "agy"}
+    from tyani_tolkai.web.server import ENGINES
+    assert set(d["agents"]) == set(ENGINES) and "grok" in ENGINES
     assert d["scorer_python"]["source"] == "default" and d["update"] is None
     assert d["security"] == {"token": False, "loopback_only": False}
 

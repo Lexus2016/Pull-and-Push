@@ -223,11 +223,11 @@ class RunManager:
             log.info("run start: project=%s run_id=%s executor=%s", name, run_id,
                      cfg.agents["executor"].engine)
             ex = cfg.agents["executor"]
-            executor = build_adapter(ex.engine, ex.model, "writeable")
+            executor = build_adapter(ex.engine, ex.model, "writeable", ex.effort)
             validator = None
             if "validator" in cfg.agents:
                 va = cfg.agents["validator"]
-                validator = build_adapter(va.engine, va.model, "read-only")
+                validator = build_adapter(va.engine, va.model, "read-only", va.effort)
             orch = Orchestrator(cfg, state, run_id, executor,
                                 get_metric_adapter(cfg.evaluation.adapter),
                                 get_backend(cfg.sandbox.backend, cfg.sandbox), validator)
@@ -352,8 +352,8 @@ def _symmetric_rivals(cfg):
     if "scripted" in (a.engine, b.engine):
         from ..agents.scripted_rival import ScriptedAdversaryRival, ScriptedRecognizerRival
         return (ScriptedRecognizerRival(), ScriptedAdversaryRival())
-    return (build_adapter(a.engine, a.model, "writeable"),
-            build_adapter(b.engine, b.model, "writeable"))
+    return (build_adapter(a.engine, a.model, "writeable", a.effort),
+            build_adapter(b.engine, b.model, "writeable", b.effort))
 
 
 def _assert_scorer_exists(base: Path, cfg) -> None:
@@ -438,6 +438,7 @@ def _persisted_state(name: str) -> dict:
 
 
 LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+ENGINES = ("claude", "codex", "opencode", "agy", "grok")   # agent CLIs the dashboard offers
 _TOOLS: dict = {}                         # tool → (checked_at, {path, version}) for diagnostics
 
 
@@ -614,14 +615,14 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         from .. import __version__
         from .. import settings as st
         rel = st.latest_release(force=refresh)
-        tools = _tool_versions(("claude", "codex", "opencode", "agy", "git", "docker"), refresh)
+        tools = _tool_versions((*ENGINES, "git", "docker"), refresh)
         return {
             "version": __version__, "app": os.environ.get("PULL_AND_PUSH_APP"),
             "engine_python": {"version": sys.version.split()[0], "path": sys.executable},
             "scorer_python": {**st.python_info(st.scorer_python()),
                               "source": ("env" if os.environ.get(st.PYTHON_ENV) else
                                          "setting" if st.load()["scorer_python"] else "default")},
-            "agents": {e: tools[e] for e in ("claude", "codex", "opencode", "agy")},
+            "agents": {e: tools[e] for e in ENGINES},
             "git": tools["git"], "docker": tools["docker"],
             "data_dir": str(home_root()),
             "update": ({"latest": rel.get("tag"), "url": rel.get("url"),
@@ -787,7 +788,7 @@ def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = 
         from ..arena.referee import list_referees
         from .. import __version__
         from ..settings import cached_release, newer
-        engines = ["claude", "codex", "opencode", "agy"]
+        engines = list(ENGINES)
         rel = cached_release()
         return {
             "version": __version__,

@@ -14,7 +14,7 @@ def test_build_cli_prefix_engines():
     assert "read-only" in codex_r
 
     assert build_cli_prefix("opencode", None, "writeable")[:2] == ["opencode", "run"]
-    assert build_cli_prefix("agy", None, "writeable")[:2] == ["agy", "-p"]
+    assert build_cli_prefix("agy", None, "writeable")[:2] == ["agy", "--dangerously-skip-permissions"]
 
 
 def test_headless_agents_auto_approve_to_never_hang():
@@ -117,10 +117,15 @@ def test_cli_adapter_dir_handling(tmp_path):
 
     av, cwd = argv_for("claude", ["claude", "-p"])
     assert av == ["claude", "-p", "PROMPT"] and cwd == str(tmp_path)   # claude: cwd only, no flag
-    av, _ = argv_for("agy", ["agy", "-p"])
-    assert av == ["agy", "-p", "--add-dir", str(tmp_path), "PROMPT"]   # agy: --add-dir workspace
+    av, _ = argv_for("agy", ["agy", "--dangerously-skip-permissions"])
+    # agy: --add-dir workspace; the prompt is the VALUE of --print (a bare -p before other flags
+    # made agy take the next flag as the prompt and silently ignore the task)
+    assert av == ["agy", "--dangerously-skip-permissions", "--add-dir", str(tmp_path), "--print", "PROMPT"]
     av, _ = argv_for("codex", ["codex", "exec"])
-    assert av == ["codex", "exec", "-C", str(tmp_path), "PROMPT"]      # codex: -C single-path
+    assert av[:4] == ["codex", "exec", "-C", str(tmp_path)] and av[-1] == "PROMPT"   # codex: -C
+    assert av[4] == "-o" and av[5].endswith(".txt")                   # + its final message to a file
+    av, _ = argv_for("grok", ["grok", "--always-approve"])
+    assert av == ["grok", "--always-approve", "--cwd", str(tmp_path), "-p", "PROMPT"]  # grok: -p takes it
     av, _ = argv_for("opencode", ["opencode", "run"])
     assert av == ["opencode", "run", "--dir", str(tmp_path), "PROMPT"] # opencode: --dir (else edits enclosing repo)
 
@@ -194,3 +199,50 @@ def test_pipe_logged_path_tees_output(tmp_path):
     res = a._run_pipe_logged([*fake, "brief"], wd, 10)
     assert res.status == "success" and "HELLO-PIPE" in res.stdout
     assert "HELLO-PIPE" in (tmp_path / "agent.log").read_text()
+
+
+def test_grok_profiles():
+    # executor may write (auto-approve, or a headless run hangs); reviewer and helper may read but
+    # never write — a plain headless `grok -p` wrote files in a write-bait test
+    w = build_cli_prefix("grok", "grok-4", "writeable")
+    assert w[:2] == ["grok", "--rules"] and "--always-approve" in w and "--deny" not in w
+    assert w[-2:] == ["-m", "grok-4"]
+    for profile in ("read-only", "text"):
+        r = build_cli_prefix("grok", None, profile)
+        denied = [r[i + 1] for i, a in enumerate(r) if a == "--deny"]
+        assert denied == ["Write", "Edit", "Bash"] and "--always-approve" in r
+
+
+def test_codex_answer_is_its_final_message_not_its_banner(tmp_path):
+    # codex prints a banner, its settings and an echo of the whole prompt; the reviewer feedback in
+    # every brief used to be all of that. Only the final message (-o FILE) is the answer.
+    fake = tmp_path / "fake_codex.py"
+    fake.write_text(
+        "import sys\n"
+        "a = sys.argv\n"
+        "print('OpenAI Codex v0.0 banner'); print('user'); print('You are the read-only REVIEWER ...')\n"
+        "open(a[a.index('-o') + 1], 'w').write('The change is sound. Next: try a wheel.')\n")
+    ad = CLIAgentAdapter([sys.executable, str(fake)], engine="codex")
+    res = ad.run("PROMPT", tmp_path, "read-only", 30)
+    assert res.status == "success" and res.stdout == "The change is sound. Next: try a wheel."
+    assert not list(tmp_path.glob("pp-codex-*"))                      # the temp file is gone
+    # no final message (a crash, an old codex) → keep the full output for diagnosis
+    fake.write_text("print('only noise')\n")
+    assert CLIAgentAdapter([sys.executable, str(fake)], engine="codex").run(
+        "PROMPT", tmp_path, "read-only", 30).stdout.strip() == "only noise"
+
+
+def test_reasoning_effort_per_engine():
+    # an agent in the loop inherits the operator's default effort (often "high") unless told
+    assert "--effort" not in build_cli_prefix("claude", None, "writeable")
+    c = build_cli_prefix("claude", None, "writeable", "low")
+    assert c[c.index("--effort") + 1] == "low"
+    g = build_cli_prefix("grok", None, "writeable", "medium")
+    assert g[g.index("--reasoning-effort") + 1] == "medium"
+    x = build_cli_prefix("codex", None, "read-only", "high")
+    assert x[x.index("-c") + 1] == "model_reasoning_effort=high"
+    for eng in ("claude", "grok"):                       # helpers: medium unless told otherwise
+        h = build_cli_prefix(eng, None, "text")
+        flag = "--effort" if eng == "claude" else "--reasoning-effort"
+        assert h[h.index(flag) + 1] == "medium"
+    assert "--effort" not in build_cli_prefix("opencode", None, "writeable", "high")   # ignored

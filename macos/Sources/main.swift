@@ -124,7 +124,7 @@ enum Env {
     static func userPATH() -> String {
         var dirs = (loginShellPATH() ?? "").split(separator: ":").map(String.init)
         dirs += ["/opt/homebrew/bin", "/opt/homebrew/sbin", "/usr/local/bin", "\(home)/.local/bin",
-                 "\(home)/.npm-global/bin", "\(home)/.bun/bin", "\(home)/.volta/bin",
+                 "\(home)/.npm-global/bin", "\(home)/.bun/bin", "\(home)/.volta/bin", "\(home)/.grok/bin",
                  "\(home)/.cargo/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
         var seen = Set<String>()
         return dirs.filter { !$0.isEmpty && seen.insert($0).inserted }.joined(separator: ":")

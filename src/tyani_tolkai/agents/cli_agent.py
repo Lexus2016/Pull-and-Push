@@ -1,6 +1,6 @@
 """CLIAgentAdapter — drives a real off-the-shelf agent CLI as a subprocess.
 
-No bespoke agent logic: we only shell out to `claude` / `codex` / `opencode` / `agy`
+No bespoke agent logic: we only shell out to `claude` / `codex` / `opencode` / `agy` / `grok`
 (spec §8) in the artifact directory, passing the brief as the prompt. Whether the
 agent actually changed files is decided by the orchestrator via git, not by trusting
 the agent — so this adapter just runs the process and classifies the outcome.
@@ -12,6 +12,7 @@ import os
 import re
 import signal
 import subprocess
+import tempfile
 from pathlib import Path
 
 from .base import RunResult
@@ -94,9 +95,14 @@ _HELPER_FOCUS = (
     "no preamble, no follow-up questions.")
 
 
-def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
+def build_cli_prefix(engine: str, model: str | None, profile: str,
+                     effort: str | None = None) -> list[str]:
     """Build the argv prefix for an engine (prompt is appended by the caller). Profiles:
-    "writeable" (executor), "read-only" (validator), "text" (helper: prompt → answer, no tools)."""
+    "writeable" (executor), "read-only" (validator), "text" (helper: prompt → answer, no tools).
+    ``effort``: reasoning effort for claude / grok / codex (None = the CLI's own default — which is
+    the operator's personal setting, often "high"; helpers get "medium", see below)."""
+    if profile == "text":
+        effort = effort or "medium"
     # Executor (writeable) and Validator (read-only) get DIFFERENT system prompts: the executor is
     # told to write files and stay silent; the validator is told to NOT write and to give feedback.
     focus = {"writeable": _EXECUTOR_FOCUS, "text": _HELPER_FOCUS}.get(profile, _VALIDATOR_FOCUS)
@@ -107,7 +113,7 @@ def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
         # medium it answered in 135 s with a kit that passed the pre-flight.
         # --tools "" = no built-in tools (nothing to write, run or hang on). Like --mcp-config it is
         # variadic, so another flag must follow it before the positional prompt.
-        cmd = ["claude", "-p", "--effort", "medium", "--tools", "", "--mcp-config",
+        cmd = ["claude", "-p", "--effort", effort, "--tools", "", "--mcp-config",
                '{"mcpServers":{}}', "--strict-mcp-config", "--append-system-prompt", focus]
         if model:
             cmd += ["--model", model]
@@ -129,12 +135,16 @@ def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
         cmd = ["claude", "-p", "--dangerously-skip-permissions",
                "--mcp-config", '{"mcpServers":{}}', "--strict-mcp-config",
                "--append-system-prompt", focus]
+        if effort:
+            cmd += ["--effort", effort]
         if model:
             cmd += ["--model", model]
         return cmd
     if engine == "codex":
         sandbox = "workspace-write" if profile == "writeable" else "read-only"
         cmd = ["codex", "exec", "--sandbox", sandbox]
+        if effort:
+            cmd += ["-c", f"model_reasoning_effort={effort}"]
         if model:
             cmd += ["-m", model]
         return cmd
@@ -147,11 +157,27 @@ def build_cli_prefix(engine: str, model: str | None, profile: str) -> list[str]:
             cmd += ["-m", model]
         return cmd
     if engine == "agy":
-        # -p = non-interactive print; auto-approve tools so it can't stall on a prompt.
-        # The workspace dir is added via --add-dir in run() (agy doesn't use the process cwd).
-        cmd = ["agy", "-p", "--dangerously-skip-permissions"]
+        # auto-approve tools so it can't stall on a prompt. The workspace (--add-dir) and the
+        # prompt are added in run(): `--print` TAKES the prompt as its value (agy 1.2+) — a bare
+        # `-p` before other flags made agy read the next flag as the prompt and ignore the task.
+        cmd = ["agy", "--dangerously-skip-permissions"]
         if model:
             cmd += ["--model", model]
+        return cmd
+    if engine == "grok":
+        # xAI Grok Build. `-p/--single` TAKES the prompt as its value and `--cwd` sets the
+        # workspace — both added in run(); --rules appends our brief to its system prompt.
+        cmd = ["grok", "--rules", focus, "--always-approve"]   # headless: nobody answers a prompt
+        if profile != "writeable":
+            # reviewer / helper may read, never write: a plain headless `grok -p` DID write a file
+            # in a write-bait test (consilium). --deny takes exactly one value (not variadic).
+            cmd += ["--deny", "Write", "--deny", "Edit", "--deny", "Bash"]
+        if effort:
+            # measured: at the operator's default "high" an executor turn streamed reasoning for
+            # the whole 10-minute timeout (2278 reasoning events, zero tool calls)
+            cmd += ["--reasoning-effort", effort]
+        if model:
+            cmd += ["-m", model]
         return cmd
     raise ValueError(f"no CLI prefix for engine {engine!r}")
 
@@ -210,13 +236,23 @@ class CLIAgentAdapter:
         # The subprocess runs with cwd=workdir. claude respects that. The others resolve their
         # own working root (and would otherwise edit the ENCLOSING git repo), so state it
         # explicitly with each one's single-path flag — placed BEFORE the positional prompt:
-        #   codex -C <dir> · opencode --dir <dir> · agy --add-dir <dir>
+        #   codex -C <dir> · opencode --dir <dir> · agy --add-dir <dir> · grok --cwd <dir>
+        last_message = None
         if self.engine == "codex":
             cmd += ["-C", str(workdir)]
+            # codex prints a banner, its settings and an echo of the whole prompt around the
+            # answer; with stderr merged, all of that became the "answer" — the reviewer feedback
+            # in every brief carried codex's header and the reviewer's own prompt. -o writes just
+            # the final message; the full stream still goes to agent.log and the limit checks.
+            fd, last_message = tempfile.mkstemp(prefix="pp-codex-", suffix=".txt")
+            os.close(fd)
+            cmd += ["-o", last_message]
         elif self.engine == "opencode":
             cmd += ["--dir", str(workdir)]
         elif self.engine == "agy":
-            cmd += ["--add-dir", str(workdir)]
+            cmd += ["--add-dir", str(workdir), "--print"]      # the brief is --print's value
+        elif self.engine == "grok":
+            cmd += ["--cwd", str(workdir), "-p"]               # the brief is -p's value
         argv = [*cmd, brief]
         if os.name == "nt":
             # Windows Popen (shell=False) won't resolve .cmd/.bat shims (many CLIs are installed
@@ -225,9 +261,19 @@ class CLIAgentAdapter:
             resolved = shutil.which(argv[0])
             if resolved:
                 argv[0] = resolved
-        if profile == "writeable":
-            return self._run_logged(argv, workdir, timeout)   # executor → live agent.log
-        return self._run_plain(argv, workdir, timeout)        # validator → pipe (not logged)
+        try:
+            if profile == "writeable":
+                res = self._run_logged(argv, workdir, timeout)   # executor → live agent.log
+            else:
+                res = self._run_plain(argv, workdir, timeout)    # validator → pipe (not logged)
+            if last_message and res.status == "success":
+                answer = Path(last_message).read_text(encoding="utf-8", errors="replace").strip()
+                if answer:
+                    res.stdout = answer
+            return res
+        finally:
+            if last_message:
+                Path(last_message).unlink(missing_ok=True)
 
     def _run_plain(self, argv, workdir, timeout) -> RunResult:
         try:
