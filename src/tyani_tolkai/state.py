@@ -119,7 +119,9 @@ class StateStore:
         self.conn.executescript(SCHEMA)
         for _mig in ("ALTER TABLE iteration ADD COLUMN feedback TEXT",
                      "ALTER TABLE run ADD COLUMN baseline_json TEXT",
-                     "ALTER TABLE run ADD COLUMN metrics_sig TEXT"):
+                     "ALTER TABLE run ADD COLUMN metrics_sig TEXT",
+                     "ALTER TABLE run ADD COLUMN tokens_total INTEGER",
+                     "ALTER TABLE run ADD COLUMN cost_measured INTEGER"):
             try:                                        # migrate older DBs in place
                 self.conn.execute(_mig)
             except sqlite3.OperationalError:

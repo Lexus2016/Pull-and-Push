@@ -69,7 +69,8 @@ candidate is never kept, whatever its score.
 5. **Pre-flight:** `$PP research check <dir>` until PASS; read every ⚠ (noisy → `evaluation.runs: 3`
    and a larger `min_delta`; no-headroom → raise the target; slow → raise `limits.step_seconds`).
 6. **Create:** `$PP research create <dir> [--name <name>]`. First run small: `max_iterations` 3–5,
-   `budget_usd` set with `usd_per_mtok`, executor and validator from different providers
+   a `budget_usd` (claude / grok report their own $; codex / agy / opencode only tokens, so give
+   `usd_per_mtok` when one of those runs), executor and validator from different providers
    (claude / codex is the proven pair; opencode, agy and grok work too — agy since the v0.4.2 launch
    fix). Every agent reasons at `medium` by default — short steps, not one long think; raise
    one only for a reason (`{engine: claude, effort: high}`), and prefer more iterations to it.
@@ -84,8 +85,10 @@ candidate is never kept, whatever its score.
    monitor's shell, which silently ends the watch). Stop early if every iteration fails with the
    same evaluation error (fix the kit): `touch ~/.tyani-tolkai/projects/<name>/stop.request` (a
    command-line run), or POST `<url>/api/projects/<name>/stop?token=<token>` with the url/token from
-   `dashboard.json` (a dashboard run). `agent.log` shows what the
-   executor did.
+   `dashboard.json` (a dashboard run). `agent.log` shows what the executor did, one `▸ tool
+   path` line per action; an `AGENT TIMEOUT … only reasoned` iteration means the step was too big or
+   the effort too high — shrink the task before raising the timeout. `status --json` carries the
+   real `cost_usd`, `tokens` and `cost_measured` (false = part of it was guessed or unpriced).
 9. **Verify before you believe:** `$PP report <name>` (seed → first kept → best → target per metric, kept steps,
    seed → best diff). Read the diff looking for gaming; re-run the scorer on the best artifact
    (`cd ~/.tyani-tolkai/projects/<name>/artifact && python ../metrics/evaluate.py`); if the
@@ -96,7 +99,7 @@ candidate is never kept, whatever its score.
     To simply keep going with the same kit: raise `max_iterations` / target in `config.yaml` and
     start again — Run continues the same history.
 11. **Report to the human** in their language: the goal; each metric start → best (target); the
-    constraints held; iterations, stop reason and estimated cost; the change that mattered (from
+    constraints held; iterations, stop reason and cost (say "≈" when `cost_measured` is false); the change that mattered (from
     the diff); caveats (noise, overfitting, what the judge does not measure); the next round you
     recommend.
 

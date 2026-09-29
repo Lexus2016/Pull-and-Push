@@ -97,22 +97,12 @@ class LimitsCfg(BaseModel):
     max_iterations: int = 40
     plateau_N: int = 8
     budget_usd: float | None = None
-    # price used to turn the (estimated) tokens into USD. 0 = cost tracking off (and budget_usd is
-    # not enforced). The estimate is rough — CLI agents don't report exact tokens — so it is a
-    # SAFETY CAP, not an invoice. Set both usd_per_mtok and budget_usd to enable a hard stop.
+    # price per 1M tokens for agents that report only tokens (codex, agy, some opencode models);
+    # claude and grok report their own dollar cost. 0 = those calls stay unpriced.
     usd_per_mtok: float = 0.0
     step_seconds: int = 600
     agent_retries: int = 2          # restart a crashed/timed-out agent this many times
     max_agent_failures: int = 3     # consecutive hard failures → halt the run (escalate)
-
-    @model_validator(mode="after")
-    def _budget_needs_price(self) -> "LimitsCfg":
-        if self.budget_usd is not None and (self.usd_per_mtok or 0) <= 0:
-            warnings.warn(
-                "budget_usd is set but usd_per_mtok is 0 — the cost stays 0, so the budget cap will "
-                "NOT be enforced. Set usd_per_mtok (price per 1M tokens) to enable the hard stop.",
-                UserWarning, stacklevel=2)
-        return self
 
 
 class HistoryCfg(BaseModel):
@@ -175,6 +165,17 @@ class ArenaCfg(BaseModel):
     promote_regression_max: float = 0.1  # max archive-wide regression allowed to crown a champion
 
 
+SELF_PRICED_ENGINES = {"claude", "grok"}   # CLIs that report each call's dollar cost themselves
+
+
+def unpriced_engines(cfg: "Config") -> list[str]:
+    """Engines whose calls the spend cannot count: they report only tokens and no usd_per_mtok
+    is set to price them."""
+    if (cfg.limits.usd_per_mtok or 0) > 0:
+        return []
+    return sorted({a.engine for a in cfg.agents.values() if a.engine not in SELF_PRICED_ENGINES})
+
+
 class Config(BaseModel):
     project: str
     description: str | None = None        # original plain-language task (from the generator)
@@ -204,6 +205,16 @@ class Config(BaseModel):
         return data
 
     @model_validator(mode="after")
+    def _budget_priced(self) -> "Config":
+        unpriced = unpriced_engines(self)
+        if self.limits.budget_usd is not None and unpriced:
+            warnings.warn(
+                f"budget_usd is set but usd_per_mtok is 0: {', '.join(unpriced)} report only tokens, "
+                "so their calls add nothing to the spend and the cap under-counts. Set usd_per_mtok "
+                "(price per 1M tokens) for them.", UserWarning, stacklevel=2)
+        return self
+
+    @model_validator(mode="after")
     def _check_roles_and_engines(self) -> "Config":
         if self.mode == "symmetric":
             for r in ("rival_a", "rival_b"):
@@ -211,13 +222,8 @@ class Config(BaseModel):
                     raise ValueError(f"symmetric mode requires agents.{r}")
             if self.arena is None:
                 raise ValueError("symmetric mode requires an 'arena' block")
-            for r in ("rival_a", "rival_b"):
-                eng = self.agents[r].engine
-                # opencode/agy do NOT write to the subprocess cwd → cannot be rival EXECUTORS
-                if eng in ("opencode", "agy", "grok"):
-                    raise ValueError(
-                        f"rival {r} engine {eng!r} does not write to the subprocess cwd; "
-                        "rival executors must be claude, codex, or mock (tests)")
+            # any engine can be a rival: each is given its side's folder explicitly
+            # (codex -C, opencode --dir, agy --add-dir, grok --cwd; claude uses the cwd)
             return self
         # asymmetric (unchanged Phase-1 logic)
         if "executor" not in self.agents:

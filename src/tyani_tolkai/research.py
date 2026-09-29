@@ -25,7 +25,7 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel, Field, field_validator
 
-from .config import AgentCfg, Config, ConstraintCfg, MetricCfg
+from .config import AgentCfg, Config, ConstraintCfg, MetricCfg, unpriced_engines
 from .metrics import get_metric_adapter
 from .projects import home_root, project_dir, valid_name
 from .sandbox import get_backend
@@ -164,8 +164,8 @@ limits:
   max_iterations: 20
   plateau_N: 6               # stop after N changes in a row that did not improve
   step_seconds: 600          # timeout per agent step AND per evaluation
-  budget_usd: 5              # hard cap on the (rough) estimated spend
-  usd_per_mtok: 3            # price used for that estimate
+  budget_usd: 5              # hard cap on the spend the agents report
+  usd_per_mtok: 3            # prices agents that report only tokens (codex, agy); claude / grok report $
 evaluation:
   runs: 1                    # >1 = median of N measurements (noisy scorers)
   min_delta: 0.5             # keep only if the score improves by MORE than this
@@ -234,8 +234,12 @@ def check_kit(kit_dir: str | Path, *, repeats: int = 2) -> dict:
                                  "providers so their blind spots don't coincide")
     if va is None:
         add("info", "no-validator", "no validator: the executor only sees scores, no review")
-    if lim.budget_usd is None or (lim.usd_per_mtok or 0) <= 0:
-        add("warn", "budget", "no spend cap: set limits.budget_usd and limits.usd_per_mtok")
+    unpriced = unpriced_engines(cfg)
+    if lim.budget_usd is None:
+        add("warn", "budget", "no spend cap: set limits.budget_usd")
+    elif unpriced:
+        add("warn", "budget", f"{', '.join(unpriced)} report only tokens — set limits.usd_per_mtok "
+                              "so the spend cap counts their calls")
 
     values: dict = {}
     durations: list[float] = []
@@ -485,6 +489,10 @@ def project_status(project: str, last: int = 5) -> dict:
         out.update(status=run["status"], best_score=run["best_score"],
                    best_iteration=keep["n"] if keep else None, iterations=run["iter_count"] or 0,
                    plateau=run["plateau_count"] or 0, cost_usd=round(run["cost_total"] or 0.0, 4),
+                   # False = part of the spend was guessed, or tokens had no price
+                   cost_measured=bool(run["cost_measured"]) if run["cost_measured"] is not None
+                   else not run["cost_total"],
+                   tokens=run["tokens_total"] or 0,
                    verdicts=counts,
                    last=[{"n": it.n, "verdict": it.verdict, "score": it.score,
                           "metrics": {m["name"]: m["value"] for m in it.metrics},

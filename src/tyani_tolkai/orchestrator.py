@@ -75,9 +75,13 @@ class Orchestrator:
         # a seed that already meets the targets — so a first iteration at the target is the
         # executor's win, not a mis-specified objective (iteration 1 is already an edited version).
         self._seed_known_below_target = (state.project_dir / "research" / "preflight.json").is_file()
-        # estimated cumulative cost (USD) across the run; restored on resume so the budget cap holds
+        # cumulative cost (USD) across the run; restored on resume so the budget cap holds
         self.cost_total = float(run["cost_total"]) if (run and "cost_total" in run.keys()
                                                        and run["cost_total"] is not None) else 0.0
+        # tokens the agents reported, and whether every call's cost is known (not guessed)
+        self.tokens_total = int(run["tokens_total"] or 0) if (run and "tokens_total" in run.keys()) else 0
+        measured = run["cost_measured"] if (run and "cost_measured" in run.keys()) else None
+        self.cost_measured = bool(measured) if measured is not None else self.cost_total == 0
         # which metrics carry an EXPLICIT worst from the config (vs auto-pinned). Captured BEFORE the
         # baseline_json load below overwrites m.worst, so a later objective change re-derives the
         # auto-pinned zero-points (under the new dir/target) but honours explicit ones.
@@ -195,6 +199,7 @@ class Orchestrator:
             self.state.revert_uncommitted()          # clean slate before each attempt
             result = self.executor.run(brief, self.state.artifact_dir, "writeable",
                                        cfg.agents["executor"].timeout)
+            self._charge(result, brief)                      # every attempt costs, not just the last
             if result.status in ("success", "rate_limited") or self.aborted:
                 return result
             # crashed / timeout → restart the process (next loop iteration)
@@ -297,7 +302,7 @@ class Orchestrator:
                                          report_stats=report_stats, iteration=self.n)
         vtimeout = cfg.agents["validator"].timeout if "validator" in cfg.agents else 300
         vres = self.validator.run(vprompt, state.artifact_dir, "read-only", vtimeout)
-        self._charge(vprompt, vres.stdout if vres else "")   # estimate reviewer cost
+        self._charge(vres, vprompt)                            # reviewer cost
         if state.has_changes():               # enforce read-only regardless of engine
             state.revert_uncommitted()
         # keep the reviewer's full assessment/why/ideas (3 short parts) — 1000 chars clipped it
@@ -344,15 +349,30 @@ class Orchestrator:
         except OSError:
             pass
 
-    def _charge(self, *texts: str) -> None:
-        """Add the estimated cost of an agent call to the run total. Tokens are approximated as
-        chars/4 (CLI agents don't report exact usage), priced at limits.usd_per_mtok. Rough on
-        purpose — it powers a SAFETY CAP (budget_usd), not an invoice. No-op when price is 0."""
-        price = self.cfg.limits.usd_per_mtok or 0.0
-        if price <= 0:
+    def _charge(self, result, prompt: str = "") -> None:
+        """Add one agent call to the run's cost — what powers the budget_usd cap. The CLI's own
+        report wins: its dollar cost (claude, grok, priced opencode models), else its real tokens
+        at limits.usd_per_mtok (cache reads at 10%, as providers bill them). Only a call that
+        reported nothing (an old CLI, a crash before the end) is guessed from the text (chars/4) —
+        and then the run's total is marked approximate. The old chars/4-only estimate missed what
+        agents read and think: a one-line task measured $0.21 on claude where it guessed ~$0."""
+        if result is None:
             return
-        tokens = sum(len(t or "") for t in texts) // 4
-        self.cost_total += tokens / 1_000_000.0 * price
+        price = self.cfg.limits.usd_per_mtok or 0.0
+        usage = getattr(result, "usage", None)
+        if usage is not None:
+            self.tokens_total += usage.input + usage.cached + usage.output
+            if usage.cost_usd is not None:
+                self.cost_total += usage.cost_usd
+            elif price > 0:
+                self.cost_total += (usage.input + usage.cached * 0.1 + usage.output) / 1e6 * price
+            else:
+                self.cost_measured = False       # tokens known, but nothing to price them with
+            return
+        self.cost_measured = False
+        if price > 0:
+            tokens = (len(prompt or "") + len(getattr(result, "stdout", "") or "")) // 4
+            self.cost_total += tokens / 1_000_000.0 * price
 
     def _revalidate_best(self, n: int, ph) -> None:
         """Periodically re-score the current best (the working tree at iteration start IS the best,
@@ -394,8 +414,7 @@ class Orchestrator:
 
         ph("executor")                       # Executor is editing the artifact
         self._log_iteration_header(n)        # accumulate agent.log across iterations
-        result = self._run_executor(brief)   # runs with restart-on-crash/timeout
-        self._charge(brief, result.stdout if result else "")   # estimate executor cost
+        result = self._run_executor(brief)   # runs with restart-on-crash/timeout (each attempt charged)
 
         # Force-Stop landed while the agent was running → drop any partial edit and bail NOW,
         # but LEAVE A RECORD so the iteration list shows what happened (not an empty list).
@@ -423,8 +442,19 @@ class Orchestrator:
         if result.status in ("crashed", "timeout"):
             state.revert_uncommitted()
             self.consecutive_fail += 1
-            msg = (f"AGENT {result.status.upper()} (after {cfg.limits.agent_retries} retries):\n"
-                   + (result.stdout or "")[:600])
+            if result.status == "timeout":
+                # the loop is many short steps: a step that eats the whole timeout is the thing to
+                # fix, and "it only thought" (no tool call at all) is the usual reason
+                limit = cfg.agents["executor"].timeout
+                what = ("it only reasoned — not a single action" if result.actions == 0
+                        else f"{result.actions} actions, never finished")
+                msg = (f"AGENT TIMEOUT: every attempt used the whole {limit}s step ({what}; "
+                       f"{cfg.limits.agent_retries} retries). Keep steps short: a lower "
+                       "agents.executor.effort, a narrower task, or a longer agents.executor.timeout."
+                       "\n" + (result.stdout or "")[-600:])
+            else:
+                msg = (f"AGENT CRASHED (after {cfg.limits.agent_retries} retries):\n"
+                       + (result.stdout or "")[-600:])
             state.record_iteration(self.run_id, n=n, git_hash=None, score=state.best_score(self.run_id),
                                    verdict="fail", metrics=[], feedback=msg, agent_exit=result.status)
             state.update_run(self.run_id, iter_count=n)
@@ -639,7 +669,8 @@ class Orchestrator:
             outcome = self.run_iteration(context_text=ctx, on_phase=on_phase)
             if on_iteration:
                 on_iteration(outcome)
-            self.state.update_run(self.run_id, cost_total=self.cost_total)   # persist running cost
+            self.state.update_run(self.run_id, cost_total=self.cost_total,   # persist running cost
+                                  tokens_total=self.tokens_total, cost_measured=int(self.cost_measured))
             if self.aborted:                   # Force-Stop landed mid-iteration
                 best = self.state.best_score(self.run_id)
                 self.state.set_status(self.run_id, "stopped")

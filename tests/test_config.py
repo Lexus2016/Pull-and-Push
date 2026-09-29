@@ -172,10 +172,12 @@ def test_symmetric_requires_arena_block():
         Config(**bad)
 
 
-def test_symmetric_rejects_non_writing_rival_engine():
-    with pytest.raises(ValidationError):
-        Config(**_base_symmetric(agents={"rival_a": {"engine": "opencode"},
-                                          "rival_b": {"engine": "mock"}}))
+def test_symmetric_accepts_every_cli_engine_as_a_rival():
+    # the old ban ("opencode/agy/grok don't write to the cwd") predates passing each engine its
+    # folder explicitly; all three wrote into the given folder in a live check (2026-09-29)
+    for eng in ("opencode", "agy", "grok"):
+        cfg = Config(**_base_symmetric(agents={"rival_a": {"engine": eng}, "rival_b": {"engine": "mock"}}))
+        assert cfg.agents["rival_a"].engine == eng
 
 
 def test_load_config_symmetric_no_longer_raises(tmp_path):

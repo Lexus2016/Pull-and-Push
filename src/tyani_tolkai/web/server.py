@@ -171,6 +171,7 @@ class RunManager:
             return {"status": r["status"], "summary": r["summary"],
                     "outcomes": outs, "delta": delta, "epoch": ep, "phase": r.get("phase"),
                     "baseline": dict(r.get("baseline") or {}), "cost": r.get("cost", 0.0),
+                    "cost_measured": r.get("cost_measured", True), "tokens": r.get("tokens", 0),
                     "best": r.get("best"),   # scale-correct bar from the DB (not max over mixed scales)
                     "checkpoint": r.get("checkpoint")}
 
@@ -195,6 +196,7 @@ class RunManager:
             self._runs[name] = {"status": "running", "summary": None, "outcomes": [],
                                 "epoch": self._epoch,
                                 "phase": None, "baseline": {}, "cost": 0.0, "best": None,
+                                "cost_measured": True, "tokens": 0,
                                 "checkpoint": None}
         threading.Thread(target=self._run, args=(name,), daemon=True).start()
 
@@ -258,7 +260,9 @@ class RunManager:
                          "feedback": o.feedback, "change": o.change, "ts": _now(),
                          "metrics": [{"name": m["name"], "value": m["value"]} for m in (o.metrics or [])]})
                     self._runs[name]["baseline"] = dict(orch._baseline)   # resolved zero-points (live cards)
-                    self._runs[name]["cost"] = orch.cost_total            # estimated spend so far
+                    self._runs[name]["cost"] = orch.cost_total            # spend so far
+                    self._runs[name]["cost_measured"] = orch.cost_measured   # all reported, none guessed
+                    self._runs[name]["tokens"] = orch.tokens_total
                     self._runs[name]["best"] = state.best_score(run_id)   # current-scale bar (DB truth)
 
             def on_ph(p):
@@ -400,6 +404,9 @@ def _persisted_state(name: str) -> dict:
             except ValueError:
                 baseline = {}
         cost = run["cost_total"] if "cost_total" in run.keys() else 0.0
+        measured = run["cost_measured"] if "cost_measured" in run.keys() else None
+        measured = bool(measured) if measured is not None else not cost   # older runs: estimated
+        tokens = (run["tokens_total"] if "tokens_total" in run.keys() else None) or 0
         cp = state.open_checkpoint(run["id"])
         # NEAR-MISS PLATEAU diagnosis: a finished run stuck at plateau (not target / max_iter / error)
         # where a candidate actually beat the best but by < min_delta, so it was discarded as noise.
@@ -425,7 +432,7 @@ def _persisted_state(name: str) -> dict:
             plateau_hint = None
         return {
             "status": run["status"], "best_score": run["best_score"], "baseline": baseline,
-            "cost": cost or 0.0,
+            "cost": cost or 0.0, "cost_measured": measured, "tokens": tokens,
             "checkpoint": ({"reason": cp["reason"], "iter": cp["iter"]} if cp else None),
             "plateau_hint": plateau_hint,
             "iterations": [{"n": it.n, "score": it.score, "verdict": it.verdict,

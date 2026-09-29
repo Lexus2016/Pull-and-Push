@@ -199,9 +199,10 @@ git pull
 
 ## Configuration & troubleshooting
 
-**Cost cap** — set `limits.usd_per_mtok` (price) and `limits.budget_usd` (cap) in the config (or the
-form's Budget/Price fields) to hard-stop a run at an estimated spend. The estimate is rough (CLI
-agents don't report exact tokens) — a safety cap, not an invoice; the live status shows `≈ $X.XX`.
+**Cost cap** — `limits.budget_usd` (the form's Budget field) hard-stops a run when the spend reaches
+it. claude and grok report each call's dollar cost; codex, agy and some opencode models report only
+tokens — set `limits.usd_per_mtok` (Price) to price them (cache reads count at 10%). The live status
+shows `$X.XX`, or `≈ $X.XX` when some call reported nothing and had to be estimated from its text.
 
 **Human checkpoints** — enable `checkpoints.on_target` / `on_plateau` / `every_n` to PAUSE for your
 review (status *awaiting_review*) instead of finishing; the dashboard shows **Continue** / **Accept
@@ -230,6 +231,12 @@ default — the loop is many short steps, and a long think on one step only slow
 `agents: {executor: {engine: claude, effort: high}}` (claude/agy `--effort`, grok
 `--reasoning-effort`, codex `model_reasoning_effort`, opencode `--variant`). Tip: use **different** providers for executor vs validator
 on non-trivial runs — same model = correlated review blind spots.
+
+**Agents without your personal setup, and their real cost.** Every agent in the loop starts without
+your personal configuration: claude without your hooks and skills, codex without your MCP servers,
+grok without the Claude/Codex rules it would import, opencode without plugins and `~/.claude` rules
+(agy has no such switch: it still reads your `GEMINI.md` and MCP servers). Every engine streams JSON,
+so the live log shows one line per action and the spend is what the CLI itself reported.
 
 **Portable scorer commands** — template commands use a `{python}` placeholder (e.g.
 `{python} ../metrics/run_backtest.py`) that the runner replaces with the sandbox interpreter, so
@@ -513,7 +520,8 @@ pull-and-push url --open                                   # the running dashboa
   it — for a long unattended run, `claude` / `codex` are the proven pair. `grok` (xAI Grok Build,
   from v0.4.2) runs with `--always-approve` as Executor and with Write/Edit/Bash denied as reviewer
   or helper (checked with a write-bait). Every engine reasons at `medium` by default (from v0.4.3):
-  on its own "high", one Grok turn reasoned for the whole 10-minute timeout.
+  on its own "high", one Grok turn reasoned for the whole 10-minute timeout. From v0.5.0 any engine
+  can also be an arena rival.
 - **Symmetric mode** (Rival↔Rival + arena) — **shipped** (CLI + WebUI dual-curve, persist/resume,
   Stop, budget cap). Proven to converge on a toy referee with a checkable fixpoint; a real-domain
   referee + a real-LLM end-to-end run are the next step (the machinery is domain-agnostic). The

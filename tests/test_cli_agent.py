@@ -1,7 +1,8 @@
 import os
 import sys
 
-from tyani_tolkai.agents.cli_agent import DEFAULT_EFFORT, CLIAgentAdapter, build_cli_prefix
+from tyani_tolkai.agents.cli_agent import (DEFAULT_EFFORT, _VALIDATOR_FOCUS, CLIAgentAdapter,
+                                          build_cli_prefix)
 
 
 def test_build_cli_prefix_engines():
@@ -99,11 +100,13 @@ def test_cli_adapter_missing_binary(tmp_path):
     assert "not installed" in res.stdout
 
 
-def test_cli_adapter_dir_handling(tmp_path):
+def test_cli_adapter_dir_handling(tmp_path, monkeypatch):
     """Prompt must be the final positional arg, after each engine's single-path working-dir flag.
     claude relies on cwd (no flag); codex gets -C, opencode --dir, agy --add-dir."""
     import subprocess
     from unittest.mock import patch
+
+    monkeypatch.setenv("CODEX_HOME", str(tmp_path / "no-codex-config"))   # no MCP servers to switch off
 
     def argv_for(engine, prefix):
         a = CLIAgentAdapter(prefix, engine=engine)
@@ -120,14 +123,17 @@ def test_cli_adapter_dir_handling(tmp_path):
     av, _ = argv_for("agy", ["agy", "--dangerously-skip-permissions"])
     # agy: --add-dir workspace; the prompt is the VALUE of --print (a bare -p before other flags
     # made agy take the next flag as the prompt and silently ignore the task)
-    assert av == ["agy", "--dangerously-skip-permissions", "--add-dir", str(tmp_path), "--print", "PROMPT"]
+    assert av[:5] == ["agy", "--dangerously-skip-permissions", "--add-dir", str(tmp_path), "--print"]
+    # agy / opencode have no system-prompt flag: the role brief leads the prompt itself
+    assert av[5].startswith(_VALIDATOR_FOCUS) and av[5].endswith("PROMPT")
     av, _ = argv_for("codex", ["codex", "exec"])
     assert av[:4] == ["codex", "exec", "-C", str(tmp_path)] and av[-1] == "PROMPT"   # codex: -C
     assert av[4] == "-o" and av[5].endswith(".txt")                   # + its final message to a file
     av, _ = argv_for("grok", ["grok", "--always-approve"])
     assert av == ["grok", "--always-approve", "--cwd", str(tmp_path), "-p", "PROMPT"]  # grok: -p takes it
     av, _ = argv_for("opencode", ["opencode", "run"])
-    assert av == ["opencode", "run", "--dir", str(tmp_path), "PROMPT"] # opencode: --dir (else edits enclosing repo)
+    assert av[:4] == ["opencode", "run", "--dir", str(tmp_path)]    # opencode: --dir (else edits enclosing repo)
+    assert av[4].startswith(_VALIDATOR_FOCUS) and av[4].endswith("PROMPT")
 
 
 def test_ansi_stripper_removes_tty_control_noise():
