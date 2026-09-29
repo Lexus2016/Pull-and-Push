@@ -57,6 +57,9 @@ checks = {
        if (a := __import__("os").environ.get("PP_EXPECT_AGENT")) else {}),
     "export downloaded": isinstance(r.get("download"), dict) and r["download"].get("bytes", 0) > 0,
     "settings panel renders": js.get("settings_sections") == 5,
+    # the dashboard's language switch reaches the native menus
+    "menus follow the dashboard language": "Правка" in r.get("menus_ru", [])
+                                           and "Edit" in r.get("menus_en", []),
     "no fatal error": "fatal" not in r and "engine" not in r,
 }
 for k, ok in checks.items():
@@ -78,7 +81,7 @@ case "$feed" in https://github.com/*/releases/latest/download/appcast.xml) ;; *)
 echo "✔ updates: Sparkle signed, signed feed $feed, build $build"
 
 # a crash / force-quit must not leave the engine (and its agents) running either
-"$BIN" >/dev/null 2>&1 &
+PP_EPHEMERAL=1 "$BIN" >/dev/null 2>&1 &     # no trace in the real app's defaults / web storage
 app=$!
 eng=""
 for _ in $(seq 1 60); do eng="$(engine_pid)"; alive "$eng" && break; sleep 0.5; done

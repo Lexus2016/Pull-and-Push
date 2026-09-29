@@ -97,7 +97,7 @@ flowchart LR
 
 ### macOS-застосунок (Apple Silicon) — найпростіше
 
-Завантаж **`Pull-and-Push-0.4.0-arm64.dmg`** з
+Завантаж **`Pull-and-Push-0.4.1-arm64.dmg`** з
 [Releases](https://github.com/Lexus2016/Pull-and-Push/releases/latest), відкрий його, перетягни
 **Pull-and-Push** у «Програми» й запусти. Python, залежності й панель уже всередині; застосунок
 підписано й нотаризовано Apple. Потрібен лише Git (якщо його немає, застосунок запропонує

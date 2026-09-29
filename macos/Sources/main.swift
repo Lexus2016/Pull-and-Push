@@ -14,16 +14,36 @@ import WebKit
 
 // MARK: - Strings (native bits only; the dashboard localizes itself)
 
+/// The native parts (menus, About, alerts, notifications) speak the dashboard's language: the
+/// dashboard's EN/UA/RU switch tells the app (bridge "lang"), the choice is kept in UserDefaults
+/// and handed back to the page on the next launch. Until the first choice: the system language.
 enum L {
-    static let lang: String = {
+    static let supported = ["en", "uk", "ru"]
+    private(set) static var lang: String = {
+        if let saved = UserDefaults.standard.string(forKey: "uiLanguage"), supported.contains(saved) {
+            return saved
+        }
         let p = Locale.preferredLanguages.first ?? "en"
         return p.hasPrefix("uk") ? "uk" : p.hasPrefix("ru") ? "ru" : "en"
     }()
     static func t(_ en: String, _ uk: String, _ ru: String) -> String {
         lang == "uk" ? uk : lang == "ru" ? ru : en
     }
-    static let cancel = t("Cancel", "Скасувати", "Отмена")
-    static let starting = t("Starting the engine…", "Запускаю рушій…", "Запускаю движок…")
+    static var cancel: String { t("Cancel", "Скасувати", "Отмена") }
+    static var starting: String { t("Starting the engine…", "Запускаю рушій…", "Запускаю движок…") }
+
+    /// → true when it changed. Our menus are rebuilt at once; the items macOS adds by itself and
+    /// Sparkle's windows follow AppleLanguages, which the system reads at the next launch.
+    @discardableResult
+    static func set(_ l: String) -> Bool {
+        guard supported.contains(l), l != lang else { return false }
+        lang = l
+        if !Ephemeral.on {                              // a test run must not change your app's language
+            UserDefaults.standard.set(l, forKey: "uiLanguage")
+            UserDefaults.standard.set([l], forKey: "AppleLanguages")
+        }
+        return true
+    }
 }
 
 // MARK: - Self-test
@@ -63,6 +83,7 @@ enum SelfTest {
     r.reveal_home = await pp.postMessage({cmd: 'reveal', path: META.home});
     r.pick = await pp.postMessage({cmd: 'pick', kind: 'folder'});
     r.confirm = confirm('selftest');
+    for (const l of ['ru', 'en']) { applyLang(l); await new Promise(res => setTimeout(res, 300)); }
     await openSettings();
     r.settings_sections = document.querySelectorAll('#setBody h4').length;
     document.getElementById('settings').classList.add('hidden');
@@ -72,6 +93,13 @@ enum SelfTest {
     if (d.projects.length) setTimeout(() => { location.href = api('/api/projects/' + d.projects[0] + '/export'); }, 50);
     return JSON.stringify(r);
     """
+}
+
+/// Test runs (PP_SELFTEST, or PP_EPHEMERAL for selftest.sh's crash check) leave no trace in the
+/// real app's state — same bundle id, same defaults and web storage: no saved language or window
+/// frame, a throw-away WKWebView store, no update checks, no notifications.
+enum Ephemeral {
+    static let on = SelfTest.on || ProcessInfo.processInfo.environment["PP_EPHEMERAL"] != nil
 }
 
 // MARK: - Environment
@@ -317,15 +345,19 @@ final class WebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownl
     unowned let engine: Engine
     weak var window: NSWindow?
     var onCheckUpdates: (() -> Void)?
+    var onLanguage: (() -> Void)?
     private var destinations: [ObjectIdentifier: URL] = [:]
 
     init(engine: Engine) {
         self.engine = engine
         let cfg = WKWebViewConfiguration()
+        if Ephemeral.on { cfg.websiteDataStore = .nonPersistent() }
         cfg.applicationNameForUserAgent = "PullAndPushApp/\(Env.version)"
         view = WKWebView(frame: .zero, configuration: cfg)
         super.init()
         cfg.userContentController.addScriptMessageHandler(self, contentWorld: .page, name: "pp")
+        cfg.userContentController.addUserScript(WKUserScript(
+            source: "window.PP_LANG = \"\(L.lang)\";", injectionTime: .atDocumentStart, forMainFrameOnly: true))
         if SelfTest.on {
             cfg.userContentController.addUserScript(WKUserScript(source: """
             window.__ppErrors = [];
@@ -523,6 +555,9 @@ final class WebController: NSObject, WKNavigationDelegate, WKUIDelegate, WKDownl
         case "checkUpdates":
             onCheckUpdates?()
             replyHandler(true, nil)
+        case "lang":
+            if let l = body["lang"] as? String, L.set(l) { onLanguage?() }
+            replyHandler(L.lang, nil)
         case "reveal":
             guard let path = body["path"] as? String, path.hasPrefix("/"),
                   FileManager.default.fileExists(atPath: path) else { return replyHandler(false, nil) }
@@ -561,18 +596,18 @@ final class Notifier: NSObject, UNUserNotificationCenterDelegate {
 
     override init() {
         super.init()
-        if !SelfTest.on { UNUserNotificationCenter.current().delegate = self }
+        if !Ephemeral.on { UNUserNotificationCenter.current().delegate = self }
     }
 
     /// Asked the first time a run starts — the moment the permission makes sense to the user.
     func askOnce() {
-        guard !asked, !SelfTest.on else { return }
+        guard !asked, !Ephemeral.on else { return }
         asked = true
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 
     func post(_ e: [String: Any]) {
-        guard !SelfTest.on, let project = e["project"] as? String, let (title, body) = Notifier.text(e) else { return }
+        guard !Ephemeral.on, let project = e["project"] as? String, let (title, body) = Notifier.text(e) else { return }
         let c = UNMutableNotificationContent()
         c.title = "\(project) — \(title)"
         c.body = body
@@ -637,11 +672,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
 
     func applicationDidFinishLaunching(_ n: Notification) {
         // Sparkle: daily check of the appcast on GitHub Releases, EdDSA-verified, user-confirmed
-        updater = SPUStandardUpdaterController(startingUpdater: !SelfTest.on, updaterDelegate: self,
+        updater = SPUStandardUpdaterController(startingUpdater: !Ephemeral.on, updaterDelegate: self,
                                                userDriverDelegate: nil)
         buildMenu()
         web = WebController(engine: engine)
         web.onCheckUpdates = { [weak self] in self?.updater.checkForUpdates(nil) }
+        web.onLanguage = { [weak self] in
+            self?.buildMenu()
+            if SelfTest.on {                               // the menus really switched language
+                SelfTest.results["menus_\(L.lang)"] = NSApp.mainMenu?.items.map(\.title) ?? []
+            }
+        }
         notifier.onOpen = { [weak self] project in self?.open(project: project) }
         window = NSWindow(contentRect: initialFrame(), styleMask: [.titled, .closable, .miniaturizable, .resizable],
                           backing: .buffered, defer: false)
@@ -652,7 +693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, SPUUpdaterDelegate {
         window.minSize = NSSize(width: 900, height: 600)
         window.isReleasedWhenClosed = false
         window.contentView = web.view
-        window.setFrameAutosaveName("Main")
+        if !Ephemeral.on { window.setFrameAutosaveName("Main") }
         web.window = window
         web.showStatus(L.starting)
         window.makeKeyAndOrderFront(nil)

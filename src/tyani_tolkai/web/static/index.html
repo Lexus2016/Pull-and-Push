@@ -989,11 +989,14 @@ I18N.ru={
 };
 let LANG=(()=>{let s=null;try{s=localStorage.getItem('tt_lang');}catch(e){}
   if(s)return s;                                   // first visit → follow the browser's language
+  if(window.PP_LANG)return window.PP_LANG;         // …or the macOS app's saved choice (storage is per port)
   const nav=((navigator.languages&&navigator.languages[0])||navigator.language||'en').toLowerCase().slice(0,2);
   return nav==='uk'||nav==='ru'?nav:'en';})();
 function t(k,...args){let s=(I18N[LANG]&&I18N[LANG][k])??I18N.en[k]??k;args.forEach(a=>s=s.replace('%s',a));return s;}
 function applyLang(lang){
   LANG=I18N[lang]?lang:'en';try{localStorage.setItem('tt_lang',LANG);}catch(e){}
+  const pp=window.webkit&&window.webkit.messageHandlers&&window.webkit.messageHandlers.pp;
+  if(pp)pp.postMessage({cmd:'lang',lang:LANG}).catch(()=>{});   // the app's menus follow the dashboard
   document.documentElement.lang=LANG;const sel=$('lang');if(sel)sel.value=LANG;
   document.querySelectorAll('[data-i18n]').forEach(el=>el.innerHTML=t(el.getAttribute('data-i18n')));
   document.querySelectorAll('[data-i18n-ph]').forEach(el=>el.placeholder=t(el.getAttribute('data-i18n-ph')));

@@ -96,7 +96,7 @@ Karpathy's `autoresearch`, and the `consilium` adapter pattern.
 
 ### macOS app (Apple Silicon) — the easiest way
 
-Download **`Pull-and-Push-0.4.0-arm64.dmg`** from
+Download **`Pull-and-Push-0.4.1-arm64.dmg`** from
 [Releases](https://github.com/Lexus2016/Pull-and-Push/releases/latest), open it, drag
 **Pull-and-Push** into Applications and launch it. Python, the dependencies and the dashboard are
 inside; the app is signed and notarized by Apple. You only need Git (the app offers to install the
