@@ -18,8 +18,10 @@ the scorer; the loop is cheap to start and expensive to run on a bad judge.
 - CLI: `PP="/Users/admin/_Projects/Тяни-Толкай/.venv/bin/pull-and-push"` (install: `./start.sh --check`).
 - Projects: `~/.tyani-tolkai/projects/<name>/` (`artifact/` = the git repo being optimized,
   `metrics/` = the judge, `config.yaml`, `state.db`, `agent.log`). Saved kits: `~/.tyani-tolkai/research/`.
-- Dashboard: `./start.sh` → http://127.0.0.1:8765 (humans watch here; it also has a wizard
-  "🧪 Research from an idea" that produces the same kit format).
+- Dashboard: the macOS app (Pull-and-Push.app) or `./start.sh` — humans watch here; it also has a
+  wizard "🧪 Research from an idea" that produces the same kit format. Its address and token are
+  in `~/.tyani-tolkai/dashboard.json` (0600) while it runs: the app picks the port and a random
+  token, `$PP research start` reads the file by itself.
 - Worked example: `examples/research/fast-primes/` (speed with correctness/rules as constraints).
 - Design: `docs/design/p8-research-kits.md`. Kit format: `docs/research-kits.md`.
 
@@ -64,17 +66,18 @@ candidate is never kept, whatever its score.
 6. **Create:** `$PP research create <dir> [--name <name>]`. First run small: `max_iterations` 3–5,
    `budget_usd` set with `usd_per_mtok`, executor and validator from different providers
    (claude / codex; opencode also works; agy is unreliable).
-7. **Start:** if the dashboard answers (`curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8765/api/projects`
-   → 200), `$PP research start <name>` — it runs inside the dashboard. Otherwise
-   `$PP research start <name> --foreground` with Bash `run_in_background: true`. Either way the
+7. **Start:** `$PP research start <name>` — it runs inside the dashboard when one is up (found via
+   `dashboard.json`); it prints "no dashboard … running in the foreground" otherwise, so launch it
+   with Bash `run_in_background: true`, or use `--foreground` explicitly. Either way the
    human can open the dashboard and watch (a command-line run is followed through its DB) and press
    **Stop** (it ends after the current iteration); Force Stop only works for dashboard runs.
 8. **Watch, don't hover:** one iteration takes minutes. Use a Monitor poll loop (20–30 s) that
    emits one line per new iteration and exits when `status` ≠ running — run the JSON parsing with
    `/Users/admin/_Projects/Тяни-Толкай/.venv/bin/python` (a bare `python3` may be missing in the
    monitor's shell, which silently ends the watch). Stop early if every iteration fails with the
-   same evaluation error (fix the kit): `touch ~/.tyani-tolkai/projects/<name>/stop.request`, or
-   `curl -X POST http://127.0.0.1:8765/api/projects/<name>/stop`. `agent.log` shows what the
+   same evaluation error (fix the kit): `touch ~/.tyani-tolkai/projects/<name>/stop.request` (a
+   command-line run), or POST `<url>/api/projects/<name>/stop?token=<token>` with the url/token from
+   `dashboard.json` (a dashboard run). `agent.log` shows what the
    executor did.
 9. **Verify before you believe:** `$PP report <name>` (seed → first kept → best → target per metric, kept steps,
    seed → best diff). Read the diff looking for gaming; re-run the scorer on the best artifact

@@ -9,6 +9,7 @@ a `git bundle`). ZIP so it opens with a double-click on any OS.
 from __future__ import annotations
 
 import io
+import json
 import os
 import re
 import shutil
@@ -60,6 +61,10 @@ def cli_run_alive(base: Path) -> bool:
         pid = int((Path(base) / RUN_MARKER).read_text(encoding="utf-8").strip())
     except (OSError, ValueError):
         return False
+    return pid_alive(pid)
+
+
+def pid_alive(pid: int) -> bool:
     if os.name == "nt":
         return _win_pid_alive(pid)
     try:
@@ -84,6 +89,39 @@ def _win_pid_alive(pid: int) -> bool:
         return bool(k32.GetExitCodeProcess(handle, ctypes.byref(code))) and code.value == 259
     finally:
         k32.CloseHandle(handle)
+
+
+DASHBOARD_MARKER = "dashboard.json"   # {url, token, pid} of the running dashboard (terminal or app)
+
+
+def write_dashboard_marker(url: str, token: str | None) -> Path:
+    """Tell CLI commands (`research start`) where the dashboard runs and its token — the macOS app
+    picks a free port and a random token per launch. Owner-only (0600): it holds the token."""
+    f = home_root() / DASHBOARD_MARKER
+    f.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(f, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as fh:
+        json.dump({"url": url, "token": token, "pid": os.getpid()}, fh)
+    return f
+
+
+def read_dashboard_marker() -> dict | None:
+    """The live dashboard's {url, token, pid}, or None (no marker, or its process is gone)."""
+    try:
+        d = json.loads((home_root() / DASHBOARD_MARKER).read_text(encoding="utf-8"))
+        return d if isinstance(d, dict) and d.get("url") and pid_alive(int(d["pid"])) else None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def clear_dashboard_marker() -> None:
+    """Remove the marker on exit — only if it is still ours (a newer dashboard may have taken it)."""
+    f = home_root() / DASHBOARD_MARKER
+    try:
+        if json.loads(f.read_text(encoding="utf-8")).get("pid") == os.getpid():
+            f.unlink()
+    except (OSError, ValueError, AttributeError):
+        pass
 
 
 def list_projects() -> list[str]:

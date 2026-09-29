@@ -8,6 +8,7 @@ TYANI_TOLKAI_WEB_PASSWORD env) protects the API when set.
 
 from __future__ import annotations
 
+import contextlib
 import hmac
 import json
 import logging
@@ -16,19 +17,21 @@ import shutil
 import tempfile
 import threading
 from pathlib import Path
+from urllib.parse import urlsplit
 
 log = logging.getLogger("pull_and_push")   # operational events; configured by the CLI's basicConfig
 
 import yaml
 from fastapi import Body, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.background import BackgroundTask
 
 from ..config import Config, load_config
 from ..metrics import get_metric_adapter
 from ..orchestrator import Orchestrator
 from ..projects import (
-    cli_run_alive, delete_project, export_project, fork_project, list_projects, project_dir,
+    cli_run_alive, delete_project, export_project, fork_project, home_root, list_projects, project_dir,
     rename_project, reset_project, valid_name,
 )
 from ..registry import build_adapter
@@ -129,6 +132,14 @@ class RunManager:
         orch.force_kill()          # outside the lock: SIGKILLs the agent's process group
         return True
 
+    def shutdown(self) -> None:
+        """The server is going away: kill every live agent. Agents run in their own process
+        groups (for Force-Stop), so they would otherwise outlive the server and keep spending."""
+        with self._lock:
+            names = list(self._runs)
+        for name in names:
+            self.force_stop(name)
+
     def snapshot(self, name: str, since: int | None = None, epoch: int | None = None) -> dict | None:
         """The live view of a run. With ``since`` + the ``epoch`` the client last saw, only the
         outcomes after iteration ``since`` are returned (``delta``: true) — the UI polls every
@@ -148,6 +159,11 @@ class RunManager:
                     "baseline": dict(r.get("baseline") or {}), "cost": r.get("cost", 0.0),
                     "best": r.get("best"),   # scale-correct bar from the DB (not max over mixed scales)
                     "checkpoint": r.get("checkpoint")}
+
+    def active(self) -> list[str]:
+        """Projects whose loop runs in this server right now (agents may be spending)."""
+        with self._lock:
+            return sorted(n for n, r in self._runs.items() if r.get("status") == "running")
 
     def is_running(self, name: str) -> bool:
         with self._lock:
@@ -401,10 +417,51 @@ def _persisted_state(name: str) -> dict:
         state.close()
 
 
-def create_app(token: str | None = None) -> FastAPI:
-    app = FastAPI(title="Pull-and-Push")
+LOOPBACK_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
+
+
+def _hostname(host: str) -> str:
+    """'127.0.0.1:8765' → '127.0.0.1', '[::1]:8765' → '::1' (the Host header, lower-cased)."""
+    h = host.strip().lower()
+    if h.startswith("["):
+        return h[1:h.find("]")] if "]" in h else h[1:]
+    return h.rsplit(":", 1)[0] if h.count(":") == 1 else h
+
+
+def create_app(token: str | None = None, allowed_hosts: frozenset[str] | None = None) -> FastAPI:
+    """``allowed_hosts``: Host header names to accept (None = any). A dashboard bound to loopback
+    passes LOOPBACK_HOSTS, which blocks DNS rebinding (a web page whose domain resolves to
+    127.0.0.1 would otherwise be same-origin with the API)."""
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app: FastAPI):
+        yield
+        # graceful shutdown (SIGTERM / SIGINT / the app's parent pipe). Cleanup lives here, not in
+        # a `finally` around the server: uvicorn re-raises the signal once it has stopped.
+        app.state.runs.shutdown()
+        for hook in app.state.shutdown_hooks:
+            hook()
+
+    app = FastAPI(title="Pull-and-Push", lifespan=lifespan)
     app.state.token = token if token is not None else os.environ.get("TYANI_TOLKAI_WEB_PASSWORD")
     app.state.runs = RunManager()
+    app.state.shutdown_hooks = []
+
+    @app.middleware("http")
+    async def same_origin_only(request, call_next):
+        # The API runs agents that spend money and scorers that execute code. A browser sends
+        # cross-site "simple" POSTs (no body, form or text/plain — e.g. /run) without asking,
+        # so any web page could trigger them; it always sends an Origin header with them, though.
+        # CLI clients (urllib, curl) send none and pass.
+        host = request.headers.get("host", "")
+        if allowed_hosts is not None and _hostname(host) not in allowed_hosts:
+            return JSONResponse(status_code=403, content={"detail": f"host {host!r} refused"})
+        origin = request.headers.get("origin")
+        if (request.method not in ("GET", "HEAD", "OPTIONS") and origin is not None
+                and urlsplit(origin).netloc.lower() != host.strip().lower()):
+            return JSONResponse(status_code=403,
+                                content={"detail": f"cross-origin request from {origin!r} refused"})
+        return await call_next(request)
 
     # On startup, no background run can be alive yet — any DB run still marked 'running'
     # is an orphan from a previous process (e.g. the server was restarted mid-run). Heal it
@@ -434,6 +491,8 @@ def create_app(token: str | None = None) -> FastAPI:
         if app.state.runs.is_running(name) or cli_run_alive(project_dir(name)):
             raise HTTPException(409, "a run is in progress; stop it first")
 
+    app.mount("/static", StaticFiles(directory=STATIC), name="static")   # vendored libs + fonts
+
     @app.get("/")
     def index():
         # never cache the SPA shell, so UI updates show up without a hard refresh
@@ -459,6 +518,12 @@ def create_app(token: str | None = None) -> FastAPI:
                     pass
             items.append({"name": n, "status": st})
         return {"projects": [i["name"] for i in items], "items": items}
+
+    @app.get("/api/runs/active")
+    def api_runs_active(token: str | None = Query(None)):
+        """Runs this server is executing — the macOS app asks before Quit and badges its Dock icon."""
+        auth(token)
+        return {"active": app.state.runs.active()}
 
     @app.get("/api/projects/{name}")
     def api_project(name: str, token: str | None = Query(None)):
@@ -622,8 +687,12 @@ def create_app(token: str | None = None) -> FastAPI:
         auth(token)
         import tyani_tolkai.arena.cegis  # noqa: F401  (registers the cegis referee)
         from ..arena.referee import list_referees
+        engines = ["claude", "codex", "opencode", "agy"]
         return {
-            "engines": ["claude", "codex", "opencode", "agy"],
+            "engines": engines,
+            # on PATH? An app started from Finder sees only the PATH it was given — tell the UI
+            "installed": {e: shutil.which(e) is not None for e in engines},
+            "home": str(home_root()),              # the app's "Show in Finder" builds paths from it
             "adapters": ["numeric", "command-exit", "pytest-pass"],
             "seeds": ["empty", "copy"],
             "modes": ["asymmetric", "symmetric"],

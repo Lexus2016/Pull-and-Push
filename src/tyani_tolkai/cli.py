@@ -435,8 +435,60 @@ def cmd_check_adapter(args) -> int:
     return 0 if v["ok"] else 3
 
 
+def _web_socket(host: str, port: str):
+    """A bound listening socket, handed to uvicorn as is — probing a port and binding it later
+    races with anything else starting up. ``auto``: 8765 when free (the address CLI commands try
+    first), else any free port."""
+    import socket
+    fam = socket.AF_INET6 if ":" in host else socket.AF_INET
+    for want in ((8765, 0) if port == "auto" else (int(port),)):
+        s = socket.socket(fam, socket.SOCK_STREAM)
+        try:
+            if os.name != "nt":      # on Windows it lets a second socket take a port in use
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.bind((host, want))
+            s.listen(128)
+            return s
+        except OSError:
+            s.close()
+            if port != "auto" or want == 0:
+                raise
+    raise OSError(f"no free port on {host}")
+
+
+def _exit_when_stdin_closes() -> None:
+    """--parent-pipe: the macOS app keeps our stdin open for its lifetime. EOF = the app is gone
+    (quit, crash, force-quit): shut down like on SIGTERM, which also kills live agents — they run
+    in their own process groups and would otherwise outlive both of us, still spending."""
+    import signal
+    import threading
+
+    def watch():
+        try:
+            while sys.stdin.buffer.read(4096):
+                pass
+        except (OSError, ValueError):
+            pass
+        os.kill(os.getpid(), signal.SIGTERM)
+    threading.Thread(target=watch, name="parent-pipe", daemon=True).start()
+
+
+def _dashboard_answers(live: dict) -> bool:
+    """Is the dashboard named by a marker really up (not just a reused PID)?"""
+    import urllib.parse
+    import urllib.request
+    q = f"?token={urllib.parse.quote(live['token'])}" if live.get("token") else ""
+    try:
+        with urllib.request.urlopen(f"{live['url']}/api/meta{q}", timeout=2) as r:
+            return r.status == 200
+    except OSError:
+        return False
+
+
 def cmd_web(args) -> int:
-    from .web.server import create_app
+    from .projects import (clear_dashboard_marker, home_root, read_dashboard_marker,
+                           write_dashboard_marker)
+    from .web.server import LOOPBACK_HOSTS, create_app
     import logging
     import uvicorn
 
@@ -444,12 +496,33 @@ def cmd_web(args) -> int:
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     token = args.password or os.environ.get("TYANI_TOLKAI_WEB_PASSWORD")
-    app = create_app(token)
-    url = f"http://{args.host}:{args.port}/" + (f"?token={token}" if token else "")
-    print(f"▶ WebUI ready: {url}")
+    live = read_dashboard_marker()
+    if live and live.get("pid") != os.getpid() and _dashboard_answers(live):
+        # one dashboard per data dir: a second one would mark the first one's live runs "stopped"
+        # at startup and could start the same project twice (two loops on one git repo)
+        print(f"✖ a dashboard for {home_root()} is already running: {live['url']} "
+              f"(pid {live['pid']}) — open that one, or stop it first", file=sys.stderr)
+        return 3
+    sock = _web_socket(args.host, str(args.port))
+    port = sock.getsockname()[1]
+    loopback = args.host in LOOPBACK_HOSTS
+    app = create_app(token, allowed_hosts=LOOPBACK_HOSTS if loopback else None)
+    app.state.shutdown_hooks.append(clear_dashboard_marker)
+    shown = f"[{args.host}]" if ":" in args.host else args.host
+    url = f"http://{shown}:{port}/" + (f"?token={token}" if token else "")
+    local = url if loopback else f"http://127.0.0.1:{port}/"
+    write_dashboard_marker(local.split("?")[0].rstrip("/"), token)   # for `research start`
+    print(f"▶ WebUI ready: {url}", flush=True)                       # the macOS app reads this line
     if not token:
         print("  (no password set — open locally; set TYANI_TOLKAI_WEB_PASSWORD to protect)")
-    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    if args.parent_pipe:
+        _exit_when_stdin_closes()
+    # no access log: every request carries ?token= in its URL
+    server = uvicorn.Server(uvicorn.Config(app, log_level="warning", access_log=False))
+    try:
+        server.run(sockets=[sock])
+    finally:
+        clear_dashboard_marker()
     return 0
 
 
@@ -474,17 +547,21 @@ def cmd_research(args) -> int:
         elif a == "start":
             name = args.target
             if not args.foreground:
-                token = args.token or os.environ.get("TYANI_TOLKAI_WEB_PASSWORD")
+                from .projects import read_dashboard_marker
+                live = read_dashboard_marker() or {}           # the running dashboard / macOS app
+                url = args.url or live.get("url") or "http://127.0.0.1:8765"
+                token = (args.token or os.environ.get("TYANI_TOLKAI_WEB_PASSWORD")
+                         or (live.get("token") if url == live.get("url") else None))
                 try:
-                    rs.start_via_dashboard(name, args.url, token)
-                    print(f"✔ started in the dashboard ({args.url}) — watch it there; "
+                    rs.start_via_dashboard(name, url, token)
+                    print(f"✔ started in the dashboard ({url}) — watch it there; "
                           f"poll with: pull-and-push status {name}")
                     return 0
                 except OSError as e:                      # URLError / HTTPError / refused
                     if getattr(e, "code", None) is not None:   # the dashboard answered with an error
                         print(f"✖ dashboard refused: {e}", file=sys.stderr)
                         return 1
-                    print(f"· no dashboard at {args.url} — running in the foreground")
+                    print(f"· no dashboard at {url} — running in the foreground")
             return cmd_run(argparse.Namespace(config=str(project_dir(name) / "config.yaml"),
                                               resume=True))
         elif a == "save":
@@ -539,7 +616,9 @@ def main(argv=None) -> int:
 
     pw = sub.add_parser("web", help="launch the WebUI dashboard")
     pw.add_argument("--host", default="127.0.0.1")
-    pw.add_argument("--port", type=int, default=8765)
+    pw.add_argument("--port", default="8765", help="a port, or 'auto' (8765 if free, else any)")
+    pw.add_argument("--parent-pipe", action="store_true",
+                    help="exit when stdin closes (the macOS app holds it open for its lifetime)")
     pw.add_argument("--password", default=None, help="protect the UI (else open locally)")
     pw.set_defaults(func=cmd_web)
 
@@ -624,7 +703,8 @@ def main(argv=None) -> int:
                      help="save: seed the new kit with the project's best result or its original seed")
     prs.add_argument("--no-check", action="store_true", help="create: skip the pre-flight (not advised)")
     prs.add_argument("--json", action="store_true", help="check: machine-readable report")
-    prs.add_argument("--url", default="http://127.0.0.1:8765", help="start: the dashboard to run it in")
+    prs.add_argument("--url", default=None, help="start: the dashboard to run it in (default: the "
+                                                 "running dashboard or app, else 127.0.0.1:8765)")
     prs.add_argument("--token", default=None, help="start: dashboard token (default: env password)")
     prs.add_argument("--foreground", action="store_true", help="start: run here, not in the dashboard")
     prs.set_defaults(func=cmd_research)
