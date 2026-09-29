@@ -540,7 +540,7 @@ pull-and-push url --open                                   # the running dashboa
 
 ## Tests
 
-The full suite passes (the Docker tests skip without a daemon), run on Python 3.10 & 3.12 in CI — unit (scorer, config, state, metrics, brief, registry, sandbox),
+The full suite passes (the Docker tests skip without a daemon), run on Python 3.10 & 3.12 in CI (Linux and Windows; on macOS before every release, `macos/release.sh`) — unit (scorer, config, state, metrics, brief, registry, sandbox),
 integration (orchestrator with mock + validator, baseline zero-point, force-stop, missing-
 metric handling), CLI adapter (incl. headless flags + kill), projects round-trip (zip),
 WebUI endpoints (incl. force-stop, agent-log, webhook, auth, settings), a golden run proving

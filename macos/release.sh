@@ -42,6 +42,14 @@ if [ "${PP_SKIP_CI:-}" != 1 ]; then
   [ "$ci" = success ] || die "CI for HEAD is '$ci' — wait for it (or PP_SKIP_CI=1)"
 fi
 
+# CI covers Linux and Windows; macOS is checked here, on the Mac that builds the app
+step "tests and start.sh --check on this Mac"
+PY="${PP_TEST_PYTHON:-.venv/bin/python}"
+[ -x "$PY" ] || die "no $PY — run ./start.sh --check once (or set PP_TEST_PYTHON)"
+out="$("$PY" -m pytest -q -p no:warnings 2>&1)" || { printf '%s\n' "$out" | tail -25; die "tests fail on this Mac"; }
+./start.sh --check >/dev/null 2>&1 || die "./start.sh --check fails on this Mac"
+[ -z "$(git status --porcelain)" ] || die "the checks left the working tree dirty"
+
 step "build, sign, notarize"
 macos/build.sh
 

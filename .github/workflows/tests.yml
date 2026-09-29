@@ -12,7 +12,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]   # prove install + operation on all three
+        # macOS: the suite and start.sh --check run on the release Mac (macos/release.sh) — macOS
+        # runners queued for hours here while the app is built and tested locally anyway
+        os: [ubuntu-latest, windows-latest]
         python-version: ["3.12"]
         include:
           - os: ubuntu-latest
@@ -74,7 +76,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest]    # macOS: macos/release.sh runs it on the release Mac
     steps:
       - uses: actions/checkout@v4
       - name: start.sh --check (POSIX)
